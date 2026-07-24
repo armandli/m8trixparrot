@@ -75,6 +75,16 @@ int main(int argc, char** argv) {
   input_option.placeholder = "Type a message, Enter to send, /quit to exit";
   input_option.multiline = false;  // Enter submits instead of inserting "\n".
   input_option.on_enter = send_message;
+  // The default transform inverts colors on focus, which would flip this
+  // back to black-on-white since the input stays focused for the app's
+  // whole lifetime (it's the only focusable component).
+  input_option.transform = [](InputState state) {
+    Element element = std::move(state.element);
+    if (state.is_placeholder) {
+      element |= dim;
+    }
+    return element | color(Color::White) | bgcolor(Color::Black);
+  };
   auto input = Input(input_option);
 
   auto root = Renderer(input, [&] {
@@ -99,7 +109,7 @@ int main(int argc, char** argv) {
                separator(),
                vbox(lines) | flex,
                separator(),
-               input->Render() | border,
+               input->Render() | color(Color::White) | bgcolor(Color::Black) | border,
            }) |
            border;
   });
