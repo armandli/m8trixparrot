@@ -5,7 +5,11 @@
 #include <ftxui/dom/elements.hpp>
 
 #include <algorithm>
+#include <cstdio>
+#include <fstream>
+#include <iostream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -21,10 +25,60 @@ struct DisplayMessage {
   std::string content;
 };
 
+// Runs `ollama list` and returns the model names in its NAME column.
+// On failure to launch/read/reap the process, sets `command_ok` to false.
+std::vector<std::string> ListOllamaModels(bool& command_ok) {
+  std::vector<std::string> models;
+  FILE* pipe = popen("ollama list 2>/dev/null", "r");
+  if (pipe == nullptr) {
+    command_ok = false;
+    return models;
+  }
+
+  std::string output;
+  char buffer[4096];
+  size_t n;
+  while ((n = fread(buffer, 1, sizeof(buffer), pipe)) > 0) {
+    output.append(buffer, n);
+  }
+  command_ok = (pclose(pipe) == 0);
+
+  std::istringstream stream(output);
+  std::string line;
+  bool is_header = true;
+  while (std::getline(stream, line)) {
+    if (is_header) {
+      is_header = false;
+      continue;
+    }
+    std::istringstream line_stream(line);
+    std::string name;
+    if (line_stream >> name) {
+      models.push_back(name);
+    }
+  }
+  return models;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  const std::string model = argc > 1 ? argv[1] : "gemma4";
+  const std::string model = argc > 1 ? argv[1] : "ornith:35b";
+  const std::string history_file = argc > 2 ? argv[2] : "";
+
+  bool list_command_ok = true;
+  const std::vector<std::string> available_models = ListOllamaModels(list_command_ok);
+  if (!list_command_ok) {
+    std::cerr << "error: failed to run 'ollama list' to verify model availability\n"
+                  "(is the ollama CLI installed and on PATH?)\n";
+    return 1;
+  }
+  if (std::find(available_models.begin(), available_models.end(), model) ==
+      available_models.end()) {
+    std::cerr << "error: model '" << model
+              << "' is not available. Run 'ollama list' to see available models.\n";
+    return 1;
+  }
 
   agent::OllamaClient client;
 
@@ -228,5 +282,17 @@ int main(int argc, char** argv) {
   });
 
   screen.Loop(root);
+
+  if (!history_file.empty()) {
+    std::ofstream out(history_file, std::ios::trunc);
+    if (out) {
+      std::lock_guard<std::mutex> lock(mutex);
+      for (const auto& message : history) {
+        out << (message.role == "user" ? "you: " : "bot: ")
+            << message.content << "\n\n";
+      }
+    }
+  }
+
   return 0;
 }

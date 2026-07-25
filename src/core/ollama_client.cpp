@@ -57,7 +57,7 @@ ChatResult OllamaClient::Chat(const std::string& model,
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3600L);
 
   const CURLcode code = curl_easy_perform(curl);
   curl_slist_free_all(headers);
