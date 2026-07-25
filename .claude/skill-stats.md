@@ -2,5 +2,5 @@
 
 | Skill Name | Uses | Issues |
 |---|---|---|
-| pull | 1 | 0 |
+| pull | 2 | 0 |
 
