@@ -1,11 +1,6 @@
-#include <ftxui/component/app.hpp>
-#include <ftxui/component/component.hpp>
-#include <ftxui/component/component_options.hpp>
-#include <ftxui/component/event.hpp>
-#include <ftxui/dom/elements.hpp>
+#include <cstdio>
 
 #include <algorithm>
-#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -14,9 +9,15 @@
 #include <thread>
 #include <vector>
 
-#include "core/ollama_client.hpp"
+#include <ftxui/component/app.hpp>
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/component_options.hpp>
+#include <ftxui/component/event.hpp>
+#include <ftxui/dom/elements.hpp>
 
-using namespace ftxui;
+#include <core/ollama_client.hpp>
+
+namespace f = ftxui;
 
 namespace {
 
@@ -27,7 +28,7 @@ struct DisplayMessage {
 
 // Runs `ollama list` and returns the model names in its NAME column.
 // On failure to launch/read/reap the process, sets `command_ok` to false.
-std::vector<std::string> ListOllamaModels(bool& command_ok) {
+std::vector<std::string> list_ollama_models(bool& command_ok) {
   std::vector<std::string> models;
   FILE* pipe = popen("ollama list 2>/dev/null", "r");
   if (pipe == nullptr) {
@@ -67,8 +68,9 @@ int main(int argc, char** argv) {
   const std::string history_file = argc > 2 ? argv[2] : "";
 
   bool list_command_ok = true;
-  const std::vector<std::string> available_models = ListOllamaModels(list_command_ok);
-  if (!list_command_ok) {
+  const std::vector<std::string> available_models =
+      list_ollama_models(list_command_ok);
+  if (not list_command_ok) {
     std::cerr << "error: failed to run 'ollama list' to verify model availability\n"
                   "(is the ollama CLI installed and on PATH?)\n";
     return 1;
@@ -98,7 +100,7 @@ int main(int argc, char** argv) {
   size_t history_index = 0;  // == input_history.size() means "viewing the live draft".
   std::string history_draft;  // Saved in-progress text while browsing history.
 
-  auto screen = App::TerminalOutput();
+  auto screen = f::App::TerminalOutput();
 
   auto send_message = [&] {
     if (input_value.empty()) {
@@ -130,7 +132,7 @@ int main(int argc, char** argv) {
 
     std::thread([&client, &mutex, &history, &waiting_for_reply, &scroll_y,
                  &screen, model, outgoing = std::move(outgoing)] {
-      const agent::ChatResult result = client.Chat(model, outgoing);
+      const agent::ChatResult result = client.chat(model, outgoing);
 
       std::lock_guard<std::mutex> lock(mutex);
       if (result.ok) {
@@ -140,7 +142,7 @@ int main(int argc, char** argv) {
       }
       waiting_for_reply = false;
       scroll_y = 1.0f;
-      screen.PostEvent(Event::Custom);
+      screen.PostEvent(f::Event::Custom);
     }).detach();
   };
 
@@ -175,7 +177,7 @@ int main(int argc, char** argv) {
     input_cursor = static_cast<int>(input_value.size());
   };
 
-  InputOption input_option;
+  f::InputOption input_option;
   input_option.content = &input_value;
   input_option.cursor_position = &input_cursor;
   input_option.placeholder =
@@ -184,95 +186,99 @@ int main(int argc, char** argv) {
   // The default transform inverts colors on focus, which would flip this
   // back to black-on-white since the input stays focused for the app's
   // whole lifetime (it's the only focusable component).
-  input_option.transform = [](InputState state) {
-    Element element = std::move(state.element);
+  input_option.transform = [](f::InputState state) {
+    f::Element element = std::move(state.element);
     if (state.is_placeholder) {
-      element |= dim;
+      element |= f::dim;
     }
-    return element | color(Color::White) | bgcolor(Color::Black);
+    return element | f::color(f::Color::White) | f::bgcolor(f::Color::Black);
   };
-  auto input = Input(input_option);
+  auto input = f::Input(input_option);
 
-  auto root = Renderer(input, [&] {
-    std::vector<Element> lines;
+  auto root = f::Renderer(input, [&] {
+    std::vector<f::Element> lines;
     float current_scroll_y;
     {
       std::lock_guard<std::mutex> lock(mutex);
       for (const auto& message : history) {
         const bool is_user = message.role == "user";
-        lines.push_back(hbox({
-            text(is_user ? "you: " : "bot: ") | bold |
-                color(is_user ? Color::Cyan : Color::Green),
-            paragraph(message.content),
+        lines.push_back(f::hbox({
+            f::text(is_user ? "you: " : "bot: ") | f::bold |
+                f::color(is_user ? f::Color::Cyan : f::Color::Green),
+            f::paragraph(message.content),
         }));
       }
       if (waiting_for_reply) {
-        lines.push_back(text("bot is thinking...") | dim);
+        lines.push_back(f::text("bot is thinking...") | f::dim);
       }
       current_scroll_y = scroll_y;
     }
 
-    return vbox({
-               text("m8trixparrot chat  |  model: " + model) | bold | center,
-               separator(),
-               vbox(lines) | focusPositionRelative(0.f, current_scroll_y) |
-                   vscroll_indicator | yframe | flex,
-               separator(),
-               input->Render() | color(Color::White) | bgcolor(Color::Black) | border,
+    return f::vbox({
+               f::text("m8trixparrot chat  |  model: " + model) | f::bold |
+                   f::center,
+               f::separator(),
+               f::vbox(lines) |
+                   f::focusPositionRelative(0.f, current_scroll_y) |
+                   f::vscroll_indicator | f::yframe | f::flex,
+               f::separator(),
+               input->Render() | f::color(f::Color::White) |
+                   f::bgcolor(f::Color::Black) | f::border,
            }) |
-           border;
+           f::border;
   });
 
-  root = CatchEvent(root, [&](Event event) {
+  root = f::CatchEvent(root, [&](f::Event event) {
     constexpr float kWheelStep = 0.1f;
     constexpr float kPageStep = 0.3f;
-    static const Event kAltEnterCR = Event::Special("\x1b\r");
-    static const Event kAltEnterLF = Event::Special("\x1b\n");
-    static const Event kShiftEnterCsiU = Event::Special("\x1b[13;2u");
-    static const Event kShiftEnterLegacy = Event::Special("\x1b[27;2;13~");
+    static const f::Event kAltEnterCR = f::Event::Special("\x1b\r");
+    static const f::Event kAltEnterLF = f::Event::Special("\x1b\n");
+    static const f::Event kShiftEnterCsiU = f::Event::Special("\x1b[13;2u");
+    static const f::Event kShiftEnterLegacy =
+        f::Event::Special("\x1b[27;2;13~");
 
-    if (event == Event::PageUp) {
+    if (event == f::Event::PageUp) {
       std::lock_guard<std::mutex> lock(mutex);
       scroll_y = std::clamp(scroll_y - kPageStep, 0.f, 1.f);
       return true;
     }
-    if (event == Event::PageDown) {
+    if (event == f::Event::PageDown) {
       std::lock_guard<std::mutex> lock(mutex);
       scroll_y = std::clamp(scroll_y + kPageStep, 0.f, 1.f);
       return true;
     }
     if (event.is_mouse()) {
-      if (event.mouse().button == Mouse::WheelUp) {
+      if (event.mouse().button == f::Mouse::WheelUp) {
         std::lock_guard<std::mutex> lock(mutex);
         scroll_y = std::clamp(scroll_y - kWheelStep, 0.f, 1.f);
         return true;
       }
-      if (event.mouse().button == Mouse::WheelDown) {
+      if (event.mouse().button == f::Mouse::WheelDown) {
         std::lock_guard<std::mutex> lock(mutex);
         scroll_y = std::clamp(scroll_y + kWheelStep, 0.f, 1.f);
         return true;
       }
     }
 
-    if (event == Event::Return) {
+    if (event == f::Event::Return) {
       send_message();
       return true;
     }
-    if (event == kAltEnterCR || event == kAltEnterLF ||
-        event == kShiftEnterCsiU || event == kShiftEnterLegacy) {
+    if (event == kAltEnterCR or event == kAltEnterLF or
+        event == kShiftEnterCsiU or event == kShiftEnterLegacy) {
       input_value.insert(static_cast<size_t>(input_cursor), "\n");
       input_cursor += 1;
       return true;
     }
-    if (event == Event::ArrowUp) {
-      if (!cursor_on_first_line()) {
+    if (event == f::Event::ArrowUp) {
+      if (not cursor_on_first_line()) {
         return false;  // Let Input move the cursor up within the draft.
       }
       recall_previous();
       return true;
     }
-    if (event == Event::ArrowDown) {
-      if (!cursor_on_last_line()) {
+    if (event == f::Event::ArrowDown) {
+      if (not cursor_on_last_line()) {
         return false;  // Let Input move the cursor down within the draft.
       }
       recall_next();
@@ -283,7 +289,7 @@ int main(int argc, char** argv) {
 
   screen.Loop(root);
 
-  if (!history_file.empty()) {
+  if (not history_file.empty()) {
     std::ofstream out(history_file, std::ios::trunc);
     if (out) {
       std::lock_guard<std::mutex> lock(mutex);
