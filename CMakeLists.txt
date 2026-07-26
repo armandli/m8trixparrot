@@ -25,6 +25,9 @@ include(FetchContent)
 
 find_package(CURL REQUIRED)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBGIT2 REQUIRED IMPORTED_TARGET libgit2)
+
 FetchContent_Declare(
   json
   URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
