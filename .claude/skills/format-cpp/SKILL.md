@@ -1,6 +1,6 @@
 ---
 name: format-cpp
-description: Formats C++ code according to 21 specific style rules covering whitespace, braces, preprocessor directives, namespaces, types, formatting, and semantic transformations. Use when user asks to "format my C++ code", "apply C++ style rules", "clean up this C++ file", or "run format-cpp on X". Run refactor-cpp before this skill. Do NOT use for explaining C++ code, debugging, or writing new C++ code from scratch.
+description: Formats C++ code according to 23 specific style rules covering whitespace, braces, preprocessor directives, namespaces, types, formatting, semantic transformations, and naming conventions. Use when user asks to "format my C++ code", "apply C++ style rules", "clean up this C++ file", or "run format-cpp on X". Run refactor-cpp before this skill. Do NOT use for explaining C++ code, debugging, or writing new C++ code from scratch.
 argument-hint: "[file or directory path]"
 ---
 
@@ -24,7 +24,7 @@ Rules D3, G1, and G3 require C++17 or later. If the project targets C++14 or ear
 
 ### Step 2: Format Each File
 
-Apply rule groups A through G in order. For each file:
+Apply rule groups A through H in order. For each file:
 
 1. Read the file completely
 2. Apply all applicable rules (see below)
@@ -152,6 +152,42 @@ Also convert local `const std::string` variables that are only read to `std::str
 - The function is an extern "C" interface
 
 Add `#include <optional>` if not already present.
+
+### Group H: Naming Conventions
+
+**H1 — Function names: `lower_snake_case`.** Free functions, member functions, and static methods start with a lowercase letter; words are separated by underscores:
+```cpp
+void this_is_a_function();   // yes
+void ParseInput();           // no
+void parseInput();           // no
+```
+**Exceptions — do NOT rename:**
+- Constructors and destructors (name is fixed to the class name by the language)
+- Operator overloads (`operator+`, `operator==`, etc.)
+
+**H2 — Class names: `UpperCamelCase`, abbreviated when too long.** `struct`, `class`, and `enum` names start with a capital letter; each subsequent word also starts with a capital letter, with no separator characters:
+```cpp
+struct ClassConcept {};   // yes
+struct HttpRequest {};    // yes
+struct http_request {};   // no
+struct httpRequest {};    // no
+```
+
+When the full name would exceed roughly 24 characters, shorten one or more of its constituent words to a well-known abbreviation instead of spelling every word out:
+- If the abbreviation cannot be pronounced as a word, write it in ALL CAPITALS: `URL`, `ID`, `DB`.
+- If the abbreviation can be pronounced as a word, treat it like any other word in the name — capitalize only its first letter: `JSON` → `Json`, `HTML` → `Html`.
+
+```cpp
+// too long (28 chars) — "UniformResourceLocator" -> "URL" (not pronounceable, all caps)
+struct UniformResourceLocatorParser {};   // before
+struct URLParser {};                      // after
+
+// too long (31 chars) — "JavaScriptObjectNotation" -> "JSON" (pronounceable, becomes a word)
+struct JavaScriptObjectNotationParser {}; // before
+struct JsonParser {};                     // after
+```
+
+Names at or under ~24 characters are left as-is even if they contain a word that has a common abbreviation.
 
 ---
 

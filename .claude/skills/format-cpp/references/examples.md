@@ -759,6 +759,73 @@ Widget* create_widget() {
 
 ---
 
+## Group H: Naming Conventions
+
+### H1 — Function names: `lower_snake_case`
+
+```cpp
+// BEFORE
+void ParseInput();
+int GetValue();
+void computeTotal();
+
+// AFTER
+void parse_input();
+int get_value();
+void compute_total();
+```
+
+**Exception — constructors, destructors, and operator overloads (NOT renamed):**
+```cpp
+// Keep as-is: name is fixed by the language
+struct Widget {
+  Widget();
+  ~Widget();
+  Widget operator+(const Widget& other) const;
+};
+```
+
+### H2 — Class names: `UpperCamelCase`, abbreviated when too long
+
+```cpp
+// BEFORE
+struct http_request {};
+struct jsonParser {};
+
+// AFTER
+struct HttpRequest {};
+struct JsonParser {};
+```
+
+**Abbreviation when the name exceeds ~24 characters:**
+```cpp
+// BEFORE — 28 characters, "UniformResourceLocator" abbreviates to "URL"
+// (not pronounceable as a word, so it stays all capitals)
+struct UniformResourceLocatorParser {};
+
+// AFTER
+struct URLParser {};
+```
+
+```cpp
+// BEFORE — 31 characters, "JavaScriptObjectNotation" abbreviates to "JSON"
+// (pronounceable as a word, so it's treated like any other word: only the
+// first letter is capitalized)
+struct JavaScriptObjectNotationParser {};
+
+// AFTER
+struct JsonParser {};
+```
+
+**Exception — short names are left as-is:**
+```cpp
+// Keep as-is: already under ~24 characters, even though "Identifier" has a
+// common abbreviation
+struct UserIdentifier {};
+```
+
+---
+
 ## Compound Example: Multiple Rules Interacting (C++17 project)
 
 ```cpp
