@@ -5,4 +5,5 @@ target_link_libraries(chat_tui
   PRIVATE ftxui::component
   PRIVATE ftxui::dom
   PRIVATE ftxui::screen
+  PRIVATE CLI11::CLI11
 )

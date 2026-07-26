@@ -9,6 +9,8 @@
 #include <thread>
 #include <vector>
 
+#include <CLI/CLI.hpp>
+
 #include <ftxui/component/app.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_options.hpp>
@@ -64,8 +66,17 @@ std::vector<std::string> list_ollama_models(bool& command_ok) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  const std::string model = argc > 1 ? argv[1] : "ornith:35b";
-  const std::string history_file = argc > 2 ? argv[2] : "";
+  CLI::App app{"m8trixparrot chat_tui - terminal chat client for Ollama"};
+
+  std::string model = "ornith:35b";
+  std::string history_file;
+
+  app.add_option("model,-m,--model", model, "Ollama model to chat with")
+      ->capture_default_str();
+  app.add_option("history_file,-o,--history", history_file,
+                 "Path to write the chat transcript to on exit");
+
+  CLI11_PARSE(app, argc, argv);
 
   bool list_command_ok = true;
   const std::vector<std::string> available_models =

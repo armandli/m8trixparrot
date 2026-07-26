@@ -40,8 +40,8 @@ Communication with Ollama happens over HTTP via libcurl
 ## Build
 
 Dependencies: a C++20 compiler, CMake, and `libcurl` (system-provided on
-macOS/Linux). FTXUI and nlohmann/json are fetched automatically by CMake
-via `FetchContent`.
+macOS/Linux). FTXUI, nlohmann/json, and CLI11 are fetched automatically by
+CMake via `FetchContent`.
 
 ```sh
 make build       # configure (if needed) + build everything into build/
@@ -63,7 +63,9 @@ Requires a running [Ollama](https://ollama.com) server with a pulled model:
 
 ```sh
 ollama pull llama3.2
-build/chat_tui llama3.2   # model name defaults to "llama3.2" if omitted
+build/chat_tui llama3.2                       # positional: model name
+build/chat_tui --model llama3.2 --history /tmp/chat.txt  # named flags
+build/chat_tui --help                         # list all options
 ```
 
 Type a message and press Enter to send it; type `/quit` to exit.
