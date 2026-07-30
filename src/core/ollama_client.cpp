@@ -3,7 +3,9 @@
 #include <sstream>
 
 #include <curl/curl.h>
-#include <nlohmann/json.hpp>
+#include <simdjson.h>
+
+#include <core/json_util.hpp>
 
 namespace agent {
 
@@ -68,6 +70,29 @@ GenerateOptions::ModelParams parse_model_params(const std::string& raw) {
   return params;
 }
 
+// Parses `body` and hands the top-level object to `extract`. simdjson's
+// On-Demand cursor, the document and the padded copy of the body all have to
+// outlive the field accesses, so they live here rather than at each call site.
+// Returns an error string; empty means success.
+template <typename Extract>
+std::string with_parsed_object(const std::string& body, Extract extract) {
+  try {
+    simdjson::ondemand::parser parser;
+    simdjson::padded_string padded(body);
+    simdjson::ondemand::document doc = parser.iterate(padded);
+
+    simdjson::ondemand::object obj;
+    if (auto error = doc.get_object().get(obj)) {
+      return std::string("failed to parse ollama response: ") +
+             simdjson::error_message(error);
+    }
+    extract(obj);
+    return std::string();
+  } catch (const std::exception& e) {
+    return std::string("failed to parse ollama response: ") + e.what();
+  }
+}
+
 // curl_global_init() must run once before any curl handle is used, and is
 // not itself thread-safe, so it happens here via a function-local static
 // (C++11 guarantees the initializer runs exactly once, safely).
@@ -86,27 +111,42 @@ ChatResult OllamaClient::chat(std::string_view model,
                                const std::vector<ChatMessage>& messages) const {
   ChatResult result;
 
-  nlohmann::json body;
-  body["model"] = model;
-  body["stream"] = false;
-  body["messages"] = nlohmann::json::array();
+  JsonWriter body;
+  body.begin_object();
+  body.field("model", model);
+  body.field("stream", false);
+  body.key("messages").begin_array();
   for (const auto& message : messages) {
-    body["messages"].push_back(
-        {{"role", message.role}, {"content", message.content}});
+    body.begin_object();
+    body.field("role", message.role);
+    body.field("content", message.content);
+    body.end_object();
   }
+  body.end_array();
+  body.end_object();
 
-  const HttpResult http = post_json("/api/chat", body.dump());
+  const HttpResult http = post_json("/api/chat", body.str());
   if (not http.ok) {
     result.error = http.error;
     return result;
   }
 
-  try {
-    const auto parsed = nlohmann::json::parse(http.body);
-    result.content = parsed.at("message").at("content").get<std::string>();
-    result.ok = true;
-  } catch (const std::exception& e) {
-    result.error = std::string("failed to parse ollama response: ") + e.what();
+  bool found_content = false;
+  result.error = with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
+    simdjson::ondemand::object message;
+    if (obj["message"].get_object().get(message)) return;
+    std::string_view content;
+    if (message["content"].get_string().get(content)) return;
+    result.content = std::string(content);
+    found_content = true;
+  });
+
+  if (result.error.empty()) {
+    if (found_content) {
+      result.ok = true;
+    } else {
+      result.error = "failed to parse ollama response: missing message.content";
+    }
   }
 
   return result;
@@ -128,18 +168,25 @@ GenerateOptions::ModelParams OllamaClient::merge_model_params(
   return params;
 }
 
-nlohmann::json OllamaClient::model_params_to_json(
+std::string OllamaClient::model_params_to_json(
     const GenerateOptions::ModelParams& params) {
-  nlohmann::json model_params;
-  if (params.seed) model_params["seed"] = *params.seed;
-  if (params.temperature) model_params["temperature"] = *params.temperature;
-  if (params.top_k) model_params["top_k"] = *params.top_k;
-  if (params.top_p) model_params["top_p"] = *params.top_p;
-  if (params.min_p) model_params["min_p"] = *params.min_p;
-  if (not params.stop.empty()) model_params["stop"] = params.stop;
-  if (params.num_ctx) model_params["num_ctx"] = *params.num_ctx;
-  if (params.num_predict) model_params["num_predict"] = *params.num_predict;
-  return model_params;
+  const bool any = params.seed or params.temperature or params.top_k or
+                   params.top_p or params.min_p or not params.stop.empty() or
+                   params.num_ctx or params.num_predict;
+  if (not any) return std::string();
+
+  JsonWriter model_params;
+  model_params.begin_object();
+  if (params.seed) model_params.field("seed", *params.seed);
+  if (params.temperature) model_params.field("temperature", *params.temperature);
+  if (params.top_k) model_params.field("top_k", *params.top_k);
+  if (params.top_p) model_params.field("top_p", *params.top_p);
+  if (params.min_p) model_params.field("min_p", *params.min_p);
+  if (not params.stop.empty()) model_params.field("stop", params.stop);
+  if (params.num_ctx) model_params.field("num_ctx", *params.num_ctx);
+  if (params.num_predict) model_params.field("num_predict", *params.num_predict);
+  model_params.end_object();
+  return model_params.str();
 }
 
 GenerateResult OllamaClient::generate(std::string_view model,
@@ -148,38 +195,50 @@ GenerateResult OllamaClient::generate(std::string_view model,
                                        const std::optional<GenerateOptions::ModelParams>& default_params) const {
   GenerateResult result;
 
-  nlohmann::json body;
-  body["model"] = model;
-  body["prompt"] = prompt;
-  body["stream"] = false;
+  JsonWriter body;
+  body.begin_object();
+  body.field("model", model);
+  body.field("prompt", prompt);
+  body.field("stream", false);
 
-  if (not options.suffix.empty()) body["suffix"] = options.suffix;
-  if (not options.images.empty()) body["images"] = options.images;
-  if (not options.format.is_null()) body["format"] = options.format;
-  if (not options.system.empty()) body["system"] = options.system;
-  if (not options.think.is_null()) body["think"] = options.think;
-  if (options.raw) body["raw"] = *options.raw;
-  if (not options.keep_alive.is_null()) body["keep_alive"] = options.keep_alive;
-  if (options.logprobs) body["logprobs"] = *options.logprobs;
-  if (options.top_logprobs) body["top_logprobs"] = *options.top_logprobs;
+  if (not options.suffix.empty()) body.field("suffix", options.suffix);
+  if (not options.images.empty()) body.field("images", options.images);
+  if (not options.format.empty()) body.field("format", options.format);
+  if (not options.system.empty()) body.field("system", options.system);
+  if (not options.think.empty()) body.field("think", options.think);
+  if (options.raw) body.field("raw", *options.raw);
+  if (not options.keep_alive.empty()) body.field("keep_alive", options.keep_alive);
+  if (options.logprobs) body.field("logprobs", *options.logprobs);
+  if (options.top_logprobs) body.field("top_logprobs", *options.top_logprobs);
 
   const GenerateOptions::ModelParams params =
       merge_model_params(options.model_params, default_params);
-  const nlohmann::json model_params = model_params_to_json(params);
-  if (not model_params.empty()) body["options"] = model_params;
+  const std::string model_params = model_params_to_json(params);
+  if (not model_params.empty()) {
+    body.field("options", RawJson::of_raw(model_params));
+  }
+  body.end_object();
 
-  const HttpResult http = post_json("/api/generate", body.dump());
+  const HttpResult http = post_json("/api/generate", body.str());
   if (not http.ok) {
     result.error = http.error;
     return result;
   }
 
-  try {
-    const auto parsed = nlohmann::json::parse(http.body);
-    result.content = parsed.at("response").get<std::string>();
-    result.ok = true;
-  } catch (const std::exception& e) {
-    result.error = std::string("failed to parse ollama response: ") + e.what();
+  bool found_response = false;
+  result.error = with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
+    std::string_view response;
+    if (obj["response"].get_string().get(response)) return;
+    result.content = std::string(response);
+    found_response = true;
+  });
+
+  if (result.error.empty()) {
+    if (found_response) {
+      result.ok = true;
+    } else {
+      result.error = "failed to parse ollama response: missing response";
+    }
   }
 
   return result;
@@ -191,88 +250,95 @@ EmbedResult OllamaClient::embed(std::string_view model,
                                  const std::optional<GenerateOptions::ModelParams>& default_params) const {
   EmbedResult result;
 
-  nlohmann::json body;
-  body["model"] = model;
-  body["input"] = input;
-  if (options.truncate) body["truncate"] = *options.truncate;
-  if (options.dimensions) body["dimensions"] = *options.dimensions;
-  if (not options.keep_alive.is_null()) body["keep_alive"] = options.keep_alive;
+  JsonWriter body;
+  body.begin_object();
+  body.field("model", model);
+  body.field("input", input);
+  if (options.truncate) body.field("truncate", *options.truncate);
+  if (options.dimensions) body.field("dimensions", *options.dimensions);
+  if (not options.keep_alive.empty()) body.field("keep_alive", options.keep_alive);
 
   const GenerateOptions::ModelParams params =
       merge_model_params(options.model_params, default_params);
-  const nlohmann::json model_params = model_params_to_json(params);
-  if (not model_params.empty()) body["options"] = model_params;
+  const std::string model_params = model_params_to_json(params);
+  if (not model_params.empty()) {
+    body.field("options", RawJson::of_raw(model_params));
+  }
+  body.end_object();
 
-  const HttpResult http = post_json("/api/embed", body.dump());
+  const HttpResult http = post_json("/api/embed", body.str());
   if (not http.ok) {
     result.error = http.error;
     return result;
   }
 
-  try {
-    const auto parsed = nlohmann::json::parse(http.body);
-    result.model = parsed.value("model", "");
-    if (parsed.contains("embeddings")) {
-      result.embeddings =
-          parsed.at("embeddings").get<std::vector<std::vector<double>>>();
-    }
-    result.total_duration = parsed.value("total_duration", int64_t{0});
-    result.load_duration = parsed.value("load_duration", int64_t{0});
-    result.prompt_eval_count = parsed.value("prompt_eval_count", int64_t{0});
-    result.ok = true;
-  } catch (const std::exception& e) {
-    result.error = std::string("failed to parse ollama response: ") + e.what();
-  }
+  result.error = with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
+    // Read in the order ollama emits these, so the On-Demand cursor only
+    // moves forward.
+    result.model = string_field(obj, "model");
 
+    simdjson::ondemand::array rows;
+    if (not obj["embeddings"].get_array().get(rows)) {
+      for (auto row : rows) {
+        simdjson::ondemand::array values;
+        if (row.get_array().get(values)) continue;
+        std::vector<double> embedding;
+        for (auto element : values) {
+          double v = 0.0;
+          if (element.get_double().get(v)) continue;
+          embedding.push_back(v);
+        }
+        result.embeddings.push_back(std::move(embedding));
+      }
+    }
+
+    result.total_duration = int_field(obj, "total_duration");
+    result.load_duration = int_field(obj, "load_duration");
+    result.prompt_eval_count = int_field(obj, "prompt_eval_count");
+  });
+
+  if (result.error.empty()) result.ok = true;
   return result;
 }
 
 ShowResult OllamaClient::show(std::string_view model, bool verbose) const {
   ShowResult result;
 
-  nlohmann::json body;
-  body["model"] = model;
-  if (verbose) body["verbose"] = true;
+  JsonWriter body;
+  body.begin_object();
+  body.field("model", model);
+  if (verbose) body.field("verbose", true);
+  body.end_object();
 
-  const HttpResult http = post_json("/api/show", body.dump());
+  const HttpResult http = post_json("/api/show", body.str());
   if (not http.ok) {
     result.error = http.error;
     return result;
   }
 
-  try {
-    const auto parsed = nlohmann::json::parse(http.body);
-    result.parameters = parsed.value("parameters", "");
+  result.error = with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
+    result.license = string_field(obj, "license");
+    result.modified_at = string_field(obj, "modified_at");
+    result.prompt_template = string_field(obj, "template");
+    result.parameters = string_field(obj, "parameters");
     result.model_params = parse_model_params(result.parameters);
-    result.license = parsed.value("license", "");
-    result.modified_at = parsed.value("modified_at", "");
-    if (parsed.contains("capabilities")) {
-      result.capabilities =
-          parsed.at("capabilities").get<std::vector<std::string>>();
-    }
-    if (parsed.contains("details")) {
-      const auto& details = parsed.at("details");
-      result.details.parent_model = details.value("parent_model", "");
-      result.details.format = details.value("format", "");
-      result.details.family = details.value("family", "");
-      if (details.contains("families") and
-          not details.at("families").is_null()) {
-        result.details.families =
-            details.at("families").get<std::vector<std::string>>();
-      }
-      result.details.parameter_size = details.value("parameter_size", "");
-      result.details.quantization_level =
-          details.value("quantization_level", "");
-    }
-    result.prompt_template = parsed.value("template", "");
-    if (parsed.contains("model_info")) {
-      result.model_info = parsed.at("model_info");
-    }
-    result.ok = true;
-  } catch (const std::exception& e) {
-    result.error = std::string("failed to parse ollama response: ") + e.what();
-  }
 
+    simdjson::ondemand::object details;
+    if (not obj["details"].get_object().get(details)) {
+      result.details.parent_model = string_field(details, "parent_model");
+      result.details.format = string_field(details, "format");
+      result.details.family = string_field(details, "family");
+      result.details.families = string_array_field(details, "families");
+      result.details.parameter_size = string_field(details, "parameter_size");
+      result.details.quantization_level =
+          string_field(details, "quantization_level");
+    }
+
+    result.model_info = RawJson::of_raw(raw_field(obj, "model_info"));
+    result.capabilities = string_array_field(obj, "capabilities");
+  });
+
+  if (result.error.empty()) result.ok = true;
   return result;
 }
 

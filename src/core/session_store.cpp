@@ -8,7 +8,9 @@
 #include <random>
 #include <sstream>
 
-#include <nlohmann/json.hpp>
+#include <simdjson.h>
+
+#include <core/json_util.hpp>
 
 namespace agent {
 
@@ -70,13 +72,32 @@ SessionStoreResult SessionStore::store(const std::vector<ChatMessage>& interacti
     return result;
   }
 
-  nlohmann::json body;
-  body["session_id"] = id;
-  body["interactions"] = nlohmann::json::array();
+  JsonWriter body;
+  body.begin_object();
+  body.field("session_id", id);
+  body.key("interactions").begin_array();
   for (const auto& message : interactions) {
-    body["interactions"].push_back(
-        {{"role", message.role}, {"content", message.content}});
+    body.begin_object();
+    body.field("role", message.role);
+    body.field("content", message.content);
+    body.end_object();
   }
+  body.end_array();
+  body.end_object();
+
+  // simdjson's builder emits minified JSON; session files stay human-readable
+  // by running the result through its FracturedJson formatter.
+  simdjson::fractured_json_options format_options;
+  format_options.indent_spaces = 2;
+  // One field per line, like nlohmann's dump(2) produced: message content is
+  // long and arbitrary, so column alignment and multiple records per line
+  // both hurt more than they help.
+  format_options.enable_table_format = false;
+  format_options.enable_compact_multiline = false;
+  format_options.max_inline_length = 0;
+  format_options.max_inline_complexity = 0;
+  const std::string text =
+      simdjson::fractured_json_string(body.str(), format_options);
 
   const std::string path = session_file_path(id);
   std::ofstream out(path, std::ios::trunc);
@@ -84,7 +105,7 @@ SessionStoreResult SessionStore::store(const std::vector<ChatMessage>& interacti
     result.error = "failed to open session file for writing: " + path;
     return result;
   }
-  out << body.dump(2);
+  out << text;
   if (not out) {
     result.error = "failed to write session file: " + path;
     return result;
@@ -115,15 +136,30 @@ SessionResult SessionStore::load_from_path(const std::string& path) const {
 
   std::stringstream buffer;
   buffer << in.rdbuf();
+  const std::string contents = buffer.str();
 
   try {
-    const auto parsed = nlohmann::json::parse(buffer.str());
-    result.session.session_id = parsed.value("session_id", "");
-    if (parsed.contains("interactions")) {
-      for (const auto& item : parsed.at("interactions")) {
+    simdjson::ondemand::parser parser;
+    simdjson::padded_string padded(contents);
+    simdjson::ondemand::document doc = parser.iterate(padded);
+
+    simdjson::ondemand::object root;
+    if (auto error = doc.get_object().get(root)) {
+      result.error = std::string("failed to parse session file: ") +
+                     simdjson::error_message(error);
+      return result;
+    }
+
+    result.session.session_id = string_field(root, "session_id");
+
+    simdjson::ondemand::array interactions;
+    if (not root["interactions"].get_array().get(interactions)) {
+      for (auto item : interactions) {
+        simdjson::ondemand::object entry;
+        if (item.get_object().get(entry)) continue;
         ChatMessage message;
-        message.role = item.value("role", "");
-        message.content = item.value("content", "");
+        message.role = string_field(entry, "role");
+        message.content = string_field(entry, "content");
         result.session.interactions.push_back(std::move(message));
       }
     }

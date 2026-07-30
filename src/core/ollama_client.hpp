@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-#include <nlohmann/json.hpp>
+#include <core/json_util.hpp>
 
 namespace agent {
 
@@ -37,11 +37,11 @@ struct GenerateOptions {
 
   std::string suffix;
   std::vector<std::string> images;  // Pre-base64-encoded by the caller.
-  nlohmann::json format;            // string or JSON schema object; null = unset.
+  RawJson format;                   // string or JSON schema object; empty = unset.
   std::string system;
-  nlohmann::json think;             // bool or string; null = unset.
+  RawJson think;                    // bool or string; empty = unset.
   std::optional<bool> raw;
-  nlohmann::json keep_alive;        // string or number; null = unset.
+  RawJson keep_alive;               // string or number; empty = unset.
   ModelParams model_params;
   std::optional<bool> logprobs;
   std::optional<int64_t> top_logprobs;
@@ -56,7 +56,7 @@ struct GenerateResult {
 struct EmbedOptions {
   std::optional<bool> truncate;  // API default is true; unset omits the field.
   std::optional<int64_t> dimensions;
-  nlohmann::json keep_alive;  // string or number; null = unset.
+  RawJson keep_alive;         // string or number; empty = unset.
   GenerateOptions::ModelParams model_params;
 };
 
@@ -88,7 +88,7 @@ struct ShowResult {
   std::vector<std::string> capabilities;
   ModelDetails details;
   std::string prompt_template;  // JSON key is "template" (a C++ keyword).
-  nlohmann::json model_info;    // Arbitrary, architecture-dependent metadata.
+  RawJson model_info;           // Arbitrary, architecture-dependent metadata, as JSON text.
   std::string error;
 };
 
@@ -132,7 +132,9 @@ protected:
   static GenerateOptions::ModelParams merge_model_params(
       GenerateOptions::ModelParams params,
       const std::optional<GenerateOptions::ModelParams>& defaults);
-  static nlohmann::json model_params_to_json(
+  // Serialized as a JSON object; empty string when no field is set, so the
+  // caller can omit the "options" key entirely.
+  static std::string model_params_to_json(
       const GenerateOptions::ModelParams& params);
 
 private:

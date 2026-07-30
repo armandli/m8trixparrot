@@ -29,10 +29,12 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBGIT2 REQUIRED IMPORTED_TARGET libgit2)
 
 FetchContent_Declare(
-  json
-  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+  simdjson
+  GIT_REPOSITORY https://github.com/simdjson/simdjson
+  GIT_TAG v4.6.5
+  GIT_SHALLOW TRUE
 )
-FetchContent_MakeAvailable(json)
+FetchContent_MakeAvailable(simdjson)
 
 set(FTXUI_BUILD_EXAMPLES OFF CACHE INTERNAL "")
 set(FTXUI_BUILD_DOCS OFF CACHE INTERNAL "")
