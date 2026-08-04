@@ -102,6 +102,15 @@ struct WebFetchTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
+// A stub: description() is real and the arguments are validated, but no search
+// backend has been chosen yet, so execute() always reports that web search is
+// unimplemented. Don't wire this into an agent loop expecting results.
+struct WebSearchTool {
+  std::string description() const;
+  // query (string, required), limit (number, optional).
+  ToolResult execute(const ToolArgs& args) const;
+};
+
 }  // namespace agent
 
 #endif  // TOOLS_H

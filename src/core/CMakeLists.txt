@@ -8,6 +8,7 @@ add_library(agentcore STATIC
   tools_shell.cpp
   tools_util.cpp
   tools_web.cpp
+  tools_websearch.cpp
   workspace_context.cpp
 )
 
