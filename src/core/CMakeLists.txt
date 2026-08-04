@@ -1,6 +1,7 @@
 add_library(agentcore STATIC
   json_util.cpp
   ollama_client.cpp
+  policy.cpp
   session_store.cpp
   tools_file.cpp
   tools_search.cpp
