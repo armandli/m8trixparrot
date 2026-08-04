@@ -2,7 +2,7 @@
 
 | Skill Name | Uses | Issues |
 |---|---|---|
-| commit-push | 9 | 0 |
+| commit-push | 10 | 0 |
 | create-skill | 3 | 0 |
 | format-cpp | 1 | 0 |
 | ftxui-guide-cpp | 1 | 0 |
