@@ -25,6 +25,11 @@ using ToolArgValue =
 // so a lookup by string_view doesn't allocate.
 using ToolArgs = std::map<std::string, ToolArgValue, std::less<>>;
 
+// Where MemoryTool keeps the agent's working notes, relative to the working
+// directory. A constant rather than a member so the tool stays memberless like
+// the rest; BasicAgent reads the same path to fold memory into its prompt.
+inline constexpr const char* kMemoryPath = ".mini_agent/memory.md";
+
 struct ToolResult {
   bool ok = false;
   std::string output;  // What gets fed back to the model.
@@ -99,6 +104,16 @@ struct LsTool {
 struct WebFetchTool {
   std::string description() const;
   // url (string, required).
+  ToolResult execute(const ToolArgs& args) const;
+};
+
+// Rewrites the agent's working memory at kMemoryPath. Overwrite rather than
+// append is deliberate: the current memory is already in front of the model
+// each turn, so it rewrites the whole thing and the file can't grow without
+// bound.
+struct MemoryTool {
+  std::string description() const;
+  // content (string, required).
   ToolResult execute(const ToolArgs& args) const;
 };
 

@@ -11,14 +11,31 @@
 
 namespace agent {
 
+// One tool invocation the model asked for. `arguments` is kept as the verbatim
+// JSON object text rather than a parsed structure: the shape is per-tool, and
+// agent::args_from_json() in core/tools_util.hpp is the one place that turns it
+// into a ToolArgs map.
+struct ToolCall {
+  std::string name;
+  std::string arguments;
+};
+
 struct ChatMessage {
-  std::string role;
+  std::string role;  // "system" | "user" | "assistant" | "tool"
   std::string content;
+  // Set on an assistant turn that asked for tools. Replayed on the way back
+  // out, since ollama needs the request that a "tool" message answers.
+  std::vector<ToolCall> tool_calls;
+  // Which tool produced `content`. Only meaningful when role == "tool".
+  std::string tool_name;
 };
 
 struct ChatResult {
   bool ok = false;
   std::string content;
+  // Non-empty when the model wants tools run before it answers. `content` is
+  // usually empty in that case, and that is not an error.
+  std::vector<ToolCall> tool_calls;
   std::string error;
 };
 
@@ -98,8 +115,13 @@ struct ShowResult {
 struct OllamaClient {
   explicit OllamaClient(std::string host = "http://localhost:11434");
 
+  // `tools` holds each tool's schema as JSON object text — exactly what the
+  // tool classes' description() returns. They are wrapped as
+  // {"type":"function","function":<schema>} on the way out, which is the shape
+  // /api/chat expects. An empty `tools` sends no tools array at all.
   ChatResult chat(std::string_view model,
-                   const std::vector<ChatMessage>& messages) const;
+                   const std::vector<ChatMessage>& messages,
+                   const std::vector<std::string>& tools = {}) const;
 
   GenerateResult generate(std::string_view model, std::string_view prompt,
                            const GenerateOptions& options = {},

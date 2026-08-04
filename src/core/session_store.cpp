@@ -80,6 +80,21 @@ SessionStoreResult SessionStore::store(const std::vector<ChatMessage>& interacti
     body.begin_object();
     body.field("role", message.role);
     body.field("content", message.content);
+    if (not message.tool_name.empty()) {
+      body.field("tool_name", message.tool_name);
+    }
+    if (not message.tool_calls.empty()) {
+      body.key("tool_calls").begin_array();
+      for (const auto& call : message.tool_calls) {
+        body.begin_object();
+        body.field("name", call.name);
+        body.field("arguments",
+                    RawJson::of_raw(call.arguments.empty() ? "{}"
+                                                           : call.arguments));
+        body.end_object();
+      }
+      body.end_array();
+    }
     body.end_object();
   }
   body.end_array();
@@ -160,6 +175,21 @@ SessionResult SessionStore::load_from_path(const std::string& path) const {
         ChatMessage message;
         message.role = string_field(entry, "role");
         message.content = string_field(entry, "content");
+        message.tool_name = string_field(entry, "tool_name");
+
+        simdjson::ondemand::array calls;
+        if (not entry["tool_calls"].get_array().get(calls)) {
+          for (auto call_item : calls) {
+            simdjson::ondemand::object call;
+            if (call_item.get_object().get(call)) continue;
+            ToolCall tool_call;
+            tool_call.name = string_field(call, "name");
+            tool_call.arguments = raw_field(call, "arguments", "{}");
+            if (tool_call.name.empty()) continue;
+            message.tool_calls.push_back(std::move(tool_call));
+          }
+        }
+
         result.session.interactions.push_back(std::move(message));
       }
     }

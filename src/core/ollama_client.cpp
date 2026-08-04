@@ -108,7 +108,8 @@ OllamaClient::OllamaClient(std::string host) : host_(std::move(host)) {
 }
 
 ChatResult OllamaClient::chat(std::string_view model,
-                               const std::vector<ChatMessage>& messages) const {
+                               const std::vector<ChatMessage>& messages,
+                               const std::vector<std::string>& tools) const {
   ChatResult result;
 
   JsonWriter body;
@@ -120,9 +121,37 @@ ChatResult OllamaClient::chat(std::string_view model,
     body.begin_object();
     body.field("role", message.role);
     body.field("content", message.content);
+    if (not message.tool_name.empty()) {
+      body.field("tool_name", message.tool_name);
+    }
+    if (not message.tool_calls.empty()) {
+      body.key("tool_calls").begin_array();
+      for (const auto& call : message.tool_calls) {
+        body.begin_object();
+        body.key("function").begin_object();
+        body.field("name", call.name);
+        // Already JSON object text; splice it in rather than re-escaping.
+        body.field("arguments", RawJson::of_raw(call.arguments.empty()
+                                                     ? "{}"
+                                                     : call.arguments));
+        body.end_object();
+        body.end_object();
+      }
+      body.end_array();
+    }
     body.end_object();
   }
   body.end_array();
+  if (not tools.empty()) {
+    body.key("tools").begin_array();
+    for (const auto& schema : tools) {
+      body.begin_object();
+      body.field("type", "function");
+      body.field("function", RawJson::of_raw(schema));
+      body.end_object();
+    }
+    body.end_array();
+  }
   body.end_object();
 
   const HttpResult http = post_json("/api/chat", body.str());
@@ -131,21 +160,37 @@ ChatResult OllamaClient::chat(std::string_view model,
     return result;
   }
 
-  bool found_content = false;
+  bool found_message = false;
   result.error = with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
     simdjson::ondemand::object message;
     if (obj["message"].get_object().get(message)) return;
-    std::string_view content;
-    if (message["content"].get_string().get(content)) return;
-    result.content = std::string(content);
-    found_content = true;
+    found_message = true;
+
+    result.content = string_field(message, "content");
+
+    simdjson::ondemand::array calls;
+    if (message["tool_calls"].get_array().get(calls)) return;
+    for (auto element : calls) {
+      simdjson::ondemand::object call;
+      if (element.get_object().get(call)) continue;
+      simdjson::ondemand::object function;
+      if (call["function"].get_object().get(function)) continue;
+
+      ToolCall tool_call;
+      tool_call.name = string_field(function, "name");
+      tool_call.arguments = raw_field(function, "arguments", "{}");
+      if (tool_call.name.empty()) continue;
+      result.tool_calls.push_back(std::move(tool_call));
+    }
   });
 
   if (result.error.empty()) {
-    if (found_content) {
+    // A turn that only asks for tools has empty content, and that is a valid
+    // reply — the message object being present is what matters.
+    if (found_message) {
       result.ok = true;
     } else {
-      result.error = "failed to parse ollama response: missing message.content";
+      result.error = "failed to parse ollama response: missing message";
     }
   }
 
