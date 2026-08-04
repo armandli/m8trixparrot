@@ -92,6 +92,16 @@ struct LsTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
+// Fetches over the network with no restriction on scheme or host — a URL from
+// model output can name loopback or a metadata endpoint just as easily as a
+// public site. That is a deliberate choice, not an oversight: any guard belongs
+// in whatever drives the tool.
+struct WebFetchTool {
+  std::string description() const;
+  // url (string, required).
+  ToolResult execute(const ToolArgs& args) const;
+};
+
 }  // namespace agent
 
 #endif  // TOOLS_H
