@@ -71,9 +71,9 @@ private:
   // depth or it is the value half of a `"key":` that was just written.
   void separate();
 
-  simdjson::builder::string_builder builder_;
-  std::vector<bool> has_element_;  // Per open container: has an element yet?
-  bool expect_value_ = false;      // A key was just written; its value is next.
+  simdjson::builder::string_builder mBuilder;
+  std::vector<bool> mHasElement;  // Per open container: has an element yet?
+  bool mExpectValue = false;      // A key was just written; its value is next.
 };
 
 // ---------------------------------------------------------------------------

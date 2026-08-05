@@ -43,55 +43,55 @@ JsonWriter::JsonWriter() = default;
 void JsonWriter::separate() {
   // The value of a `"key":` pair is not a new element of the enclosing
   // object — the key already claimed that slot.
-  if (expect_value_) {
-    expect_value_ = false;
+  if (mExpectValue) {
+    mExpectValue = false;
     return;
   }
-  if (has_element_.empty()) return;
-  if (has_element_.back()) {
-    builder_.append_comma();
+  if (mHasElement.empty()) return;
+  if (mHasElement.back()) {
+    mBuilder.append_comma();
   } else {
-    has_element_.back() = true;
+    mHasElement.back() = true;
   }
 }
 
 JsonWriter& JsonWriter::begin_object() {
   separate();
-  builder_.start_object();
-  has_element_.push_back(false);
+  mBuilder.start_object();
+  mHasElement.push_back(false);
   return *this;
 }
 
 JsonWriter& JsonWriter::end_object() {
-  builder_.end_object();
-  if (not has_element_.empty()) has_element_.pop_back();
+  mBuilder.end_object();
+  if (not mHasElement.empty()) mHasElement.pop_back();
   return *this;
 }
 
 JsonWriter& JsonWriter::begin_array() {
   separate();
-  builder_.start_array();
-  has_element_.push_back(false);
+  mBuilder.start_array();
+  mHasElement.push_back(false);
   return *this;
 }
 
 JsonWriter& JsonWriter::end_array() {
-  builder_.end_array();
-  if (not has_element_.empty()) has_element_.pop_back();
+  mBuilder.end_array();
+  if (not mHasElement.empty()) mHasElement.pop_back();
   return *this;
 }
 
 JsonWriter& JsonWriter::key(std::string_view name) {
   separate();
-  builder_.escape_and_append_with_quotes(name);
-  builder_.append_colon();
-  expect_value_ = true;
+  mBuilder.escape_and_append_with_quotes(name);
+  mBuilder.append_colon();
+  mExpectValue = true;
   return *this;
 }
 
 JsonWriter& JsonWriter::value(std::string_view v) {
   separate();
-  builder_.escape_and_append_with_quotes(v);
+  mBuilder.escape_and_append_with_quotes(v);
   return *this;
 }
 
@@ -101,51 +101,51 @@ JsonWriter& JsonWriter::value(const char* v) {
 
 JsonWriter& JsonWriter::value(bool v) {
   separate();
-  builder_.append_raw(v ? "true" : "false");
+  mBuilder.append_raw(v ? "true" : "false");
   return *this;
 }
 
 JsonWriter& JsonWriter::value(int64_t v) {
   separate();
-  builder_.append(v);
+  mBuilder.append(v);
   return *this;
 }
 
 JsonWriter& JsonWriter::value(double v) {
   separate();
-  builder_.append(v);
+  mBuilder.append(v);
   return *this;
 }
 
 JsonWriter& JsonWriter::value(const std::vector<std::string>& v) {
   separate();
-  builder_.start_array();
+  mBuilder.start_array();
   bool first = true;
   for (const auto& item : v) {
-    if (not first) builder_.append_comma();
+    if (not first) mBuilder.append_comma();
     first = false;
-    builder_.escape_and_append_with_quotes(item);
+    mBuilder.escape_and_append_with_quotes(item);
   }
-  builder_.end_array();
+  mBuilder.end_array();
   return *this;
 }
 
 JsonWriter& JsonWriter::value(const RawJson& v) {
   if (v.empty()) return null_value();
   separate();
-  builder_.append_raw(std::string_view(v.text));
+  mBuilder.append_raw(std::string_view(v.text));
   return *this;
 }
 
 JsonWriter& JsonWriter::null_value() {
   separate();
-  builder_.append_null();
+  mBuilder.append_null();
   return *this;
 }
 
 std::string JsonWriter::str() {
   std::string_view out;
-  if (builder_.view().get(out)) return std::string();
+  if (mBuilder.view().get(out)) return std::string();
   return std::string(out);
 }
 

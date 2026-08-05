@@ -45,7 +45,7 @@ protected:
   SessionResult load_from_path(const std::string& path) const;
 
 private:
-  std::string root_dir_;
+  std::string mRootDir;
 };
 
 }  // namespace agent

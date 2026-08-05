@@ -189,6 +189,27 @@ struct JsonParser {};                     // after
 
 Names at or under ~24 characters are left as-is even if they contain a word that has a common abbreviation.
 
+**H3 — Member variables: `mUpperCamelCase`.** Non-static data members declared under a `private:` or `protected:` access specifier are prefixed with a lowercase `m`, followed by the name in `UpperCamelCase`:
+```cpp
+struct Session {
+protected:
+  std::string mSessionId;      // yes
+  int mRetryCount;             // yes
+  std::string session_id_;     // no
+  int m_retry_count;           // no
+  int mretrycount;             // no
+};
+```
+
+Unlike H2, abbreviations after the `m` are capitalized like ordinary words rather than written in all capitals — `mStateId`, `mUrlParser`, `mDbHandle`, not `mStateID` or `mURLParser`. The `m` is what signals "member", so the rest of the name stays visually plain.
+
+**Exceptions — do NOT rename:**
+- Public data members. Since E1 prefers `struct`, members with no access specifier above them are public and stay as they are — a plain data carrier like `struct ToolResult { bool ok; std::string output; };` reads worse with the prefix, and renaming it churns every call site.
+- Static data members and `static constexpr` constants, which follow their existing convention.
+- Members of types you do not own (third-party headers, generated code).
+
+When applying this rule, update every reference to the renamed member — in particular constructor member-initializer lists, in-class default initializers, and any place the old name appears inside the type's own methods. Because the members are private or protected, all references are within the type itself or its derived types, so the rename is contained; if a member turns out to be reachable from outside (a friend declaration, a macro), skip it and note it.
+
 ---
 
 ## Error Handling

@@ -283,7 +283,7 @@ struct ListLevel {
 };
 
 struct HtmlConverter {
-  explicit HtmlConverter(std::string base_url) : base_url_(std::move(base_url)) {}
+  explicit HtmlConverter(std::string base_url) : mBaseUrl(std::move(base_url)) {}
 
   std::string convert(std::string_view html);
 
@@ -294,28 +294,28 @@ private:
 
   // Where text lands: straight into the output, or into the pending link label
   // while an <a> is open.
-  std::string& sink() { return in_link_ ? link_text_ : out_; }
+  std::string& sink() { return mInLink ? mLinkText : mOut; }
 
   void append(std::string_view text) { sink() += text; }
   void ensure_newline();
   void ensure_block();
   void line_prefix();
 
-  std::string base_url_;
-  std::string out_;
+  std::string mBaseUrl;
+  std::string mOut;
 
-  bool in_link_ = false;
-  std::string link_text_;
-  std::string link_href_;
+  bool mInLink = false;
+  std::string mLinkText;
+  std::string mLinkHref;
 
-  std::vector<ListLevel> lists_;
-  int quote_depth_ = 0;
-  int pre_depth_ = 0;
-  bool row_has_cell_ = false;
+  std::vector<ListLevel> mLists;
+  int mQuoteDepth = 0;
+  int mPreDepth = 0;
+  bool mRowHasCell = false;
 };
 
 void HtmlConverter::line_prefix() {
-  for (int i = 0; i < quote_depth_; ++i) sink() += "> ";
+  for (int i = 0; i < mQuoteDepth; ++i) sink() += "> ";
 }
 
 void HtmlConverter::ensure_newline() {
@@ -351,7 +351,7 @@ void HtmlConverter::ensure_block() {
 void HtmlConverter::emit_text(std::string_view text) {
   const std::string decoded = decode_entities(text);
 
-  if (pre_depth_ > 0) {
+  if (mPreDepth > 0) {
     append(decoded);
     return;
   }
@@ -401,18 +401,18 @@ void HtmlConverter::handle_open(const std::string& tag,
 
   if (tag == "ul" or tag == "ol") {
     ensure_block();
-    lists_.push_back({tag == "ol", 0});
+    mLists.push_back({tag == "ol", 0});
     return;
   }
 
   if (tag == "li") {
     ensure_newline();
-    if (lists_.empty()) {
+    if (mLists.empty()) {
       append("- ");
       return;
     }
-    ListLevel& level = lists_.back();
-    append(std::string(2 * (lists_.size() - 1), ' '));
+    ListLevel& level = mLists.back();
+    append(std::string(2 * (mLists.size() - 1), ' '));
     if (level.ordered) {
       append(std::to_string(++level.item) + ". ");
     } else {
@@ -423,7 +423,7 @@ void HtmlConverter::handle_open(const std::string& tag,
 
   if (tag == "blockquote") {
     ensure_block();
-    ++quote_depth_;
+    ++mQuoteDepth;
     line_prefix();
     return;
   }
@@ -431,12 +431,12 @@ void HtmlConverter::handle_open(const std::string& tag,
   if (tag == "pre") {
     ensure_block();
     append("```\n");
-    ++pre_depth_;
+    ++mPreDepth;
     return;
   }
 
   if (tag == "code") {
-    if (pre_depth_ == 0) append("`");
+    if (mPreDepth == 0) append("`");
     return;
   }
 
@@ -452,36 +452,36 @@ void HtmlConverter::handle_open(const std::string& tag,
 
   if (tag == "tr") {
     ensure_newline();
-    row_has_cell_ = false;
+    mRowHasCell = false;
     return;
   }
 
   if (tag == "td" or tag == "th") {
-    if (row_has_cell_) append(" | ");
-    row_has_cell_ = true;
+    if (mRowHasCell) append(" | ");
+    mRowHasCell = true;
     return;
   }
 
   if (tag == "a") {
     const auto href = attributes.find("href");
-    link_href_ =
-        href == attributes.end() ? std::string() : resolve_url(base_url_, href->second);
-    link_text_.clear();
-    in_link_ = true;
+    mLinkHref =
+        href == attributes.end() ? std::string() : resolve_url(mBaseUrl, href->second);
+    mLinkText.clear();
+    mInLink = true;
     return;
   }
 }
 
 void HtmlConverter::handle_close(const std::string& tag) {
   if (tag == "a") {
-    if (not in_link_) return;
-    in_link_ = false;
-    const std::string label = trim(link_text_);
+    if (not mInLink) return;
+    mInLink = false;
+    const std::string label = trim(mLinkText);
     if (label.empty()) return;
-    if (link_href_.empty()) {
-      out_ += label;
+    if (mLinkHref.empty()) {
+      mOut += label;
     } else {
-      out_ += "[" + label + "](" + link_href_ + ")";
+      mOut += "[" + label + "](" + mLinkHref + ")";
     }
     return;
   }
@@ -501,19 +501,19 @@ void HtmlConverter::handle_close(const std::string& tag) {
   }
 
   if (tag == "ul" or tag == "ol") {
-    if (not lists_.empty()) lists_.pop_back();
+    if (not mLists.empty()) mLists.pop_back();
     ensure_block();
     return;
   }
 
   if (tag == "blockquote") {
-    if (quote_depth_ > 0) --quote_depth_;
+    if (mQuoteDepth > 0) --mQuoteDepth;
     ensure_block();
     return;
   }
 
   if (tag == "pre") {
-    if (pre_depth_ > 0) --pre_depth_;
+    if (mPreDepth > 0) --mPreDepth;
     ensure_newline();
     append("```");
     ensure_block();
@@ -521,7 +521,7 @@ void HtmlConverter::handle_close(const std::string& tag) {
   }
 
   if (tag == "code") {
-    if (pre_depth_ == 0) append("`");
+    if (mPreDepth == 0) append("`");
     return;
   }
 
@@ -638,18 +638,18 @@ std::string HtmlConverter::convert(std::string_view html) {
   }
 
   // An unclosed <a> would otherwise swallow the rest of the page.
-  if (in_link_) handle_close("a");
+  if (mInLink) handle_close("a");
 
   // Collapse the runs of blank lines that block tags inevitably produce, and
   // drop the trailing whitespace on each line.
   std::string cleaned;
-  cleaned.reserve(out_.size());
+  cleaned.reserve(mOut.size());
   size_t blank_run = 0;
   size_t line_start = 0;
-  for (size_t j = 0; j <= out_.size(); ++j) {
-    if (j < out_.size() and out_[j] != '\n') continue;
+  for (size_t j = 0; j <= mOut.size(); ++j) {
+    if (j < mOut.size() and mOut[j] != '\n') continue;
 
-    std::string_view line(out_.data() + line_start, j - line_start);
+    std::string_view line(mOut.data() + line_start, j - line_start);
     while (not line.empty() and (line.back() == ' ' or line.back() == '\t')) {
       line.remove_suffix(1);
     }

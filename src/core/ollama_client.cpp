@@ -103,7 +103,7 @@ void ensure_curl_initialized() {
 
 }  // namespace
 
-OllamaClient::OllamaClient(std::string host) : host_(std::move(host)) {
+OllamaClient::OllamaClient(std::string host) : mHost(std::move(host)) {
   ensure_curl_initialized();
 }
 
@@ -398,7 +398,7 @@ OllamaClient::HttpResult OllamaClient::post_json(
   }
 
   std::string response;
-  const std::string url = host_ + path;
+  const std::string url = mHost + path;
   curl_slist* headers =
       curl_slist_append(nullptr, "Content-Type: application/json");
 

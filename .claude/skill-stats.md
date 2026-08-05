@@ -3,10 +3,10 @@
 | Skill Name | Uses | Issues |
 |---|---|---|
 | cli11-guide-cpp | 1 | 0 |
-| commit-push | 13 | 0 |
+| commit-push | 14 | 0 |
 | create-skill | 3 | 0 |
-| format-cpp | 1 | 0 |
+| format-cpp | 2 | 0 |
 | ftxui-guide-cpp | 1 | 0 |
 | pull | 5 | 0 |
-| refactor-cpp | 1 | 0 |
+| refactor-cpp | 2 | 0 |
 

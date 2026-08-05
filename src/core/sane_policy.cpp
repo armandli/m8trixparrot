@@ -222,12 +222,12 @@ SanePolicy::SanePolicy(const std::string& workspace_root) {
   if (ec or root.empty()) {
     root = std::filesystem::absolute(workspace_root, ec).lexically_normal();
   }
-  write_roots_.push_back(root);
+  mWriteRoots.push_back(root);
 
   std::filesystem::path temp =
       std::filesystem::weakly_canonical(kPublicTempDir, ec);
   if (ec or temp.empty()) temp = std::filesystem::path(kPublicTempDir);
-  if (temp != root) write_roots_.push_back(temp);
+  if (temp != root) mWriteRoots.push_back(temp);
 }
 
 std::string SanePolicy::name() const { return "sane"; }
@@ -240,7 +240,7 @@ bool SanePolicy::path_allowed(const std::string& path) const {
   if (target.is_relative()) {
     // Against the workspace root rather than the live cwd, so the boundary
     // doesn't shift under the policy.
-    target = write_roots_.front() / target;
+    target = mWriteRoots.front() / target;
   }
 
   std::error_code ec;
@@ -249,7 +249,7 @@ bool SanePolicy::path_allowed(const std::string& path) const {
   std::filesystem::path resolved = std::filesystem::weakly_canonical(target, ec);
   if (ec or resolved.empty()) resolved = target.lexically_normal();
 
-  for (const std::filesystem::path& root : write_roots_) {
+  for (const std::filesystem::path& root : mWriteRoots) {
     // Component-wise, so /home/u/work does not admit /home/u/workspace.
     auto [root_it, target_it] = std::mismatch(root.begin(), root.end(),
                                                resolved.begin(), resolved.end());
@@ -404,7 +404,7 @@ PolicyResult SanePolicy::verify(std::string_view tool_name,
     if (path_allowed(*path)) return PolicyResult::allow();
 
     std::string roots;
-    for (const std::filesystem::path& root : write_roots_) {
+    for (const std::filesystem::path& root : mWriteRoots) {
       if (not roots.empty()) roots += " or ";
       roots += root.string();
     }

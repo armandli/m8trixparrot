@@ -47,10 +47,10 @@ std::string generate_uuid_v4() {
 
 }  // namespace
 
-SessionStore::SessionStore(std::string root_dir) : root_dir_(std::move(root_dir)) {}
+SessionStore::SessionStore(std::string root_dir) : mRootDir(std::move(root_dir)) {}
 
 std::string SessionStore::session_file_path(const std::string& session_id) const {
-  return (std::filesystem::path(root_dir_) / (session_id + ".json")).string();
+  return (std::filesystem::path(mRootDir) / (session_id + ".json")).string();
 }
 
 SessionStoreResult SessionStore::store(const std::vector<ChatMessage>& interactions,
@@ -66,7 +66,7 @@ SessionStoreResult SessionStore::store(const std::vector<ChatMessage>& interacti
   }
 
   std::error_code ec;
-  std::filesystem::create_directories(root_dir_, ec);
+  std::filesystem::create_directories(mRootDir, ec);
   if (ec) {
     result.error = "failed to create session root directory: " + ec.message();
     return result;
@@ -205,8 +205,8 @@ SessionResult SessionStore::latest() const {
   SessionResult result;
 
   std::error_code ec;
-  if (not std::filesystem::exists(root_dir_, ec) or ec) {
-    result.error = "session root directory does not exist: " + root_dir_;
+  if (not std::filesystem::exists(mRootDir, ec) or ec) {
+    result.error = "session root directory does not exist: " + mRootDir;
     return result;
   }
 
@@ -214,7 +214,7 @@ SessionResult SessionStore::latest() const {
   std::filesystem::file_time_type latest_time;
   bool found = false;
 
-  for (const auto& entry : std::filesystem::directory_iterator(root_dir_, ec)) {
+  for (const auto& entry : std::filesystem::directory_iterator(mRootDir, ec)) {
     if (not entry.is_regular_file()) continue;
     if (entry.path().extension() != ".json") continue;
 
@@ -227,7 +227,7 @@ SessionResult SessionStore::latest() const {
   }
 
   if (not found) {
-    result.error = "no session files found in " + root_dir_;
+    result.error = "no session files found in " + mRootDir;
     return result;
   }
 

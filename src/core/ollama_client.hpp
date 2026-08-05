@@ -160,7 +160,7 @@ protected:
       const GenerateOptions::ModelParams& params);
 
 private:
-  std::string host_;
+  std::string mHost;
 };
 
 }  // namespace agent

@@ -44,7 +44,7 @@ struct SanePolicy : PolicyInterface {
 
   // The roots writes are confined to, resolved and absolute.
   const std::vector<std::filesystem::path>& write_roots() const {
-    return write_roots_;
+    return mWriteRoots;
   }
 
 protected:
@@ -58,7 +58,7 @@ protected:
   std::string inspect_command(const std::string& command) const;
 
 private:
-  std::vector<std::filesystem::path> write_roots_;
+  std::vector<std::filesystem::path> mWriteRoots;
 };
 
 }  // namespace agent

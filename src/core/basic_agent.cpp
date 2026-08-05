@@ -49,10 +49,10 @@ std::string summarize(const std::string& tool_name, const ToolArgs& args) {
 }  // namespace
 
 BasicAgent::BasicAgent(AgentOptions options, const PolicyInterface& policy)
-    : options_(std::move(options)),
-      policy_(policy),
-      client_(options_.host),
-      store_(kAgentSessionDir) {}
+    : mOptions(std::move(options)),
+      mPolicy(policy),
+      mClient(mOptions.host),
+      mStore(kAgentSessionDir) {}
 
 std::vector<std::string> BasicAgent::tool_schemas() {
   return {
@@ -69,8 +69,8 @@ std::string BasicAgent::memory() const {
 }
 
 void BasicAgent::reset() {
-  transcript_.clear();
-  session_id_.clear();
+  mTranscript.clear();
+  mSessionId.clear();
 }
 
 std::string BasicAgent::system_prompt() const {
@@ -135,16 +135,16 @@ ToolResult BasicAgent::dispatch(const std::string& tool_name,
 
 SessionResult BasicAgent::resume(const std::string& session_id) {
   SessionResult result =
-      session_id.empty() ? store_.latest() : store_.load(session_id);
+      session_id.empty() ? mStore.latest() : mStore.load(session_id);
   if (not result.ok) return result;
 
-  transcript_ = result.session.interactions;
-  session_id_ = result.session.session_id;
+  mTranscript = result.session.interactions;
+  mSessionId = result.session.session_id;
   return result;
 }
 
 SessionStoreResult BasicAgent::save() const {
-  SessionStoreResult result = store_.store(transcript_, session_id_);
+  SessionStoreResult result = mStore.store(mTranscript, mSessionId);
   return result;
 }
 
@@ -156,28 +156,28 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
     if (observer) observer(event);
   };
 
-  transcript_.push_back(ChatMessage{"user", user_input, {}, ""});
+  mTranscript.push_back(ChatMessage{"user", user_input, {}, ""});
 
   const std::vector<std::string> tools = tool_schemas();
 
-  for (int step = 0; step < options_.max_steps; ++step) {
+  for (int step = 0; step < mOptions.max_steps; ++step) {
     turn.steps = step + 1;
 
     // The system message is rebuilt every step rather than stored, so a
     // memory write lands in the very next call.
     std::vector<ChatMessage> messages;
-    messages.reserve(transcript_.size() + 1);
+    messages.reserve(mTranscript.size() + 1);
     messages.push_back(ChatMessage{"system", system_prompt(), {}, ""});
-    messages.insert(messages.end(), transcript_.begin(), transcript_.end());
+    messages.insert(messages.end(), mTranscript.begin(), mTranscript.end());
 
-    const ChatResult reply = client_.chat(options_.model, messages, tools);
+    const ChatResult reply = mClient.chat(mOptions.model, messages, tools);
     if (not reply.ok) {
       turn.error = reply.error;
       emit({AgentEvent::Kind::Error, reply.error, "", ""});
       return turn;
     }
 
-    transcript_.push_back(
+    mTranscript.push_back(
         ChatMessage{"assistant", reply.content, reply.tool_calls, ""});
 
     if (not reply.content.empty()) {
@@ -193,7 +193,7 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
         emit({AgentEvent::Kind::Notice,
               "failed to save session: " + saved.error, "", ""});
       } else {
-        session_id_ = saved.session_id;
+        mSessionId = saved.session_id;
       }
       return turn;
     }
@@ -210,17 +210,17 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
             "could not read the arguments for '" + call.name + "': " +
             parse_error;
         emit({AgentEvent::Kind::ToolResult, message, call.name, ""});
-        transcript_.push_back(ChatMessage{"tool", message, {}, call.name});
+        mTranscript.push_back(ChatMessage{"tool", message, {}, call.name});
         continue;
       }
 
-      const PolicyResult verdict = policy_.verify(call.name, args);
+      const PolicyResult verdict = mPolicy.verify(call.name, args);
       if (not verdict.allowed()) {
         // The refusal goes back as the tool's result: the model is told why
         // and can pick another approach, which is the whole point of making
         // policies explain themselves.
         emit({AgentEvent::Kind::Denied, verdict.reason, call.name, summary});
-        transcript_.push_back(
+        mTranscript.push_back(
             ChatMessage{"tool", verdict.reason, {}, call.name});
         continue;
       }
@@ -233,18 +233,18 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
       if (content.empty()) content = "[no output]";
 
       emit({AgentEvent::Kind::ToolResult, content, call.name, ""});
-      transcript_.push_back(ChatMessage{
+      mTranscript.push_back(ChatMessage{
           "tool", clip(content, kMaxToolResultBytes), {}, call.name});
     }
   }
 
   turn.hit_step_limit = true;
-  turn.error = "gave up after " + std::to_string(options_.max_steps) +
+  turn.error = "gave up after " + std::to_string(mOptions.max_steps) +
                " steps without a final answer";
   emit({AgentEvent::Kind::Notice, turn.error, "", ""});
 
   const SessionStoreResult saved = save();
-  if (saved.ok) session_id_ = saved.session_id;
+  if (saved.ok) mSessionId = saved.session_id;
   return turn;
 }
 

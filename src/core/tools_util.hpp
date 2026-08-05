@@ -89,7 +89,7 @@ struct IgnoreFilter {
   IgnoreFilter(const IgnoreFilter&) = delete;
   IgnoreFilter& operator=(const IgnoreFilter&) = delete;
 
-  bool in_repo() const { return repo_ != nullptr; }
+  bool in_repo() const { return mRepo != nullptr; }
 
   // `path` may be absolute or relative to the process cwd. `is_directory`
   // matters because gitignore rules can end in '/' and only match directories.
@@ -100,8 +100,8 @@ private:
     void operator()(git_repository* repo) const;
   };
 
-  std::unique_ptr<git_repository, RepoDeleter> repo_;
-  std::string workdir_;  // Absolute, no trailing slash. Empty if not in a repo.
+  std::unique_ptr<git_repository, RepoDeleter> mRepo;
+  std::string mWorkdir;  // Absolute, no trailing slash. Empty if not in a repo.
 };
 
 // True when `head` (the first few KB of a file) looks like binary rather than

@@ -824,6 +824,62 @@ struct JsonParser {};
 struct UserIdentifier {};
 ```
 
+### H3 — Member variables: `mUpperCamelCase`
+
+```cpp
+// BEFORE
+struct Session {
+  Session(std::string id) : session_id_(std::move(id)) {}
+
+  const std::string& id() const { return session_id_; }
+  void retry() { ++m_retry_count; }
+
+protected:
+  std::string session_id_;
+  int m_retry_count = 0;
+  UrlParser url_parser_;
+};
+
+// AFTER
+struct Session {
+  Session(std::string id) : mSessionId(std::move(id)) {}
+
+  const std::string& id() const { return mSessionId; }
+  void retry() { ++mRetryCount; }
+
+protected:
+  std::string mSessionId;
+  int mRetryCount = 0;
+  UrlParser mUrlParser;   // not mURLParser — abbreviations stay plain here
+};
+```
+
+Note that the member-initializer list and both method bodies were updated along
+with the declarations. Missing one of those is the usual way this rule breaks a
+build.
+
+**Exception — public data members are left as-is:**
+```cpp
+// Keep as-is: no access specifier, so these are public (E1 prefers struct).
+// A plain data carrier reads worse with the prefix, and renaming churns every
+// call site.
+struct ToolResult {
+  bool ok = false;
+  std::string output;
+  std::string error;
+};
+```
+
+**Exception — static members keep their convention:**
+```cpp
+struct Registry {
+protected:
+  int mLiveCount = 0;                          // renamed
+  static constexpr int kMaxEntries = 512;      // left alone
+  static Registry* sInstance;                  // left alone
+};
+```
+
 ---
 
 ## Compound Example: Multiple Rules Interacting (C++17 project)

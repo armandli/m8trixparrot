@@ -266,10 +266,10 @@ IgnoreFilter::IgnoreFilter(const std::string& start_path) {
   if (git_repository_open_ext(&repo, start_path.c_str(), 0, nullptr) != 0) {
     return;
   }
-  repo_.reset(repo);
+  mRepo.reset(repo);
 
-  const char* workdir = git_repository_workdir(repo_.get());
-  if (workdir != nullptr) workdir_ = trim_trailing_slash(workdir);
+  const char* workdir = git_repository_workdir(mRepo.get());
+  if (workdir != nullptr) mWorkdir = trim_trailing_slash(workdir);
 }
 
 IgnoreFilter::~IgnoreFilter() = default;
@@ -284,19 +284,19 @@ bool IgnoreFilter::ignored(const std::string& path, bool is_directory) const {
     if (part == ".git") return true;
   }
 
-  if (not repo_ or workdir_.empty()) return false;
+  if (not mRepo or mWorkdir.empty()) return false;
 
   // git_ignore_path_is_ignored() wants a path relative to the work tree; a
   // path outside it has no ignore rules to match.
   const std::filesystem::path relative =
-      std::filesystem::relative(target, workdir_, ec);
+      std::filesystem::relative(target, mWorkdir, ec);
   if (ec or relative.empty() or *relative.begin() == "..") return false;
 
   std::string candidate = relative.generic_string();
   if (is_directory) candidate += "/";
 
   int is_ignored = 0;
-  if (git_ignore_path_is_ignored(&is_ignored, repo_.get(), candidate.c_str()) !=
+  if (git_ignore_path_is_ignored(&is_ignored, mRepo.get(), candidate.c_str()) !=
       0) {
     return false;
   }

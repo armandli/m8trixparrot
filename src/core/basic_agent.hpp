@@ -75,8 +75,8 @@ struct BasicAgent {
   // so a crash costs at most the turn in flight.
   SessionStoreResult save() const;
 
-  const std::string& session_id() const { return session_id_; }
-  const std::vector<ChatMessage>& transcript() const { return transcript_; }
+  const std::string& session_id() const { return mSessionId; }
+  const std::vector<ChatMessage>& transcript() const { return mTranscript; }
 
   // Current contents of kMemoryPath; empty when the model hasn't written any.
   std::string memory() const;
@@ -100,12 +100,12 @@ protected:
   std::string system_prompt() const;
 
 private:
-  AgentOptions options_;
-  const PolicyInterface& policy_;
-  OllamaClient client_;
-  SessionStore store_;
-  std::vector<ChatMessage> transcript_;
-  std::string session_id_;
+  AgentOptions mOptions;
+  const PolicyInterface& mPolicy;
+  OllamaClient mClient;
+  SessionStore mStore;
+  std::vector<ChatMessage> mTranscript;
+  std::string mSessionId;
 };
 
 }  // namespace agent
