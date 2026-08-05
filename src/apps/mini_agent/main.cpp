@@ -17,7 +17,7 @@
 #include <ftxui/dom/elements.hpp>
 
 #include <core/basic_agent.hpp>
-#include <core/basic_sane_policy.hpp>
+#include <core/sane_policy.hpp>
 #include <core/policy.hpp>
 
 namespace f = ftxui;
@@ -154,13 +154,13 @@ int main(int argc, char** argv) {
                  "Model calls allowed per user turn before giving up")
       ->capture_default_str();
 
-  std::string policy_name = "basic-sane";
+  std::string policy_name = "sane";
   app.add_option("-p,--policy", policy_name,
-                 "Permission policy: yolo (allow everything) or basic-sane "
+                 "Permission policy: yolo (allow everything) or sane "
                  "(no su/sudo, writes confined to the working directory "
                  "and /tmp)")
       ->capture_default_str()
-      ->check(CLI::IsMember({"yolo", "basic-sane"}));
+      ->check(CLI::IsMember({"yolo", "sane"}));
 
   CLI11_PARSE(app, argc, argv);
 
@@ -182,10 +182,10 @@ int main(int argc, char** argv) {
   // BasicAgent only knows PolicyInterface, so which policy is in force is
   // decided here and nowhere else.
   const agent::YoloPolicy yolo_policy;
-  const agent::BasicSanePolicy basic_sane_policy;
+  const agent::SanePolicy sane_policy;
   const agent::PolicyInterface& policy =
-      policy_name == "basic-sane"
-          ? static_cast<const agent::PolicyInterface&>(basic_sane_policy)
+      policy_name == "sane"
+          ? static_cast<const agent::PolicyInterface&>(sane_policy)
           : static_cast<const agent::PolicyInterface&>(yolo_policy);
 
   agent::AgentOptions options;

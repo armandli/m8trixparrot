@@ -1,4 +1,4 @@
-#include <core/basic_sane_policy.hpp>
+#include <core/sane_policy.hpp>
 
 #include <cctype>
 
@@ -212,10 +212,10 @@ bool is_wrapper_noise(const std::string& text) {
 
 // ---------------------------------------------------------------------------
 
-BasicSanePolicy::BasicSanePolicy()
-    : BasicSanePolicy(std::filesystem::current_path().string()) {}
+SanePolicy::SanePolicy()
+    : SanePolicy(std::filesystem::current_path().string()) {}
 
-BasicSanePolicy::BasicSanePolicy(const std::string& workspace_root) {
+SanePolicy::SanePolicy(const std::string& workspace_root) {
   std::error_code ec;
   std::filesystem::path root =
       std::filesystem::weakly_canonical(workspace_root, ec);
@@ -230,9 +230,9 @@ BasicSanePolicy::BasicSanePolicy(const std::string& workspace_root) {
   if (temp != root) write_roots_.push_back(temp);
 }
 
-std::string BasicSanePolicy::name() const { return "basic-sane"; }
+std::string SanePolicy::name() const { return "sane"; }
 
-bool BasicSanePolicy::path_allowed(const std::string& path) const {
+bool SanePolicy::path_allowed(const std::string& path) const {
   if (path.empty()) return true;  // The tool's own error to report.
   if (is_pseudo_device(path)) return true;
 
@@ -258,7 +258,7 @@ bool BasicSanePolicy::path_allowed(const std::string& path) const {
   return false;
 }
 
-std::string BasicSanePolicy::inspect_command(const std::string& command) const {
+std::string SanePolicy::inspect_command(const std::string& command) const {
   // Nested shells re-enter this, so a cap keeps a crafted command from
   // recursing without end.
   static thread_local int depth = 0;
@@ -382,7 +382,7 @@ std::string BasicSanePolicy::inspect_command(const std::string& command) const {
   return flush_write_targets();
 }
 
-PolicyResult BasicSanePolicy::verify(std::string_view tool_name,
+PolicyResult SanePolicy::verify(std::string_view tool_name,
                                       const ToolArgs& args) const {
   if (tool_name == "bash") {
     const std::optional<std::string> command = string_arg(args, "command");

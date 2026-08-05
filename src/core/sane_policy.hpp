@@ -1,5 +1,5 @@
-#ifndef BASIC_SANE_POLICY_H
-#define BASIC_SANE_POLICY_H
+#ifndef SANE_POLICY_H
+#define SANE_POLICY_H
 
 #include <filesystem>
 #include <string>
@@ -30,13 +30,13 @@ inline constexpr const char* kPublicTempDir = "/tmp";
 // does and a symlink swapped in afterwards would not be seen. It raises the
 // cost of a careless mistake; it does not contain a model that is trying to
 // get out. That needs the OS: a sandbox, a container, or dropped privileges.
-struct BasicSanePolicy : PolicyInterface {
+struct SanePolicy : PolicyInterface {
   // Allows writes under the process's current directory and /tmp.
-  BasicSanePolicy();
+  SanePolicy();
   // Allows writes under `workspace_root` and /tmp. The root is resolved once
   // here rather than read per call: a policy whose boundary moves when
   // something changes the process cwd is a policy you can't reason about.
-  explicit BasicSanePolicy(const std::string& workspace_root);
+  explicit SanePolicy(const std::string& workspace_root);
 
   std::string name() const override;
   PolicyResult verify(std::string_view tool_name,
@@ -63,4 +63,4 @@ private:
 
 }  // namespace agent
 
-#endif  // BASIC_SANE_POLICY_H
+#endif  // SANE_POLICY_H
