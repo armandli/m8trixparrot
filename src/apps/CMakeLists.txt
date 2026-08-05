@@ -3,3 +3,4 @@
 # it below.
 add_subdirectory(chat_tui)
 add_subdirectory(mini_agent)
+add_subdirectory(toolcall)
