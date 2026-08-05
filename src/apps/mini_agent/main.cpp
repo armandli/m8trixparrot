@@ -140,7 +140,7 @@ ToolSegment& open_segment(std::vector<TranscriptNode>& transcript) {
 int main(int argc, char** argv) {
   CLI::App app{"m8trixparrot mini_agent - a minimal coding agent over Ollama"};
 
-  std::string model = "qwen2.5-coder:7b";
+  std::string model = "gemma4:31b-mlx";
   std::string resume_id;
   bool resume_latest = false;
   int max_steps = 12;
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
                  "Model calls allowed per user turn before giving up")
       ->capture_default_str();
 
-  std::string policy_name = "yolo";
+  std::string policy_name = "basic-sane";
   app.add_option("-p,--policy", policy_name,
                  "Permission policy: yolo (allow everything) or basic-sane "
                  "(no su/sudo, writes confined to the working directory "
