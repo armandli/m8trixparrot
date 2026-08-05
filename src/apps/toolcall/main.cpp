@@ -25,7 +25,6 @@ std::vector<std::string> tool_schemas() {
       agent::BashTool().description(), agent::ReadTool().description(),
       agent::WriteTool().description(), agent::EditTool().description(),
       agent::FindTool().description(), agent::GrepTool().description(),
-      agent::LsTool().description(),
   };
 }
 
@@ -56,7 +55,6 @@ agent::ToolResult dispatch(const std::string& name,
   if (name == "edit") return agent::EditTool().execute(args);
   if (name == "find") return agent::FindTool().execute(args);
   if (name == "grep") return agent::GrepTool().execute(args);
-  if (name == "ls") return agent::LsTool().execute(args);
 
   agent::ToolResult unknown;
   unknown.error = "no tool named '" + name +

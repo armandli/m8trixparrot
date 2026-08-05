@@ -91,12 +91,6 @@ struct GrepTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
-struct LsTool {
-  std::string description() const;
-  // path (string), limit (number).
-  ToolResult execute(const ToolArgs& args) const;
-};
-
 // Fetches over the network with no restriction on scheme or host — a URL from
 // model output can name loopback or a metadata endpoint just as easily as a
 // public site. That is a deliberate choice, not an oversight: any guard belongs

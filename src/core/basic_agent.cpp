@@ -56,10 +56,10 @@ BasicAgent::BasicAgent(AgentOptions options, const PolicyInterface& policy)
 
 std::vector<std::string> BasicAgent::tool_schemas() {
   return {
-      BashTool().description(),  ReadTool().description(),
+      BashTool().description(), ReadTool().description(),
       WriteTool().description(), EditTool().description(),
-      FindTool().description(),  GrepTool().description(),
-      LsTool().description(),    MemoryTool().description(),
+      FindTool().description(), GrepTool().description(),
+      MemoryTool().description(),
   };
 }
 
@@ -125,7 +125,6 @@ ToolResult BasicAgent::dispatch(const std::string& tool_name,
   if (tool_name == "edit") return EditTool().execute(args);
   if (tool_name == "find") return FindTool().execute(args);
   if (tool_name == "grep") return GrepTool().execute(args);
-  if (tool_name == "ls") return LsTool().execute(args);
   if (tool_name == "memory") return MemoryTool().execute(args);
 
   ToolResult unknown;
