@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include <core/tools.hpp>
+#include <core/tools.h>
 
 // libgit2's own type, forward-declared so <git2.h> stays out of this header.
 struct git_repository;

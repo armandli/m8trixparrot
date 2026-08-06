@@ -1,4 +1,4 @@
-#include <core/basic_agent.hpp>
+#include <core/basic_agent.h>
 
 #include <algorithm>
 #include <sstream>
@@ -6,8 +6,8 @@
 #include <utility>
 #include <vector>
 
-#include <core/tools_util.hpp>
-#include <core/workspace_context.hpp>
+#include <core/tools_util.h>
+#include <core/workspace_context.h>
 
 namespace agent {
 

@@ -16,9 +16,9 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 
-#include <core/basic_agent.hpp>
-#include <core/sane_policy.hpp>
-#include <core/policy.hpp>
+#include <core/basic_agent.h>
+#include <core/sane_policy.h>
+#include <core/policy.h>
 
 namespace f = ftxui;
 

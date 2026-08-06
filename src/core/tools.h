@@ -44,7 +44,7 @@ struct ToolResult {
 // Every tool is stateless — no members, nothing to construct — and exposes the
 // same two methods, so a caller dispatches on the tool name from a model's
 // tool_call and hands over the same ToolArgs map regardless of which tool it
-// picked. Tools never parse JSON: use args_from_json() in tools_util.hpp to
+// picked. Tools never parse JSON: use args_from_json() in tools_util.h to
 // turn a tool_call's argument object into a ToolArgs first.
 //
 // description() returns the tool's schema as a JSON object, in the shape

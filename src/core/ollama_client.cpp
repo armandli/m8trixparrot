@@ -1,11 +1,11 @@
-#include <core/ollama_client.hpp>
+#include <core/ollama_client.h>
 
 #include <sstream>
 
 #include <curl/curl.h>
 #include <simdjson.h>
 
-#include <core/json_util.hpp>
+#include <core/json_util.h>
 
 namespace agent {
 

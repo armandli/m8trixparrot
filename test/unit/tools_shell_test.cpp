@@ -10,8 +10,8 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.hpp>
-#include <tool_test_env.hpp>
+#include <core/tools.h>
+#include <tool_test_env.h>
 
 namespace agent::test {
 namespace {
@@ -124,7 +124,7 @@ TEST_F(BashTest, AnEmptyCommandIsTreatedAsMissing) {
 }
 
 // An argument of the wrong JSON type reads as absent rather than as a type
-// error — string_arg() returns nullopt for both cases (see tools_util.hpp).
+// error — string_arg() returns nullopt for both cases (see tools_util.h).
 TEST_F(BashTest, ACommandOfTheWrongTypeReadsAsMissing) {
   const ToolResult result = BashTool().execute(args({{"command", num(42)}}));
 

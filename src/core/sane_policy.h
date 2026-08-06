@@ -6,8 +6,8 @@
 #include <string_view>
 #include <vector>
 
-#include <core/policy.hpp>
-#include <core/tools.hpp>
+#include <core/policy.h>
+#include <core/tools.h>
 
 namespace agent {
 

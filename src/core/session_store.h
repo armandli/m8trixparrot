@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include <core/ollama_client.hpp>
+#include <core/ollama_client.h>
 
 namespace agent {
 

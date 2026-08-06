@@ -1,4 +1,4 @@
-#include <core/session_store.hpp>
+#include <core/session_store.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -10,7 +10,7 @@
 
 #include <simdjson.h>
 
-#include <core/json_util.hpp>
+#include <core/json_util.h>
 
 namespace agent {
 

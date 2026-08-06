@@ -7,9 +7,9 @@
 
 #include <simdjson.h>
 
-#include <core/json_util.hpp>
-#include <core/tools.hpp>
-#include <core/tools_util.hpp>
+#include <core/json_util.h>
+#include <core/tools.h>
+#include <core/tools_util.h>
 
 namespace {
 

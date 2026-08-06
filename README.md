@@ -11,7 +11,7 @@ with terminal UIs built on [FTXUI](https://github.com/ArthurSonzogni/FTXUI).
 ├── Makefile                convenience wrapper around cmake/make
 └── src/
     ├── core/                shared library (agentcore): Ollama HTTP client, etc.
-    │   ├── ollama_client.hpp/.cpp
+    │   ├── ollama_client.h/.cpp
     │   └── CMakeLists.txt
     └── apps/                one subdirectory per agent experiment
         ├── CMakeLists.txt   registers each experiment

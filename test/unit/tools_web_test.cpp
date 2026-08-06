@@ -8,9 +8,9 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.hpp>
-#include <loopback_server.hpp>
-#include <tool_test_env.hpp>
+#include <core/tools.h>
+#include <loopback_server.h>
+#include <tool_test_env.h>
 
 namespace agent::test {
 namespace {
@@ -168,7 +168,7 @@ TEST_F(WebFetchTest, MissingUrlIsAnError) {
 
 // Deliberate, not an oversight: webfetch applies no scheme or host
 // restriction, so a URL naming loopback or a cloud metadata endpoint is
-// fetched like any other. src/core/tools.hpp says so explicitly and puts the
+// fetched like any other. src/core/tools.h says so explicitly and puts the
 // responsibility on whatever drives the tool. Every test above relies on this;
 // this one states it, so that adding a host check is understood as a behavior
 // change rather than a bug fix.

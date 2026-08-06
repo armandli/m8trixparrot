@@ -13,7 +13,7 @@
 #include <git2.h>
 #include <gtest/gtest.h>
 
-#include <core/tools.hpp>
+#include <core/tools.h>
 
 namespace agent::test {
 

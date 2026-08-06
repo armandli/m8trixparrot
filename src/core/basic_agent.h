@@ -5,10 +5,10 @@
 #include <string>
 #include <vector>
 
-#include <core/ollama_client.hpp>
-#include <core/policy.hpp>
-#include <core/session_store.hpp>
-#include <core/tools.hpp>
+#include <core/ollama_client.h>
+#include <core/policy.h>
+#include <core/session_store.h>
+#include <core/tools.h>
 
 namespace agent {
 

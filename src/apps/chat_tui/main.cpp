@@ -17,7 +17,7 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 
-#include <core/ollama_client.hpp>
+#include <core/ollama_client.h>
 
 namespace f = ftxui;
 

@@ -1,4 +1,4 @@
-#include <core/sane_policy.hpp>
+#include <core/sane_policy.h>
 
 #include <cctype>
 
@@ -8,7 +8,7 @@
 #include <system_error>
 #include <vector>
 
-#include <core/tools_util.hpp>
+#include <core/tools_util.h>
 
 namespace agent {
 

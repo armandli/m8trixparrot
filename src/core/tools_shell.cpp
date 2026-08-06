@@ -1,4 +1,4 @@
-#include <core/tools.hpp>
+#include <core/tools.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-#include <core/tools_util.hpp>
+#include <core/tools_util.h>
 
 namespace agent {
 

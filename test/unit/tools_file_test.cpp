@@ -10,8 +10,8 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.hpp>
-#include <tool_test_env.hpp>
+#include <core/tools.h>
+#include <tool_test_env.h>
 
 namespace agent::test {
 namespace {

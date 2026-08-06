@@ -1,4 +1,4 @@
-#include <core/tools.hpp>
+#include <core/tools.h>
 
 #include <cctype>
 #include <cstddef>
@@ -13,7 +13,7 @@
 
 #include <curl/curl.h>
 
-#include <core/tools_util.hpp>
+#include <core/tools_util.h>
 
 namespace agent {
 

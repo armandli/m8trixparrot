@@ -1,4 +1,4 @@
-#include <core/tools.hpp>
+#include <core/tools.h>
 
 #include <cstdint>
 
@@ -6,7 +6,7 @@
 #include <optional>
 #include <string>
 
-#include <core/tools_util.hpp>
+#include <core/tools_util.h>
 
 namespace agent {
 

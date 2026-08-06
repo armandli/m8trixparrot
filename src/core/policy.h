@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include <core/tools.hpp>
+#include <core/tools.h>
 
 namespace agent {
 
@@ -47,7 +47,7 @@ struct PolicyInterface {
   // names that match no tool at all, which a policy is free to refuse.
   //
   // `args` is the same map the tool's own execute() receives, so a policy
-  // inspects arguments with the accessors in core/tools_util.hpp instead of
+  // inspects arguments with the accessors in core/tools_util.h instead of
   // re-parsing them into a second representation that could disagree with the
   // first.
   virtual PolicyResult verify(std::string_view tool_name,

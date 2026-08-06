@@ -7,13 +7,13 @@
 #include <string_view>
 #include <vector>
 
-#include <core/json_util.hpp>
+#include <core/json_util.h>
 
 namespace agent {
 
 // One tool invocation the model asked for. `arguments` is kept as the verbatim
 // JSON object text rather than a parsed structure: the shape is per-tool, and
-// agent::args_from_json() in core/tools_util.hpp is the one place that turns it
+// agent::args_from_json() in core/tools_util.h is the one place that turns it
 // into a ToolArgs map.
 struct ToolCall {
   std::string name;
