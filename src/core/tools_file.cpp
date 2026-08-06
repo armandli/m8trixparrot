@@ -158,7 +158,7 @@ ToolResult ReadTool::execute(const ToolArgs& args) const {
     return result;
   }
   if (std::filesystem::is_directory(*path, ec)) {
-    result.error = "read: path is a directory, use ls: " + *path;
+    result.error = "read: path is a directory: " + *path;
     return result;
   }
 

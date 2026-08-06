@@ -8,17 +8,20 @@ ifneq ($(GENERATOR),)
 CMAKE_FLAGS += -G "$(GENERATOR)"
 endif
 
-.PHONY: all configure build clean rebuild run
+.PHONY: all configure build clean rebuild run test
 
 all: build
 
 configure: $(BUILD_DIR)/CMakeCache.txt
 
-$(BUILD_DIR)/CMakeCache.txt: CMakeLists.txt src/CMakeLists.txt
+$(BUILD_DIR)/CMakeCache.txt: CMakeLists.txt src/CMakeLists.txt test/CMakeLists.txt
 	cmake -S . -B $(BUILD_DIR) $(CMAKE_FLAGS)
 
 build: configure
 	cmake --build $(BUILD_DIR) -j$(JOBS)
+
+test: build
+	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 clean:
 	rm -rf $(BUILD_DIR)

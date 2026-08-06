@@ -53,4 +53,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cli11)
 
+# Tests only. INSTALL_GTEST off so a future `make install` doesn't carry the
+# framework along with the binaries.
+set(INSTALL_GTEST OFF CACHE INTERNAL "")
+set(BUILD_GMOCK OFF CACHE INTERNAL "")
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest
+  GIT_TAG v1.17.0
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
 add_subdirectory(src)
+add_subdirectory(test)
