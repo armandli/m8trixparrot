@@ -1,1 +1,0 @@
-[{"name":"websearch","description":"Search the web for a given query and return matching results.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Search query string"},"limit":{"type":"number","description":"Maximum number of search results to return"}},"required":["query"]}}]

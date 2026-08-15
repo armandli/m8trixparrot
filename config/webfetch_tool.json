@@ -1,1 +1,0 @@
-[{"name":"webfetch","description":"Fetch a website and return its content.","parameters":{"type":"object","properties":{"url":{"type":"string","description":"URL of the website to fetch"}},"required":["url"]}}]
