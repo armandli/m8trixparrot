@@ -50,7 +50,7 @@ LoopbackServer::LoopbackServer(int status, std::string content_type,
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
-  address.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = 0;  // Any free port; the kernel picks.
   if (::bind(mListenFd, reinterpret_cast<sockaddr*>(&address),
              sizeof(address)) != 0) {
@@ -68,7 +68,7 @@ LoopbackServer::LoopbackServer(int status, std::string content_type,
   socklen_t bound_size = sizeof(bound);
   if (::getsockname(mListenFd, reinterpret_cast<sockaddr*>(&bound),
                     &bound_size) == 0) {
-    mPort = ::ntohs(bound.sin_port);
+    mPort = ntohs(bound.sin_port);
   }
 
   mThread = std::thread([this] { serve(); });
