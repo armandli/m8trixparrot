@@ -61,9 +61,15 @@ struct AgentTurnResult {
 // One turn is one user message plus however many model/tool round trips it
 // takes to answer it. run_turn() blocks for the whole thing, so a UI runs it
 // off the main thread and renders from the observer callback.
+//
+// Thread-safety: a single BasicAgent instance is NOT safe for concurrent
+// run_turn() calls — mTranscript and mSessionId are unprotected. Concurrency
+// is achieved by creating one BasicAgent per subagent thread and sharing a
+// single OllamaClient across all of them (OllamaClient is thread-safe).
 struct BasicAgent {
-  // `policy` is borrowed and must outlive the agent.
-  BasicAgent(AgentOptions options, const PolicyInterface& policy);
+  // `client` and `policy` are borrowed and must outlive the agent.
+  BasicAgent(AgentOptions options, const OllamaClient& client,
+             const PolicyInterface& policy);
 
   AgentTurnResult run_turn(const std::string& user_input,
                            const AgentObserver& observer);
@@ -101,8 +107,8 @@ protected:
 
 private:
   AgentOptions mOptions;
+  const OllamaClient& mClient;
   const PolicyInterface& mPolicy;
-  OllamaClient mClient;
   SessionStore mStore;
   std::vector<ChatMessage> mTranscript;
   std::string mSessionId;

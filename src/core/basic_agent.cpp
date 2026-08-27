@@ -48,10 +48,11 @@ std::string summarize(const std::string& tool_name, const ToolArgs& args) {
 
 }  // namespace
 
-BasicAgent::BasicAgent(AgentOptions options, const PolicyInterface& policy)
+BasicAgent::BasicAgent(AgentOptions options, const OllamaClient& client,
+                       const PolicyInterface& policy)
     : mOptions(std::move(options)),
+      mClient(client),
       mPolicy(policy),
-      mClient(mOptions.host),
       mStore(kAgentSessionDir) {}
 
 std::vector<std::string> BasicAgent::tool_schemas() {

@@ -192,7 +192,8 @@ int main(int argc, char** argv) {
   options.model = model;
   options.max_steps = max_steps;
 
-  agent::BasicAgent basic_agent(options, policy);
+  agent::OllamaClient client(options.host);
+  agent::BasicAgent basic_agent(options, client, policy);
 
   std::mutex mutex;
   std::vector<TranscriptNode> transcript;

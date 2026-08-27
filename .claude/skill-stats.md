@@ -3,7 +3,7 @@
 | Skill Name | Uses | Issues |
 |---|---|---|
 | cli11-guide-cpp | 1 | 0 |
-| commit-push | 18 | 0 |
+| commit-push | 19 | 0 |
 | create-skill | 3 | 0 |
 | format-cpp | 2 | 0 |
 | ftxui-guide-cpp | 1 | 0 |

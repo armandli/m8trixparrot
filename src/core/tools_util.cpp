@@ -1,5 +1,6 @@
 #include <core/tools_util.h>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -30,13 +31,14 @@ std::string trim_trailing_slash(std::string path) {
 // A name unique enough that two concurrent tool calls don't collide, without
 // pulling in a random source: the clock plus a per-process counter.
 std::string temp_file_name(std::string_view label) {
-  static int counter = 0;
+  static std::atomic<int> counter{0};
   const auto now = std::chrono::system_clock::now().time_since_epoch();
   const auto ticks =
       std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
 
   std::ostringstream name;
-  name << "m8trixparrot-" << label << "-" << ticks << "-" << counter++ << ".txt";
+  name << "m8trixparrot-" << label << "-" << ticks << "-"
+       << counter.fetch_add(1, std::memory_order_relaxed) << ".txt";
   return name.str();
 }
 
