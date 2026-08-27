@@ -1,10 +1,17 @@
 #ifndef OLLAMA_CLIENT_H
 #define OLLAMA_CLIENT_H
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
+#include <future>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <core/json_util.h>
@@ -110,10 +117,28 @@ struct ShowResult {
 };
 
 // Thin wrapper around ollama's HTTP API (https://github.com/ollama/ollama/blob/main/docs/api.md),
-// talking to it over libcurl. One instance can be reused across calls and
-// across threads.
+// talking to it over libcurl. One global instance is accessed via instance().
+// configure() must be called once before enqueue_chat() to set the model (and
+// optionally the host).
 struct OllamaClient {
-  explicit OllamaClient(std::string host = "http://localhost:11434");
+  // Singleton access. The instance is created on first call.
+  static OllamaClient& instance();
+
+  // Set the model used by enqueue_chat() and (optionally) the host.
+  // Must be called before any enqueue_chat() call.
+  static void configure(const std::string& model,
+                        const std::string& host = "http://localhost:11434");
+
+  // Enqueues a chat request. Returns immediately with a ticket number.
+  // The worker thread picks jobs in FIFO order, serialising calls to Ollama.
+  uint64_t enqueue_chat(const std::vector<ChatMessage>& messages,
+                        const std::vector<std::string>& tools = {});
+
+  // Blocks until the job identified by `ticket` completes and returns its
+  // result. Each ticket may only be waited on once.
+  ChatResult wait_for(uint64_t ticket);
+
+  ~OllamaClient();
 
   // `tools` holds each tool's schema as JSON object text — exactly what the
   // tool classes' description() returns. They are wrapped as
@@ -160,7 +185,28 @@ protected:
       const GenerateOptions::ModelParams& params);
 
 private:
+  OllamaClient();  // Starts the worker thread; use instance() for access.
+
+  void worker_loop();
+
   std::string mHost;
+  std::string mModel;
+
+  struct Job {
+    uint64_t ticket;
+    std::vector<ChatMessage> messages;
+    std::vector<std::string> tools;
+    std::promise<ChatResult> promise;
+  };
+
+  std::deque<Job> mQueue;
+  std::mutex mQueueMutex;
+  std::condition_variable mQueueCv;
+  std::atomic<uint64_t> mNextTicket{0};
+  std::unordered_map<uint64_t, std::future<ChatResult>> mResults;
+  std::mutex mResultsMutex;
+  std::thread mWorker;
+  bool mShutdown{false};
 };
 
 }  // namespace agent

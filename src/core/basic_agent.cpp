@@ -55,10 +55,8 @@ std::string summarize(const std::string& tool_name, const ToolArgs& args) {
 // with BasicAgent fully defined.
 SubagentRecord::~SubagentRecord() = default;
 
-BasicAgent::BasicAgent(AgentOptions options, const OllamaClient& client,
-                       const PolicyInterface& policy)
+BasicAgent::BasicAgent(AgentOptions options, const PolicyInterface& policy)
     : mOptions(std::move(options)),
-      mClient(client),
       mPolicy(policy),
       mStore(kAgentSessionDir) {}
 
@@ -187,7 +185,8 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
     messages.push_back(ChatMessage{"system", system_prompt(), {}, ""});
     messages.insert(messages.end(), mTranscript.begin(), mTranscript.end());
 
-    const ChatResult reply = mClient.chat(mOptions.model, messages, tools);
+    const uint64_t ticket = OllamaClient::instance().enqueue_chat(messages, tools);
+    const ChatResult reply = OllamaClient::instance().wait_for(ticket);
     if (not reply.ok) {
       turn.error = reply.error;
       emit({AgentEvent::Kind::Error, reply.error, "", ""});
@@ -276,7 +275,7 @@ ToolResult BasicAgent::create_subagent(const ToolArgs& args) {
 
   const std::string id = generate_uuid_v4();
   auto record = std::make_shared<SubagentRecord>();
-  record->agent = std::make_unique<BasicAgent>(mOptions, mClient, mPolicy);
+  record->agent = std::make_unique<BasicAgent>(mOptions, mPolicy);
 
   std::thread([record, task = *task]() {
     AgentTurnResult turn = record->agent->run_turn(task, nullptr);

@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  agent::OllamaClient client;
+  auto& client = agent::OllamaClient::instance();
 
   std::mutex mutex;
   std::vector<DisplayMessage> history;

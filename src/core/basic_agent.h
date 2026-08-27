@@ -45,12 +45,10 @@ struct AgentEvent {
 using AgentObserver = std::function<void(const AgentEvent&)>;
 
 struct AgentOptions {
-  std::string model;
   // How many model calls one user turn may take before the agent gives up. A
   // loop that keeps calling tools without answering is the failure this
   // guards against.
   int max_steps = 12;
-  std::string host = "http://localhost:11434";
 };
 
 struct AgentTurnResult {
@@ -88,12 +86,11 @@ struct SubagentRecord {
 
 // Thread-safety: a single BasicAgent instance is NOT safe for concurrent
 // run_turn() calls — mTranscript and mSessionId are unprotected. Concurrency
-// is achieved by creating one BasicAgent per subagent thread and sharing a
-// single OllamaClient across all of them (OllamaClient is thread-safe).
+// is achieved by creating one BasicAgent per subagent thread; all agents share
+// the OllamaClient singleton whose work queue serialises Ollama calls.
 struct BasicAgent {
-  // `client` and `policy` are borrowed and must outlive the agent.
-  BasicAgent(AgentOptions options, const OllamaClient& client,
-             const PolicyInterface& policy);
+  // `policy` is borrowed and must outlive the agent.
+  BasicAgent(AgentOptions options, const PolicyInterface& policy);
 
   AgentTurnResult run_turn(const std::string& user_input,
                            const AgentObserver& observer);
@@ -136,7 +133,6 @@ protected:
 
 private:
   AgentOptions mOptions;
-  const OllamaClient& mClient;
   const PolicyInterface& mPolicy;
   SessionStore mStore;
   std::vector<ChatMessage> mTranscript;

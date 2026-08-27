@@ -188,12 +188,12 @@ int main(int argc, char** argv) {
           ? static_cast<const agent::PolicyInterface&>(sane_policy)
           : static_cast<const agent::PolicyInterface&>(yolo_policy);
 
+  agent::OllamaClient::configure(model);
+
   agent::AgentOptions options;
-  options.model = model;
   options.max_steps = max_steps;
 
-  agent::OllamaClient client(options.host);
-  agent::BasicAgent basic_agent(options, client, policy);
+  agent::BasicAgent basic_agent(options, policy);
 
   std::mutex mutex;
   std::vector<TranscriptNode> transcript;
