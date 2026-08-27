@@ -2,6 +2,7 @@ add_library(agentcore STATIC
   basic_agent.cpp
   sane_policy.cpp
   json_util.cpp
+  basic_ollama_client.cpp
   ollama_client.cpp
   policy.cpp
   session_store.cpp

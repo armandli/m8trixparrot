@@ -17,7 +17,7 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 
-#include <core/ollama_client.h>
+#include <core/basic_ollama_client.h>
 
 namespace f = ftxui;
 
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  auto& client = agent::OllamaClient::instance();
+  agent::BasicOllamaClient client;
 
   std::mutex mutex;
   std::vector<DisplayMessage> history;
