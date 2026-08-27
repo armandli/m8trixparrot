@@ -56,10 +56,10 @@ BasicAgent::BasicAgent(AgentOptions options, const PolicyInterface& policy)
 
 std::vector<std::string> BasicAgent::tool_schemas() {
   return {
-      BashTool().description(), ReadTool().description(),
-      WriteTool().description(), EditTool().description(),
-      FindTool().description(), GrepTool().description(),
-      MemoryTool().description(),
+      BashTool().description(),   ReadTool().description(),
+      WriteTool().description(),  EditTool().description(),
+      FindTool().description(),   GrepTool().description(),
+      MemoryTool().description(), PythonTool().description(),
   };
 }
 
@@ -126,6 +126,7 @@ ToolResult BasicAgent::dispatch(const std::string& tool_name,
   if (tool_name == "find") return FindTool().execute(args);
   if (tool_name == "grep") return GrepTool().execute(args);
   if (tool_name == "memory") return MemoryTool().execute(args);
+  if (tool_name == "python") return PythonTool().execute(args);
 
   ToolResult unknown;
   unknown.error = "no tool named '" + tool_name +

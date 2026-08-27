@@ -120,6 +120,15 @@ struct WebSearchTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
+// Executes a Python script in-process via pybind11 embedding. stdout and
+// stderr are captured and returned as the tool output; exceptions are caught
+// inside Python and appended to the capture rather than propagated.
+struct PythonTool {
+  std::string description() const;
+  // script (string, required).
+  ToolResult execute(const ToolArgs& args) const;
+};
+
 }  // namespace agent
 
 #endif  // TOOLS_H

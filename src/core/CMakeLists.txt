@@ -7,6 +7,7 @@ add_library(agentcore STATIC
   session_store.cpp
   tools_file.cpp
   tools_memory.cpp
+  tools_python.cpp
   tools_search.cpp
   tools_shell.cpp
   tools_util.cpp
@@ -21,4 +22,5 @@ target_link_libraries(agentcore
   PUBLIC CURL::libcurl
   PUBLIC simdjson::simdjson
   PUBLIC PkgConfig::LIBGIT2
+  PUBLIC pybind11::embed
 )

@@ -5,6 +5,7 @@ include(GoogleTest)
 add_executable(unit_tests
   loopback_server.cpp
   tools_file_test.cpp
+  tools_python_test.cpp
   tools_search_test.cpp
   tools_shell_test.cpp
   tools_web_test.cpp

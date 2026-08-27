@@ -22,9 +22,10 @@ namespace {
 // verbatim, so nothing has to be kept in sync by hand.
 std::vector<std::string> tool_schemas() {
   return {
-      agent::BashTool().description(), agent::ReadTool().description(),
-      agent::WriteTool().description(), agent::EditTool().description(),
-      agent::FindTool().description(), agent::GrepTool().description(),
+      agent::BashTool().description(),   agent::ReadTool().description(),
+      agent::WriteTool().description(),  agent::EditTool().description(),
+      agent::FindTool().description(),   agent::GrepTool().description(),
+      agent::PythonTool().description(),
   };
 }
 
@@ -55,6 +56,7 @@ agent::ToolResult dispatch(const std::string& name,
   if (name == "edit") return agent::EditTool().execute(args);
   if (name == "find") return agent::FindTool().execute(args);
   if (name == "grep") return agent::GrepTool().execute(args);
+  if (name == "python") return agent::PythonTool().execute(args);
 
   agent::ToolResult unknown;
   unknown.error = "no tool named '" + name +
