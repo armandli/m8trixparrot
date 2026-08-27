@@ -29,6 +29,14 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBGIT2 REQUIRED IMPORTED_TARGET libgit2)
 
 FetchContent_Declare(
+  pybind11
+  GIT_REPOSITORY https://github.com/pybind/pybind11
+  GIT_TAG v2.13.6
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(pybind11)
+
+FetchContent_Declare(
   simdjson
   GIT_REPOSITORY https://github.com/simdjson/simdjson
   GIT_TAG v4.6.5
