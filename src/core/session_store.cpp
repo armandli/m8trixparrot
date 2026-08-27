@@ -23,6 +23,8 @@ bool is_valid_session_id(const std::string& id) {
   return true;
 }
 
+}  // namespace
+
 // RFC 4122 version-4 (random) UUID: 16 random bytes with the version and
 // variant bits overwritten, formatted as the canonical 8-4-4-4-12 hex string.
 std::string generate_uuid_v4() {
@@ -44,8 +46,6 @@ std::string generate_uuid_v4() {
                 static_cast<unsigned long long>(lo & 0xFFFFFFFFFFFFULL));
   return std::string(buf);
 }
-
-}  // namespace
 
 SessionStore::SessionStore(std::string root_dir) : mRootDir(std::move(root_dir)) {}
 

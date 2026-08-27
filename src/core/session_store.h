@@ -8,6 +8,9 @@
 
 namespace agent {
 
+// RFC 4122 version-4 (random) UUID. Thread-safe via thread_local RNG.
+std::string generate_uuid_v4();
+
 struct SessionRecord {
   std::string session_id;
   std::vector<ChatMessage> interactions;

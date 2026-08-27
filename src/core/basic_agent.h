@@ -1,8 +1,14 @@
 #ifndef BASIC_AGENT_H
 #define BASIC_AGENT_H
 
+#include <condition_variable>
 #include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <core/ollama_client.h>
@@ -62,6 +68,24 @@ struct AgentTurnResult {
 // takes to answer it. run_turn() blocks for the whole thing, so a UI runs it
 // off the main thread and renders from the observer callback.
 //
+// Forward declaration so SubagentRecord can hold a unique_ptr<BasicAgent>
+// before BasicAgent is fully defined.
+struct BasicAgent;
+
+// Owns a running subagent and its result. Held via shared_ptr by both the
+// parent's registry and the subagent's detached thread, so the record outlives
+// the parent BasicAgent if the thread is still in flight.
+//
+// The destructor is defined in basic_agent.cpp so that unique_ptr<BasicAgent>
+// can be destroyed there, where BasicAgent is fully defined.
+struct SubagentRecord {
+  std::unique_ptr<BasicAgent> agent;
+  std::mutex mutex;
+  std::condition_variable cv;
+  std::optional<AgentTurnResult> result;  // Written by the thread when done.
+  ~SubagentRecord();
+};
+
 // Thread-safety: a single BasicAgent instance is NOT safe for concurrent
 // run_turn() calls — mTranscript and mSessionId are unprotected. Concurrency
 // is achieved by creating one BasicAgent per subagent thread and sharing a
@@ -98,12 +122,17 @@ protected:
   // Runs one tool call, policy first. Never throws and never reports failure
   // as anything but a ToolResult: a tool that fails is information the model
   // needs, not a reason to abandon the turn.
-  ToolResult dispatch(const std::string& tool_name, const ToolArgs& args) const;
+  ToolResult dispatch(const std::string& tool_name, const ToolArgs& args);
 
   // The system message, rebuilt for every model call so a memory update takes
   // effect on the very next step. Deliberately not stored in the transcript —
   // the session file holds the conversation, not generated preamble.
   std::string system_prompt() const;
+
+  // Subagent tool implementations. These need agent state (mClient, mPolicy,
+  // mSubagents) so they live here rather than as standalone stateless tools.
+  ToolResult create_subagent(const ToolArgs& args);
+  ToolResult wait_subagent(const ToolArgs& args);
 
 private:
   AgentOptions mOptions;
@@ -112,6 +141,8 @@ private:
   SessionStore mStore;
   std::vector<ChatMessage> mTranscript;
   std::string mSessionId;
+  mutable std::mutex mSubagentsMutex;
+  std::unordered_map<std::string, std::shared_ptr<SubagentRecord>> mSubagents;
 };
 
 }  // namespace agent
