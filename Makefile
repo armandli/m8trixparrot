@@ -8,20 +8,27 @@ ifneq ($(GENERATOR),)
 CMAKE_FLAGS += -G "$(GENERATOR)"
 endif
 
-.PHONY: all configure build clean rebuild run test
+.PHONY: all configure build clean rebuild run test integration-test
 
 all: build
 
 configure: $(BUILD_DIR)/CMakeCache.txt
 
-$(BUILD_DIR)/CMakeCache.txt: CMakeLists.txt src/CMakeLists.txt test/CMakeLists.txt
+$(BUILD_DIR)/CMakeCache.txt: CMakeLists.txt src/CMakeLists.txt test/CMakeLists.txt \
+                            test/unit/CMakeLists.txt test/integration/CMakeLists.txt
 	cmake -S . -B $(BUILD_DIR) $(CMAKE_FLAGS)
 
 build: configure
 	cmake --build $(BUILD_DIR) -j$(JOBS)
 
+# The default suite is hermetic. The `integration` label covers the live tests
+# that need a running Ollama (see test/integration/); run those with
+# `make integration-test`.
 test: build
-	ctest --test-dir $(BUILD_DIR) --output-on-failure
+	ctest --test-dir $(BUILD_DIR) --output-on-failure -LE integration
+
+integration-test: build
+	ctest --test-dir $(BUILD_DIR) --output-on-failure -L integration
 
 clean:
 	rm -rf $(BUILD_DIR)
