@@ -168,11 +168,6 @@ std::string Agent::skill_label_for(const ToolCall& call, const ToolArgs& args,
   return std::string();
 }
 
-std::string Agent::memory() const {
-  const std::optional<std::string> contents = read_file(kMemoryPath);
-  return contents.value_or(std::string());
-}
-
 void Agent::reset() {
   mTranscript.clear();
   mSessionId.clear();
@@ -356,11 +351,6 @@ std::string Agent::system_prompt() const {
     }
   }
 
-  const std::string notes = memory();
-  if (not notes.empty()) {
-    prompt << "\nYour memory notes:\n" << clip(notes, 8000) << "\n";
-  }
-
   return prompt.str();
 }
 
@@ -420,8 +410,8 @@ AgentResult Agent::run_turn(const std::string& objective) {
     // may itself run an Ollama call and replace mTranscript with a summary.
     maybe_summarize_context();
 
-    // The system message is rebuilt every step rather than stored, so a memory
-    // write lands in the very next call.
+    // The system message is rebuilt every step rather than stored, so a skill
+    // load/unload lands in the very next call.
     std::vector<ChatMessage> messages;
     messages.reserve(mTranscript.size() + 1);
     messages.push_back(ChatMessage{"system", system_prompt(), {}, ""});

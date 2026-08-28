@@ -25,11 +25,6 @@ using ToolArgValue =
 // so a lookup by string_view doesn't allocate.
 using ToolArgs = std::map<std::string, ToolArgValue, std::less<>>;
 
-// Where MemoryTool keeps the agent's working notes, relative to the working
-// directory. A constant rather than a member so the tool stays memberless like
-// the rest; BasicAgent reads the same path to fold memory into its prompt.
-inline constexpr const char* kMemoryPath = ".m8trix/memory.md";
-
 // The dedicated Python virtual environment ensure_python_ready() creates on
 // first use, relative to the working directory. python scripts and
 // package_install both target this venv rather than whatever environment the
@@ -105,16 +100,6 @@ struct GrepTool {
 struct WebFetchTool {
   std::string description() const;
   // url (string, required).
-  ToolResult execute(const ToolArgs& args) const;
-};
-
-// Rewrites the agent's working memory at kMemoryPath. Overwrite rather than
-// append is deliberate: the current memory is already in front of the model
-// each turn, so it rewrites the whole thing and the file can't grow without
-// bound.
-struct MemoryTool {
-  std::string description() const;
-  // content (string, required).
   ToolResult execute(const ToolArgs& args) const;
 };
 

@@ -18,7 +18,7 @@
 namespace agent {
 
 // Everything the agent keeps lives under here, relative to the working
-// directory: sessions in .m8trix/sessions, memory at kMemoryPath.
+// directory: sessions in .m8trix/sessions.
 inline constexpr const char* kAgentRootDir = ".m8trix";
 inline constexpr const char* kAgentSessionDir = ".m8trix/sessions";
 
@@ -168,9 +168,6 @@ struct Agent {
   int64_t context_window() const { return mOptions.context_window_tokens; }
   int64_t context_limit() const;
 
-  // Current contents of kMemoryPath; empty when the model hasn't written any.
-  std::string memory() const;
-
   // The skills available to this agent (name + description in the system
   // prompt; body loaded on demand). Scanned lazily and cached.
   const SkillCatalog& skill_catalog() const;
@@ -178,8 +175,7 @@ struct Agent {
   // a running turn.
   void reload_skills();
 
-  // Drops the transcript and starts a new session id. Memory survives, since
-  // it is the part meant to outlive a conversation.
+  // Drops the transcript and starts a new session id.
   void reset();
 
   // The tool schemas handed to the model, in advertised order. Depends on
@@ -194,8 +190,8 @@ struct Agent {
   // needs, not a reason to abandon the turn.
   ToolResult dispatch(const std::string& tool_name, const ToolArgs& args);
 
-  // The system message, rebuilt for every model call so a memory update takes
-  // effect on the very next step. Deliberately not stored in the transcript.
+  // The system message, rebuilt for every model call. Deliberately not stored
+  // in the transcript.
   std::string system_prompt() const;
 
  private:

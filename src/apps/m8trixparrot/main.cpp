@@ -131,11 +131,10 @@ std::vector<std::string> list_ollama_models(bool& command_ok) {
 
 const char* kHelpText =
     "/help     show this message\n"
-    "/memory   show the agent's memory notes\n"
     "/session  show the current session id\n"
     "/context  show context token usage and the auto-summarize threshold\n"
     "/skills   list available skills (and re-scan the skills directory)\n"
-    "/reset    start a new session (memory is kept)\n"
+    "/reset    start a new session\n"
     "/quit     exit\n"
     "\n"
     "click a > / v header to fold or unfold that tool call, group, or subagent\n"
@@ -725,12 +724,6 @@ int main(int argc, char** argv) {
       push_notice(TranscriptNode::Kind::Notice, help);
       return;
     }
-    if (entered == "/memory") {
-      const std::string notes = root_agent.memory();
-      push_notice(TranscriptNode::Kind::Notice,
-                  notes.empty() ? "no memory notes yet" : notes);
-      return;
-    }
     if (entered == "/session") {
       const std::string id = root_agent.session_id();
       push_notice(TranscriptNode::Kind::Notice,
@@ -758,8 +751,7 @@ int main(int argc, char** argv) {
         agent_containers.clear();
         agent_containers[root_id] = &transcript;
       }
-      push_notice(TranscriptNode::Kind::Notice,
-                  "started a new session; memory kept");
+      push_notice(TranscriptNode::Kind::Notice, "started a new session");
       return;
     }
     if (entered == "/skills") {
