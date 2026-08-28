@@ -51,6 +51,20 @@ const std::vector<std::pair<std::string, std::string>>* pairs_arg(
 ToolArgs args_from_json(std::string_view json, std::string& error);
 
 // ---------------------------------------------------------------------------
+// Shelling out.
+// ---------------------------------------------------------------------------
+
+// Single-quotes `text` for /bin/sh, closing and reopening the quote around any
+// embedded single quote — the standard trick for handing an arbitrary string
+// to a shell command line as one argument.
+std::string shell_quote(std::string_view text);
+
+// Runs `command` through /bin/sh and returns whatever it wrote to the file
+// descriptors popen captures (stdout only, unless the command itself redirects
+// stderr into it with 2>&1). Empty string if the command couldn't even start.
+std::string run_shell_capture(const std::string& command);
+
+// ---------------------------------------------------------------------------
 // Output truncation.
 // ---------------------------------------------------------------------------
 

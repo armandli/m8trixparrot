@@ -30,6 +30,13 @@ using ToolArgs = std::map<std::string, ToolArgValue, std::less<>>;
 // the rest; BasicAgent reads the same path to fold memory into its prompt.
 inline constexpr const char* kMemoryPath = ".m8trix/memory.md";
 
+// The dedicated Python virtual environment ensure_python_ready() creates on
+// first use, relative to the working directory. python scripts and
+// package_install both target this venv rather than whatever environment the
+// m8trixparrot binary itself happens to be running under, so installs land in
+// a sandbox scoped to this workspace instead of mutating a shared/dev venv.
+inline constexpr const char* kVenvDir = ".m8trixenv";
+
 struct ToolResult {
   bool ok = false;
   std::string output;  // What gets fed back to the model.
@@ -138,12 +145,6 @@ struct PythonTool {
   // script (string, required).
   ToolResult execute(const ToolArgs& args) const;
 };
-
-// The embedded interpreter's own python binary (sys.executable) — what
-// `package_install` invokes `pip` through, so an installed package lands
-// where `python` scripts can import it. Acquires the GIL; safe from any
-// thread, but blocks behind whatever script is currently running.
-std::string python_executable();
 
 // Installs a single package by name, deduplicated through the process-wide
 // PackageInstaller singleton (package_installer.h) so concurrent subagents

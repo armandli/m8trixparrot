@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -11,6 +12,32 @@
 #include <simdjson.h>
 
 namespace agent {
+
+std::string shell_quote(std::string_view text) {
+  std::string quoted = "'";
+  for (const char c : text) {
+    if (c == '\'') {
+      quoted += "'\\''";
+    } else {
+      quoted += c;
+    }
+  }
+  quoted += "'";
+  return quoted;
+}
+
+std::string run_shell_capture(const std::string& command) {
+  FILE* pipe = popen(command.c_str(), "r");
+  if (pipe == nullptr) return std::string();
+  std::string output;
+  char buffer[4096];
+  size_t n = 0;
+  while ((n = fread(buffer, 1, sizeof(buffer), pipe)) > 0) {
+    output.append(buffer, n);
+  }
+  pclose(pipe);
+  return output;
+}
 
 namespace {
 

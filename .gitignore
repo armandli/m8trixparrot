@@ -73,3 +73,7 @@ Testing/
 # so the negation below can take effect).
 .m8trix/*
 !.m8trix/skills/
+
+# m8trixparrot's dedicated Python virtual environment, created automatically
+# on first use (see tools_python.cpp's ensure_interpreter()).
+.m8trixenv/

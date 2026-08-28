@@ -1,41 +1,20 @@
 #include <core/package_installer.h>
 
-#include <cstdio>
 #include <cstdlib>
-#include <string_view>
+#include <filesystem>
 
-#include <core/tools.h>  // python_executable()
+#include <core/tools.h>       // kVenvDir, ensure_python_ready()
+#include <core/tools_util.h>  // shell_quote(), run_shell_capture()
 
 namespace agent {
 
 namespace {
 
-// Single-quotes `text` for /bin/sh, closing and reopening the quote around any
-// embedded single quote. Same trick as the (now removed) bash tool used.
-std::string shell_quote(std::string_view text) {
-  std::string quoted = "'";
-  for (const char c : text) {
-    if (c == '\'') {
-      quoted += "'\\''";
-    } else {
-      quoted += c;
-    }
-  }
-  quoted += "'";
-  return quoted;
-}
-
-std::string run_capture(const std::string& command) {
-  FILE* pipe = popen(command.c_str(), "r");
-  if (pipe == nullptr) return std::string();
-  std::string output;
-  char buffer[4096];
-  size_t n = 0;
-  while ((n = fread(buffer, 1, sizeof(buffer), pipe)) > 0) {
-    output.append(buffer, n);
-  }
-  pclose(pipe);
-  return output;
+// The venv's own python, not whatever interpreter this process happens to be
+// running under — ensure_python_ready() guarantees it exists before this path
+// is used.
+std::string venv_python() {
+  return (std::filesystem::absolute(kVenvDir) / "bin" / "python3").string();
 }
 
 // `pip show` is a local metadata lookup — no index needed, so it runs under
@@ -51,8 +30,10 @@ bool is_installed(const std::string& python, const std::string& package) {
 // re-checks after so success is "importable now", not "pip exited 0" (popen
 // doesn't cheaply expose pip's own exit code alongside captured output).
 PackageInstallResult pip_install(const std::string& package) {
+  ensure_python_ready();
+
   PackageInstallResult result;
-  const std::string python = python_executable();
+  const std::string python = venv_python();
 
   if (is_installed(python, package)) {
     result.ok = true;
@@ -69,7 +50,7 @@ PackageInstallResult pip_install(const std::string& package) {
       "env -u PIP_NO_INDEX " + shell_quote(python) +
       " -m pip install --disable-pip-version-check --quiet " +
       shell_quote(package) + " 2>&1";
-  result.output = run_capture(command);
+  result.output = run_shell_capture(command);
   result.ok = is_installed(python, package);
   if (not result.ok) {
     result.error = "pip install failed for '" + package + "'";
