@@ -23,6 +23,7 @@
 
 #include <core/agent.h>
 #include <core/agent_pool.h>
+#include <core/agent_settings.h>
 #include <core/sane_policy.h>
 #include <core/policy.h>
 #include <core/tools.h>
@@ -392,17 +393,34 @@ void forget_subtree(
 
 int main(int argc, char** argv) {
   CLI::App app{"m8trixparrot - a coding agent over Ollama"};
+  app.footer(
+      "Defaults for model, policy, and the flags below may also be set in "
+      "<workdir>/.m8trix/settings.json (keys: model, policy, max_steps, "
+      "max_depth, max_agents, num_ctx, summarize_at, skills_dir, "
+      "enable_skills, enable_subagents, enable_package_install); an "
+      "explicit flag here always overrides it.");
 
-  std::string model = "qwen3.8:27b-mlx";
+  // .m8trix/settings.json (if present) supplies defaults for the flags below —
+  // loaded before the flags are declared so CLI11's ->capture_default_str()
+  // reflects it, and an explicit flag on the command line still overwrites
+  // whatever the file set, since CLI11 assigns into the same variable.
+  std::string settings_warning;
+  const agent::StartupSettings settings =
+      agent::load_startup_settings(agent::kAgentSettingsPath, settings_warning);
+  if (not settings_warning.empty()) {
+    std::cerr << "warning: " << settings_warning << "\n";
+  }
+
+  std::string model = settings.model.value_or("qwen3.8:27b-mlx");
   std::string resume_id;
   bool resume_latest = false;
-  int max_steps = 12;
-  int max_depth = 3;
-  int max_agents = 16;
-  int num_ctx = 0;
-  int summarize_at = 200000;
-  std::string skills_dir = ".m8trix/skills";
-  bool no_skills = false;
+  int max_steps = settings.max_steps.value_or(12);
+  int max_depth = settings.max_depth.value_or(3);
+  int max_agents = settings.max_agents.value_or(16);
+  int num_ctx = settings.num_ctx.value_or(0);
+  int summarize_at = settings.summarize_at.value_or(200000);
+  std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
+  bool no_skills = not settings.enable_skills.value_or(true);
 
   app.add_option("model,-m,--model", model, "Ollama model to run the agent on")
       ->capture_default_str();
@@ -430,7 +448,7 @@ int main(int argc, char** argv) {
       ->capture_default_str();
   app.add_flag("--no-skills", no_skills, "Disable the skill system");
 
-  std::string policy_name = "sane";
+  std::string policy_name = settings.policy.value_or("sane");
   app.add_option("-p,--policy", policy_name,
                  "Permission policy: yolo (allow everything) or sane "
                  "(no su/sudo, writes confined to the working directory "
@@ -488,6 +506,11 @@ int main(int argc, char** argv) {
   options.context_summarize_at_tokens = summarize_at;
   options.skills_dir = skills_dir;
   options.enable_skills = not no_skills;
+  // No CLI flag for these two — settings.json is their only knob.
+  options.enable_subagents =
+      settings.enable_subagents.value_or(options.enable_subagents);
+  options.enable_package_install =
+      settings.enable_package_install.value_or(options.enable_package_install);
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
   agent::Agent root_agent(options, policy, root_id, "", 0);

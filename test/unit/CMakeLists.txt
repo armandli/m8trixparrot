@@ -3,6 +3,7 @@ include(GoogleTest)
 # One binary over every tool's tests. They share the temp-directory fixture and
 # run fast enough that splitting them per tool would only cost link time.
 add_executable(unit_tests
+  agent_settings_test.cpp
   loopback_server.cpp
   skills_test.cpp
   tools_python_test.cpp
