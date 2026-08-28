@@ -243,10 +243,8 @@ std::string Agent::system_prompt() const {
             "- Use `python` for all computation, file I/O, data transformation, "
             "and anything scriptable. Prefer Python over describing what you "
             "would do.\n"
-            "- If a Python library is missing, install it at the top of your "
-            "script with "
-            "`subprocess.run([\"pip\", \"install\", \"<pkg>\"], check=True)` "
-            "before importing it.\n";
+            "- Only the Python standard library and already-installed packages "
+            "are importable; you cannot install new ones.\n";
   if (not mOptions.enable_subagents) {
     prompt << "- You have no subagent tools; do all the work yourself.\n";
   } else if (mDepth >= mOptions.max_depth) {

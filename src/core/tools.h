@@ -123,13 +123,16 @@ struct WebSearchTool {
 // Brings the embedded Python interpreter up (idempotent). Call once from the
 // main thread at startup: an agent runs its tools on its own thread, and the
 // interpreter must be initialised — and its GIL released — from the main thread
-// before any of those threads touch Python.
+// before any of those threads touch Python. Also sets PIP_NO_INDEX /
+// PIP_NO_INPUT process-wide so a script cannot install packages.
 void ensure_python_ready();
 
 // Executes a Python script in-process via pybind11 embedding. stdout and
 // stderr are captured and returned as the tool output; exceptions are caught
 // inside Python and appended to the capture rather than propagated. Safe to
 // call from any thread: the GIL is acquired and a mutex serialises the runs.
+// The standard library and already-installed packages are importable;
+// installing new packages is disabled (see ensure_python_ready).
 struct PythonTool {
   std::string description() const;
   // script (string, required).

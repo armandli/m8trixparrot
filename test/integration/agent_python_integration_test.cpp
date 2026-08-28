@@ -160,8 +160,7 @@ TEST_F(AgentPythonIntegrationTest, FindsDetailInRepoFile) {
 
   const AgentResult result = run(
       "This directory is a code repository. Read the file src/config.h and tell "
-      "me the integer value of the constant named kBufferBytes. Use only the "
-      "Python standard library; do not install any packages.");
+      "me the integer value of the constant named kBufferBytes.");
 
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_TRUE(called_python()) << "the agent has no read tool; it must use python";
@@ -173,8 +172,7 @@ TEST_F(AgentPythonIntegrationTest, WritesAndRunsGcd) {
   const AgentResult result = run(
       "Write a Python function that computes the greatest common divisor of two "
       "integers using the Euclidean algorithm. Then call it to compute "
-      "gcd(1071, 462) and report the result. Use only the Python standard "
-      "library; do not install any packages.");
+      "gcd(1071, 462) and report the result.");
 
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_TRUE(called_python()) << "the agent must actually run the algorithm";
@@ -190,7 +188,7 @@ TEST_F(AgentPythonIntegrationTest, FetchesABasicWebsite) {
   const AgentResult result = run(
       "Fetch the web page at http://example.com/ over HTTP and tell me the "
       "exact text contained in its top-level <h1> element. Use only the Python "
-      "standard library (urllib); do not install any packages.");
+      "standard library (urllib).");
 
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_NE(result.conclusion.find("Example Domain"), std::string::npos)
@@ -201,8 +199,7 @@ TEST_F(AgentPythonIntegrationTest, CreatesMarkdownFile) {
   const AgentResult result = run(
       "Create a markdown file named notes.md in the current directory. Give it "
       "a level-1 heading that reads 'Release Notes', followed by a bullet list "
-      "with exactly three items: alpha, beta, and gamma. Use only the Python "
-      "standard library; do not install any packages.");
+      "with exactly three items: alpha, beta, and gamma.");
 
   ASSERT_TRUE(result.ok) << result.error;
   ASSERT_TRUE(exists("notes.md")) << "the agent did not create notes.md";

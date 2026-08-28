@@ -4,6 +4,7 @@
 // stderr output are content returned to the model, not tool failures. Only a
 // missing argument or an interpreter-level crash is an error.
 
+#include <cstdlib>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -97,6 +98,25 @@ TEST_F(PythonTest, ConsecutiveCallsAreIsolated) {
     EXPECT_TRUE(result.ok);
     EXPECT_NE(result.output.find("second"), std::string::npos);
     EXPECT_EQ(result.output.find("first"), std::string::npos);
+}
+
+// Package installation is not a capability the tool offers, so the schema must
+// not tell the model to run pip.
+TEST(PythonToolTest, DescriptionDoesNotAdvertisePackageInstall) {
+    const std::string description = PythonTool().description();
+
+    EXPECT_EQ(description.find("pip"), std::string::npos) << description;
+    EXPECT_EQ(description.find("subprocess"), std::string::npos) << description;
+}
+
+// ensure_python_ready() denies pip a package index, so a `pip install` a script
+// shells out to anyway fails fast instead of writing to the environment.
+TEST(PythonToolTest, PackageIndexIsDisabled) {
+    ensure_python_ready();
+
+    const char* no_index = std::getenv("PIP_NO_INDEX");
+    ASSERT_NE(no_index, nullptr);
+    EXPECT_STREQ(no_index, "1");
 }
 
 }  // namespace

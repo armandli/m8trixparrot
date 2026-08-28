@@ -1,5 +1,6 @@
 #include <core/tools.h>
 
+#include <cstdlib>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -25,11 +26,22 @@ std::mutex& python_mutex() {
 // exactly once per process. After init the GIL is released so any agent thread
 // can acquire it; it is retaken at process exit before finalization.
 //
-// Member order matters: interp holds the GIL, init runs while it is held,
-// release drops it. Destruction is the reverse — release re-acquires the GIL,
-// then interp finalizes with it held.
+// Member order matters: lockdown runs first (plain setenv, before anything
+// Python), then interp holds the GIL, init runs while it is held, release drops
+// it. Destruction is the reverse — release re-acquires the GIL, then interp
+// finalizes with it held.
 void ensure_interpreter() {
   static struct Guard {
+    // The interpreter is not sandboxed, so a script can still shell out to pip.
+    // Deny it a package index and any interactive prompt, so `pip install X`
+    // fails fast ("No matching distribution found") instead of mutating the
+    // environment. Package installation is not a capability this tool offers.
+    struct Lockdown {
+      Lockdown() {
+        ::setenv("PIP_NO_INDEX", "1", 1);
+        ::setenv("PIP_NO_INPUT", "1", 1);
+      }
+    } lockdown;
     py::scoped_interpreter interp;
     struct Init {
       Init() {
@@ -58,7 +70,7 @@ def _m8_run(script_text):
 void ensure_python_ready() { ensure_interpreter(); }
 
 std::string PythonTool::description() const {
-    return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. Any installed library is importable. To install a missing library before importing it, run: subprocess.run([\"pip\", \"install\", \"<pkg>\"], check=True)","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
+    return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. The Python standard library and the packages already installed in the environment are available; you cannot install new ones.","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
 }
 
 ToolResult PythonTool::execute(const ToolArgs& args) const {
