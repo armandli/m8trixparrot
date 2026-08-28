@@ -68,7 +68,7 @@ std::vector<std::string> list_ollama_models(bool& command_ok) {
 int main(int argc, char** argv) {
   CLI::App app{"m8trixparrot chat_tui - terminal chat client for Ollama"};
 
-  std::string model = "ornith:35b";
+  std::string model = "qwen3.8:27b-mlx";
   std::string history_file;
 
   app.add_option("model,-m,--model", model, "Ollama model to chat with")
