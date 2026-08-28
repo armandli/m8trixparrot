@@ -28,7 +28,7 @@ using ToolArgs = std::map<std::string, ToolArgValue, std::less<>>;
 // Where MemoryTool keeps the agent's working notes, relative to the working
 // directory. A constant rather than a member so the tool stays memberless like
 // the rest; BasicAgent reads the same path to fold memory into its prompt.
-inline constexpr const char* kMemoryPath = ".mini_agent/memory.md";
+inline constexpr const char* kMemoryPath = ".m8trix/memory.md";
 
 struct ToolResult {
   bool ok = false;

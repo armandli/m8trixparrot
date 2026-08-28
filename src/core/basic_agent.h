@@ -19,9 +19,9 @@
 namespace agent {
 
 // Everything the agent keeps lives under here, relative to the working
-// directory: sessions in .mini_agent/sessions, memory at kMemoryPath.
-inline constexpr const char* kAgentRootDir = ".mini_agent";
-inline constexpr const char* kAgentSessionDir = ".mini_agent/sessions";
+// directory: sessions in .m8trix/sessions, memory at kMemoryPath.
+inline constexpr const char* kAgentRootDir = ".m8trix";
+inline constexpr const char* kAgentSessionDir = ".m8trix/sessions";
 
 // One thing that happened during a turn, reported as it happens rather than
 // batched at the end — a turn runs several model calls and tool executions, and

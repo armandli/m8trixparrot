@@ -1,6 +1,6 @@
-add_executable(mini_agent main.cpp)
+add_executable(m8trixparrot main.cpp)
 
-target_link_libraries(mini_agent
+target_link_libraries(m8trixparrot
   PRIVATE agentcore
   PRIVATE ftxui::component
   PRIVATE ftxui::dom

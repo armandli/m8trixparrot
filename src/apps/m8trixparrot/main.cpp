@@ -138,7 +138,7 @@ ToolSegment& open_segment(std::vector<TranscriptNode>& transcript) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  CLI::App app{"m8trixparrot mini_agent - a minimal coding agent over Ollama"};
+  CLI::App app{"m8trixparrot - a coding agent over Ollama"};
 
   std::string model = "gemma4:31b-mlx";
   std::string resume_id;
@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
   app.add_option("model,-m,--model", model, "Ollama model to run the agent on")
       ->capture_default_str();
   app.add_flag("-r,--resume", resume_latest,
-               "Resume the most recent session in .mini_agent/sessions");
+               "Resume the most recent session in .m8trix/sessions");
   app.add_option("-s,--session", resume_id, "Resume a specific session id");
   app.add_option("--max-steps", max_steps,
                  "Model calls allowed per user turn before giving up")
@@ -549,7 +549,7 @@ int main(int argc, char** argv) {
     }
 
     return f::vbox({
-               f::text("m8trixparrot mini_agent  |  model: " + model +
+               f::text("m8trixparrot  |  model: " + model +
                        "  |  policy: " + policy.name()) |
                    f::bold | f::center,
                f::separator(),
