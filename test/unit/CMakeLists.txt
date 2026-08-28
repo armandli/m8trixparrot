@@ -17,3 +17,20 @@ target_link_libraries(unit_tests
 # One ctest entry per TEST, so a failure names the behavior that broke rather
 # than just "unit_tests".
 gtest_discover_tests(unit_tests)
+
+# Core-level tests: the agent pool (threads, the OllamaClient singleton) and the
+# session store. Kept out of unit_tests because those tools chdir into a temp
+# directory and rely on running sequentially.
+add_executable(core_tests
+  agent_pool_test.cpp
+  session_store_test.cpp
+)
+
+target_include_directories(core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(core_tests
+  PRIVATE agentcore
+  PRIVATE GTest::gtest_main
+)
+
+gtest_discover_tests(core_tests)

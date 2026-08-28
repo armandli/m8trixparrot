@@ -68,5 +68,5 @@ vcpkg_installed/
 Testing/
 .cache/
 
-# mini_agent's per-workspace sessions and memory
-.mini_agent/
+# m8trixparrot's per-workspace sessions and memory
+.m8trix/

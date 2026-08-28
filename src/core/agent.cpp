@@ -1,4 +1,4 @@
-#include <core/basic_agent.h>
+#include <core/agent.h>
 
 #include <algorithm>
 #include <sstream>
@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include <core/agent_pool.h>
 #include <core/tools_util.h>
 #include <core/workspace_context.h>
 
@@ -27,9 +28,9 @@ std::string clip(const std::string& text, size_t limit) {
 // A one-line rendering of the arguments that matter for display, so the UI can
 // show "grep pattern=\"teh\"" rather than the whole JSON object.
 std::string summarize(const std::string& tool_name, const ToolArgs& args) {
-  static const char* kInteresting[] = {"command", "path",  "pattern",
-                                       "query",   "url",   "content",
-                                       "task",    "id"};
+  static const char* kInteresting[] = {"command",   "path",  "pattern",
+                                       "query",     "url",   "content",
+                                       "objective", "id"};
 
   std::string summary;
   for (const char* key : kInteresting) {
@@ -47,18 +48,29 @@ std::string summarize(const std::string& tool_name, const ToolArgs& args) {
   return summary;
 }
 
+// "`a`, `b`, and `c`" for the system prompt's tool sentence.
+std::string join_tool_names(const std::vector<std::string>& names) {
+  std::string joined;
+  for (size_t i = 0; i < names.size(); ++i) {
+    if (i > 0) joined += (i + 1 == names.size()) ? ", and " : ", ";
+    joined += "`" + names[i] + "`";
+  }
+  return joined;
+}
+
 }  // namespace
 
-// Defined here so unique_ptr<BasicAgent> in SubagentRecord can be destroyed
-// with BasicAgent fully defined.
-SubagentRecord::~SubagentRecord() = default;
-
-BasicAgent::BasicAgent(AgentOptions options, const PolicyInterface& policy)
+Agent::Agent(AgentOptions options, const PolicyInterface& policy, std::string id,
+             std::string parent_id, int depth)
     : mOptions(std::move(options)),
       mPolicy(policy),
-      mStore(kAgentSessionDir) {}
+      mStore(kAgentSessionDir),
+      mId(std::move(id)),
+      mParentId(std::move(parent_id)),
+      mDepth(depth),
+      mLabel(depth == 0 ? "root" : "subagent") {}
 
-std::vector<std::string> BasicAgent::tool_schemas() {
+std::vector<std::string> Agent::tool_schemas() {
   return {
       PythonTool().description(),
       SubagentCreateTool::description(),
@@ -66,36 +78,64 @@ std::vector<std::string> BasicAgent::tool_schemas() {
   };
 }
 
-std::string BasicAgent::memory() const {
+std::vector<std::string> Agent::tool_names() {
+  return {"python", "subagent_create", "subagent_wait"};
+}
+
+std::string Agent::memory() const {
   const std::optional<std::string> contents = read_file(kMemoryPath);
   return contents.value_or(std::string());
 }
 
-void BasicAgent::reset() {
+void Agent::reset() {
   mTranscript.clear();
   mSessionId.clear();
 }
 
-std::string BasicAgent::system_prompt() const {
+std::string Agent::system_prompt() const {
   const WorkspaceContext context = WorkspaceContext::from_environment();
+  const int live = AgentPool::instance().live_count();
+  const int free_slots = std::max(0, mOptions.max_agents - live);
 
   std::ostringstream prompt;
   prompt << "You are a coding agent working in a terminal on the user's "
-            "machine. You have three tools: `python`, `subagent_create`, and "
-            "`subagent_wait`. Use them rather than guessing or asking the "
-            "user to run things for you.\n\n"
-            "Working rules:\n"
-            "- Use `python` for all computation, file I/O, data "
-            "transformation, and anything scriptable. Prefer Python over "
-            "describing what you would do.\n"
+            "machine. You have "
+         << Agent::tool_names().size() << " tools: "
+         << join_tool_names(Agent::tool_names())
+         << ". Use them rather than guessing or asking the user to run things "
+            "for you.\n\n";
+
+  if (mDepth == 0) {
+    prompt << "You are the root agent (depth 0 of max " << mOptions.max_depth
+           << "). ";
+  } else {
+    prompt << "You are a subagent at depth " << mDepth << " of max "
+           << mOptions.max_depth
+           << ". Your caller sees only your final message, not your steps. ";
+  }
+  prompt << free_slots << " of " << mOptions.max_agents
+         << " agent slots are free.\n\n";
+
+  prompt << "Working rules:\n"
+            "- Use `python` for all computation, file I/O, data transformation, "
+            "and anything scriptable. Prefer Python over describing what you "
+            "would do.\n"
             "- If a Python library is missing, install it at the top of your "
             "script with "
             "`subprocess.run([\"pip\", \"install\", \"<pkg>\"], check=True)` "
-            "before importing it.\n"
-            "- Use `subagent_create` to spawn independent subtasks in "
-            "parallel, and `subagent_wait` to collect their results.\n"
-            "- Keep going until the task is done, then answer without calling "
-            "a tool. A reply with no tool call ends the turn.\n"
+            "before importing it.\n";
+  if (mDepth >= mOptions.max_depth) {
+    prompt << "- You are at the maximum depth and cannot spawn subagents; do "
+              "all the work yourself.\n";
+  } else {
+    prompt << "- Use `subagent_create` to spawn an independent subtask on its "
+              "own thread and `subagent_wait` to collect its conclusion. Give "
+              "each subagent a self-contained objective.\n";
+  }
+  prompt << "- Keep going until the task is done, then end the turn with a "
+            "plain message and no tool call. Make that final message a "
+            "self-contained summary of the objective and what you found or "
+            "did.\n"
             "- If a tool fails, read the error and adapt. Don't retry the "
             "identical call.\n\n";
 
@@ -123,14 +163,13 @@ std::string BasicAgent::system_prompt() const {
   return prompt.str();
 }
 
-ToolResult BasicAgent::dispatch(const std::string& tool_name,
-                                const ToolArgs& args) {
+ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
   if (tool_name == "python")
     return PythonTool().execute(args);
   if (tool_name == "subagent_create")
-    return SubagentCreateTool{mSubagents, mSubagentsMutex, mPolicy, mOptions}.execute(args);
+    return SubagentCreateTool{mId, mPolicy, mOptions}.execute(args);
   if (tool_name == "subagent_wait")
-    return SubagentWaitTool{mSubagents, mSubagentsMutex}.execute(args);
+    return SubagentWaitTool{}.execute(args);
 
   ToolResult unknown;
   unknown.error = "no tool named '" + tool_name +
@@ -138,49 +177,57 @@ ToolResult BasicAgent::dispatch(const std::string& tool_name,
   return unknown;
 }
 
-SessionResult BasicAgent::resume(const std::string& session_id) {
-  SessionResult result =
-      session_id.empty() ? mStore.latest() : mStore.load(session_id);
-  if (not result.ok) return result;
-
-  mTranscript = result.session.interactions;
-  mSessionId = result.session.session_id;
-  return result;
+SessionResult Agent::resume(const std::string& session_id) {
+  // Sessions hold only the result tree, so there is no transcript to restore
+  // and mSessionId stays empty — a continued conversation opens a new file.
+  return session_id.empty() ? mStore.latest() : mStore.load(session_id);
 }
 
-SessionStoreResult BasicAgent::save() const {
-  SessionStoreResult result = mStore.store(mTranscript, mSessionId);
-  return result;
+SessionStoreResult Agent::save() const {
+  if (mDepth != 0) {
+    SessionStoreResult skipped;
+    skipped.ok = true;
+    return skipped;
+  }
+  return mStore.store(AgentPool::instance().assemble_tree(mId), mSessionId);
 }
 
-AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
-                                      const AgentObserver& observer) {
-  AgentTurnResult turn;
+void Agent::emit(AgentEvent event) const {
+  event.agent_id = mId;
+  event.parent_id = mParentId;
+  event.depth = mDepth;
+  event.agent_label = mLabel;
+  AgentPool::instance().emit(event);
+}
 
-  const auto emit = [&observer](AgentEvent event) {
-    if (observer) observer(event);
-  };
+AgentResult Agent::run_turn(const std::string& objective) {
+  AgentResult self;
+  self.objective = objective;
 
-  mTranscript.push_back(ChatMessage{"user", user_input, {}, ""});
+  mTranscript.push_back(ChatMessage{"user", objective, {}, ""});
 
   const std::vector<std::string> tools = tool_schemas();
 
   for (int step = 0; step < mOptions.max_steps; ++step) {
-    turn.steps = step + 1;
+    self.steps = step + 1;
 
-    // The system message is rebuilt every step rather than stored, so a
-    // memory write lands in the very next call.
+    // The system message is rebuilt every step rather than stored, so a memory
+    // write lands in the very next call.
     std::vector<ChatMessage> messages;
     messages.reserve(mTranscript.size() + 1);
     messages.push_back(ChatMessage{"system", system_prompt(), {}, ""});
     messages.insert(messages.end(), mTranscript.begin(), mTranscript.end());
 
-    const uint64_t ticket = OllamaClient::instance().enqueue_chat(messages, tools);
+    const uint64_t ticket =
+        OllamaClient::instance().enqueue_chat(messages, tools);
     const ChatResult reply = OllamaClient::instance().wait_for(ticket);
     if (not reply.ok) {
-      turn.error = reply.error;
+      self.ok = false;
+      self.error = reply.error;
       emit({AgentEvent::Kind::Error, reply.error, "", ""});
-      return turn;
+      AgentPool::instance().set_result(mId, self);
+      if (mDepth == 0) save();
+      return self;
     }
 
     mTranscript.push_back(
@@ -192,16 +239,19 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
 
     // No tool calls means the model is answering, which ends the turn.
     if (reply.tool_calls.empty()) {
-      turn.ok = true;
-      turn.reply = reply.content;
-      const SessionStoreResult saved = save();
-      if (not saved.ok) {
-        emit({AgentEvent::Kind::Notice,
-              "failed to save session: " + saved.error, "", ""});
-      } else {
-        mSessionId = saved.session_id;
+      self.ok = true;
+      self.conclusion = reply.content;
+      AgentPool::instance().set_result(mId, self);
+      if (mDepth == 0) {
+        const SessionStoreResult saved = save();
+        if (not saved.ok) {
+          emit({AgentEvent::Kind::Notice,
+                "failed to save session: " + saved.error, "", ""});
+        } else {
+          mSessionId = saved.session_id;
+        }
       }
-      return turn;
+      return self;
     }
 
     for (const ToolCall& call : reply.tool_calls) {
@@ -222,8 +272,8 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
 
       const PolicyResult verdict = mPolicy.verify(call.name, args);
       if (not verdict.allowed()) {
-        // The refusal goes back as the tool's result: the model is told why
-        // and can pick another approach, which is the whole point of making
+        // The refusal goes back as the tool's result: the model is told why and
+        // can pick another approach, which is the whole point of making
         // policies explain themselves.
         emit({AgentEvent::Kind::Denied, verdict.reason, call.name, summary});
         mTranscript.push_back(
@@ -234,8 +284,7 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
       const ToolResult executed = dispatch(call.name, args);
       std::string content = executed.ok ? executed.output : executed.error;
       // A tool can legitimately produce nothing (ls of an empty directory,
-      // grep with no hits). Saying so beats sending an empty message, which
-      // reads as a malformed turn rather than a result.
+      // grep with no hits). Saying so beats sending an empty message.
       if (content.empty()) content = "[no output]";
 
       emit({AgentEvent::Kind::ToolResult, content, call.name, ""});
@@ -244,14 +293,17 @@ AgentTurnResult BasicAgent::run_turn(const std::string& user_input,
     }
   }
 
-  turn.hit_step_limit = true;
-  turn.error = "gave up after " + std::to_string(mOptions.max_steps) +
+  self.ok = false;
+  self.hit_step_limit = true;
+  self.error = "gave up after " + std::to_string(mOptions.max_steps) +
                " steps without a final answer";
-  emit({AgentEvent::Kind::Notice, turn.error, "", ""});
-
-  const SessionStoreResult saved = save();
-  if (saved.ok) mSessionId = saved.session_id;
-  return turn;
+  emit({AgentEvent::Kind::Notice, self.error, "", ""});
+  AgentPool::instance().set_result(mId, self);
+  if (mDepth == 0) {
+    const SessionStoreResult saved = save();
+    if (saved.ok) mSessionId = saved.session_id;
+  }
+  return self;
 }
 
 }  // namespace agent

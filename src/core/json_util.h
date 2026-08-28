@@ -89,6 +89,9 @@ std::string string_field(simdjson::ondemand::object& obj, std::string_view key,
 int64_t int_field(simdjson::ondemand::object& obj, std::string_view key,
                   int64_t fallback = 0);
 
+bool bool_field(simdjson::ondemand::object& obj, std::string_view key,
+                bool fallback = false);
+
 std::vector<std::string> string_array_field(simdjson::ondemand::object& obj,
                                             std::string_view key);
 

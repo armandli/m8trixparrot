@@ -120,9 +120,16 @@ struct WebSearchTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
+// Brings the embedded Python interpreter up (idempotent). Call once from the
+// main thread at startup: an agent runs its tools on its own thread, and the
+// interpreter must be initialised — and its GIL released — from the main thread
+// before any of those threads touch Python.
+void ensure_python_ready();
+
 // Executes a Python script in-process via pybind11 embedding. stdout and
 // stderr are captured and returned as the tool output; exceptions are caught
-// inside Python and appended to the capture rather than propagated.
+// inside Python and appended to the capture rather than propagated. Safe to
+// call from any thread: the GIL is acquired and a mutex serialises the runs.
 struct PythonTool {
   std::string description() const;
   // script (string, required).

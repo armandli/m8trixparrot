@@ -23,6 +23,46 @@ bool is_valid_session_id(const std::string& id) {
   return true;
 }
 
+// Writes one AgentResult and, recursively, its children. Scalars come first and
+// `children` last, and load's parse_result() reads them in the same order:
+// simdjson's On-Demand parser has a single forward-only cursor, so the two
+// halves must stay in lockstep.
+void write_result(JsonWriter& body, const AgentResult& result) {
+  body.begin_object();
+  body.field("objective", result.objective);
+  body.field("conclusion", result.conclusion);
+  body.field("ok", result.ok);
+  body.field("error", result.error);
+  body.field("steps", static_cast<int64_t>(result.steps));
+  body.field("hit_step_limit", result.hit_step_limit);
+  body.key("children").begin_array();
+  for (const auto& child : result.children) write_result(body, child);
+  body.end_array();
+  body.end_object();
+}
+
+// The read side of write_result(). Every scalar is read before the children
+// array is iterated, matching the write order.
+AgentResult parse_result(simdjson::ondemand::object& obj) {
+  AgentResult result;
+  result.objective = string_field(obj, "objective");
+  result.conclusion = string_field(obj, "conclusion");
+  result.ok = bool_field(obj, "ok");
+  result.error = string_field(obj, "error");
+  result.steps = static_cast<int>(int_field(obj, "steps"));
+  result.hit_step_limit = bool_field(obj, "hit_step_limit");
+
+  simdjson::ondemand::array children;
+  if (not obj["children"].get_array().get(children)) {
+    for (auto item : children) {
+      simdjson::ondemand::object child;
+      if (item.get_object().get(child)) continue;
+      result.children.push_back(parse_result(child));
+    }
+  }
+  return result;
+}
+
 }  // namespace
 
 // RFC 4122 version-4 (random) UUID: 16 random bytes with the version and
@@ -53,7 +93,7 @@ std::string SessionStore::session_file_path(const std::string& session_id) const
   return (std::filesystem::path(mRootDir) / (session_id + ".json")).string();
 }
 
-SessionStoreResult SessionStore::store(const std::vector<ChatMessage>& interactions,
+SessionStoreResult SessionStore::store(const AgentResult& result_tree,
                                         const std::string& session_id) const {
   SessionStoreResult result;
 
@@ -75,29 +115,8 @@ SessionStoreResult SessionStore::store(const std::vector<ChatMessage>& interacti
   JsonWriter body;
   body.begin_object();
   body.field("session_id", id);
-  body.key("interactions").begin_array();
-  for (const auto& message : interactions) {
-    body.begin_object();
-    body.field("role", message.role);
-    body.field("content", message.content);
-    if (not message.tool_name.empty()) {
-      body.field("tool_name", message.tool_name);
-    }
-    if (not message.tool_calls.empty()) {
-      body.key("tool_calls").begin_array();
-      for (const auto& call : message.tool_calls) {
-        body.begin_object();
-        body.field("name", call.name);
-        body.field("arguments",
-                    RawJson::of_raw(call.arguments.empty() ? "{}"
-                                                           : call.arguments));
-        body.end_object();
-      }
-      body.end_array();
-    }
-    body.end_object();
-  }
-  body.end_array();
+  body.key("result");
+  write_result(body, result_tree);
   body.end_object();
 
   // simdjson's builder emits minified JSON; session files stay human-readable
@@ -167,31 +186,11 @@ SessionResult SessionStore::load_from_path(const std::string& path) const {
 
     result.session.session_id = string_field(root, "session_id");
 
-    simdjson::ondemand::array interactions;
-    if (not root["interactions"].get_array().get(interactions)) {
-      for (auto item : interactions) {
-        simdjson::ondemand::object entry;
-        if (item.get_object().get(entry)) continue;
-        ChatMessage message;
-        message.role = string_field(entry, "role");
-        message.content = string_field(entry, "content");
-        message.tool_name = string_field(entry, "tool_name");
-
-        simdjson::ondemand::array calls;
-        if (not entry["tool_calls"].get_array().get(calls)) {
-          for (auto call_item : calls) {
-            simdjson::ondemand::object call;
-            if (call_item.get_object().get(call)) continue;
-            ToolCall tool_call;
-            tool_call.name = string_field(call, "name");
-            tool_call.arguments = raw_field(call, "arguments", "{}");
-            if (tool_call.name.empty()) continue;
-            message.tool_calls.push_back(std::move(tool_call));
-          }
-        }
-
-        result.session.interactions.push_back(std::move(message));
-      }
+    // Legacy files (a top-level "interactions" array, no "result") parse to an
+    // empty tree rather than an error — the session is just shown as blank.
+    simdjson::ondemand::object result_obj;
+    if (not root["result"].get_object().get(result_obj)) {
+      result.session.result = parse_result(result_obj);
     }
     result.ok = true;
   } catch (const std::exception& e) {

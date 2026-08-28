@@ -1,5 +1,6 @@
 #include <core/tools.h>
 
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -13,13 +14,26 @@ namespace agent {
 
 namespace {
 
+// _m8_run swaps the process-global sys.stdout / sys.stderr, so two scripts must
+// not run at once even though each agent runs its tools on its own thread.
+std::mutex& python_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 // Initializes the embedded Python interpreter and defines the _m8_run helper
-// exactly once per process. scoped_interpreter finalizes at program exit.
+// exactly once per process. After init the GIL is released so any agent thread
+// can acquire it; it is retaken at process exit before finalization.
+//
+// Member order matters: interp holds the GIL, init runs while it is held,
+// release drops it. Destruction is the reverse — release re-acquires the GIL,
+// then interp finalizes with it held.
 void ensure_interpreter() {
-    static struct Guard {
-        py::scoped_interpreter interp;
-        Guard() {
-            py::exec(R"(
+  static struct Guard {
+    py::scoped_interpreter interp;
+    struct Init {
+      Init() {
+        py::exec(R"(
 def _m8_run(script_text):
     import sys, io, traceback
     buf = io.StringIO()
@@ -33,11 +47,15 @@ def _m8_run(script_text):
         sys.stdout, sys.stderr = old_out, old_err
     return buf.getvalue()
 )");
-        }
-    } g;
+      }
+    } init;
+    py::gil_scoped_release release;
+  } g;
 }
 
 }  // namespace
+
+void ensure_python_ready() { ensure_interpreter(); }
 
 std::string PythonTool::description() const {
     return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. Any installed library is importable. To install a missing library before importing it, run: subprocess.run([\"pip\", \"install\", \"<pkg>\"], check=True)","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
@@ -55,11 +73,15 @@ ToolResult PythonTool::execute(const ToolArgs& args) const {
     ensure_interpreter();
 
     std::string output;
-    try {
-        output = py::globals()["_m8_run"](py::str(*script)).cast<std::string>();
-    } catch (const py::error_already_set& e) {
-        result.error = "python: interpreter error: " + std::string(e.what());
-        return result;
+    {
+        std::lock_guard<std::mutex> lock(python_mutex());
+        py::gil_scoped_acquire gil;
+        try {
+            output = py::globals()["_m8_run"](py::str(*script)).cast<std::string>();
+        } catch (const py::error_already_set& e) {
+            result.error = "python: interpreter error: " + std::string(e.what());
+            return result;
+        }
     }
 
     TruncatedOutput truncated = truncate_output(std::move(output), "python");

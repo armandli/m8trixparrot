@@ -2,18 +2,20 @@
 #define SESSION_STORE_H
 
 #include <string>
-#include <vector>
 
-#include <core/ollama_client.h>
+#include <core/agent_result.h>
 
 namespace agent {
 
 // RFC 4122 version-4 (random) UUID. Thread-safe via thread_local RNG.
 std::string generate_uuid_v4();
 
+// A saved session is exactly the root agent's result tree — objective,
+// conclusion, and every subagent it spawned, nested. The transcript is not
+// persisted, so a loaded session is for display only.
 struct SessionRecord {
   std::string session_id;
-  std::vector<ChatMessage> interactions;
+  AgentResult result;
 };
 
 struct SessionResult {
@@ -31,10 +33,10 @@ struct SessionStoreResult {
 struct SessionStore {
   explicit SessionStore(std::string root_dir);
 
-  // Writes `interactions` as a session file under root_dir. If `session_id`
-  // is empty, a new UUIDv4 is generated and used. Overwrites any existing
-  // file for that ID (this is a full-session checkpoint, not an append).
-  SessionStoreResult store(const std::vector<ChatMessage>& interactions,
+  // Writes `result` as a session file under root_dir. If `session_id` is
+  // empty, a new UUIDv4 is generated and used. Overwrites any existing file
+  // for that ID (this is a full checkpoint, not an append).
+  SessionStoreResult store(const AgentResult& result,
                             const std::string& session_id = "") const;
 
   SessionResult load(const std::string& session_id) const;
