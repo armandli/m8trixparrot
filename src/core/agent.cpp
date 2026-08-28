@@ -120,7 +120,8 @@ bool Agent::skills_offered() const {
 }
 
 std::vector<std::string> Agent::tool_schemas() const {
-  std::vector<std::string> schemas{PythonTool().description()};
+  std::vector<std::string> schemas{PythonTool().description(),
+                                   BashTool().description()};
   if (mOptions.enable_package_install) {
     schemas.push_back(PackageInstallTool().description());
   }
@@ -133,7 +134,7 @@ std::vector<std::string> Agent::tool_schemas() const {
 }
 
 std::vector<std::string> Agent::tool_names() const {
-  std::vector<std::string> names{"python"};
+  std::vector<std::string> names{"python", "bash"};
   if (mOptions.enable_package_install) names.push_back("package_install");
   if (skills_offered()) names.push_back("skill");
   if (mOptions.enable_subagents) {
@@ -282,9 +283,10 @@ std::string Agent::system_prompt() const {
          << " agent slots are free.\n\n";
 
   prompt << "Working rules:\n"
-            "- Use `python` for all computation, file I/O, data transformation, "
-            "and anything scriptable. Prefer Python over describing what you "
-            "would do.\n";
+            "- Use `python` for computation, file I/O, and data transformation. "
+            "Use `bash` for shell commands: running programs, git, and anything "
+            "the shell does more directly than Python would. Prefer one of them "
+            "over describing what you would do.\n";
   if (mOptions.enable_package_install) {
     prompt << "- If a script needs a package that isn't installed, call "
               "`package_install` with just its name first, then run the "
@@ -357,6 +359,8 @@ std::string Agent::system_prompt() const {
 ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
   if (tool_name == "python")
     return PythonTool().execute(args);
+  if (tool_name == "bash")
+    return BashTool().execute(args);
   if (mOptions.enable_package_install and tool_name == "package_install")
     return PackageInstallTool().execute(args);
   if (mOptions.enable_skills and tool_name == "skill")

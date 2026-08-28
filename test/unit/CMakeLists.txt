@@ -7,6 +7,7 @@ add_executable(unit_tests
   loopback_server.cpp
   skills_test.cpp
   tools_python_test.cpp
+  tools_shell_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

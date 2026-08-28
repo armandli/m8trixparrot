@@ -6,28 +6,12 @@
 
 #include <optional>
 #include <string>
-#include <string_view>
 
 #include <core/tools_util.h>
 
 namespace agent {
 
 namespace {
-
-// Single-quotes `text` for /bin/sh, closing and reopening the quote around any
-// embedded single quote. Used to hand a command to `timeout ... bash -c`.
-std::string shell_quote(std::string_view text) {
-  std::string quoted = "'";
-  for (const char c : text) {
-    if (c == '\'') {
-      quoted += "'\\''";
-    } else {
-      quoted += c;
-    }
-  }
-  quoted += "'";
-  return quoted;
-}
 
 // Describes how the command ended, in the terms `sh` uses. popen's status is a
 // wait(2) status, and 124 is the exit code `timeout` uses when it kills.

@@ -11,6 +11,7 @@ add_library(agentcore STATIC
   session_store.cpp
   skills.cpp
   tools_package_install.cpp
+  tools_shell.cpp
   tools_python.cpp
   tools_subagent.cpp
   tools_util.cpp

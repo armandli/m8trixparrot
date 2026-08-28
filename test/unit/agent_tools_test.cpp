@@ -1,7 +1,7 @@
 // AgentOptions::enable_subagents: with it off, the agent advertises only the
-// `python` tool and refuses a subagent call rather than acting on it. Default
-// options keep all four tools. tool_names() / tool_schemas() need no network;
-// the refusal path is driven through a scripted LoopbackServer.
+// `python` and `bash` tools and refuses a subagent call rather than acting on
+// it. Default options keep all five tools. tool_names() / tool_schemas() need
+// no network; the refusal path is driven through a scripted LoopbackServer.
 
 #include <string>
 #include <vector>
@@ -17,18 +17,18 @@
 namespace agent {
 namespace {
 
-TEST(AgentToolsTest, DefaultOptionsAdvertiseAllFourTools) {
+TEST(AgentToolsTest, DefaultOptionsAdvertiseAllFiveTools) {
   const YoloPolicy policy;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(AgentOptions{}, policy, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python", "package_install",
+  EXPECT_EQ((std::vector<std::string>{"python", "bash", "package_install",
                                       "subagent_create", "subagent_wait"}),
             agent.tool_names());
-  EXPECT_EQ(4u, agent.tool_schemas().size());
+  EXPECT_EQ(5u, agent.tool_schemas().size());
 }
 
-TEST(AgentToolsTest, PythonOnlyWhenSubagentsAndPackageInstallDisabled) {
+TEST(AgentToolsTest, PythonAndBashOnlyWhenSubagentsAndPackageInstallDisabled) {
   AgentOptions options;
   options.enable_subagents = false;
   options.enable_package_install = false;
@@ -37,9 +37,11 @@ TEST(AgentToolsTest, PythonOnlyWhenSubagentsAndPackageInstallDisabled) {
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, policy, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python"}), agent.tool_names());
-  ASSERT_EQ(1u, agent.tool_schemas().size());
+  EXPECT_EQ((std::vector<std::string>{"python", "bash"}), agent.tool_names());
+  ASSERT_EQ(2u, agent.tool_schemas().size());
   EXPECT_NE(agent.tool_schemas()[0].find("\"name\":\"python\""),
+            std::string::npos);
+  EXPECT_NE(agent.tool_schemas()[1].find("\"name\":\"bash\""),
             std::string::npos);
 }
 

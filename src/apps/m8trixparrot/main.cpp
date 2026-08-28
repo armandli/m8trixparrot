@@ -727,6 +727,25 @@ int main(int argc, char** argv) {
     input_value.clear();
     input_cursor = 0;
 
+    // !<command> runs a bash command directly, without going through the
+    // model or the policy layer: it is the user's own explicit command, not
+    // something the agent decided to run.
+    if (entered.size() > 1 and entered[0] == '!') {
+      const std::string command = entered.substr(1);
+      push_notice(TranscriptNode::Kind::User, entered);
+      std::thread([&push_notice, command] {
+        agent::ToolArgs args;
+        args["command"] = command;
+        const agent::ToolResult result = agent::BashTool().execute(args);
+        if (result.ok) {
+          push_notice(TranscriptNode::Kind::Assistant, result.output);
+        } else {
+          push_notice(TranscriptNode::Kind::Error, result.error);
+        }
+      }).detach();
+      return;
+    }
+
     if (entered == "/quit") {
       screen.ExitLoopClosure()();
       return;
