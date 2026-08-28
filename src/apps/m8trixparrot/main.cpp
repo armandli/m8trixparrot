@@ -393,7 +393,7 @@ void forget_subtree(
 int main(int argc, char** argv) {
   CLI::App app{"m8trixparrot - a coding agent over Ollama"};
 
-  std::string model = "gemma4:31b-mlx";
+  std::string model = "qwen3.8:27b-mlx";
   std::string resume_id;
   bool resume_latest = false;
   int max_steps = 12;
