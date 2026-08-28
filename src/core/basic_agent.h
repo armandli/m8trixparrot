@@ -84,6 +84,28 @@ struct SubagentRecord {
   ~SubagentRecord();
 };
 
+// Tool structs for subagent_create and subagent_wait. Unlike the stateless
+// tools in tools.h, these need per-agent state injected at construction time.
+// description() is static (schemas are compile-time constants); execute()
+// uses the injected references.
+struct SubagentCreateTool {
+  std::unordered_map<std::string, std::shared_ptr<SubagentRecord>>& subagents;
+  std::mutex& mutex;
+  const PolicyInterface& policy;
+  const AgentOptions& options;
+
+  static std::string description();
+  ToolResult execute(const ToolArgs& args) const;
+};
+
+struct SubagentWaitTool {
+  std::unordered_map<std::string, std::shared_ptr<SubagentRecord>>& subagents;
+  std::mutex& mutex;
+
+  static std::string description();
+  ToolResult execute(const ToolArgs& args) const;
+};
+
 // Thread-safety: a single BasicAgent instance is NOT safe for concurrent
 // run_turn() calls — mTranscript and mSessionId are unprotected. Concurrency
 // is achieved by creating one BasicAgent per subagent thread; all agents share
@@ -125,11 +147,6 @@ protected:
   // effect on the very next step. Deliberately not stored in the transcript —
   // the session file holds the conversation, not generated preamble.
   std::string system_prompt() const;
-
-  // Subagent tool implementations. These need agent state (mClient, mPolicy,
-  // mSubagents) so they live here rather than as standalone stateless tools.
-  ToolResult create_subagent(const ToolArgs& args);
-  ToolResult wait_subagent(const ToolArgs& args);
 
 private:
   AgentOptions mOptions;

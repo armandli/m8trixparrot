@@ -4,11 +4,7 @@ include(GoogleTest)
 # run fast enough that splitting them per tool would only cost link time.
 add_executable(unit_tests
   loopback_server.cpp
-  tools_file_test.cpp
   tools_python_test.cpp
-  tools_search_test.cpp
-  tools_shell_test.cpp
-  tools_web_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

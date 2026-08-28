@@ -40,7 +40,7 @@ def _m8_run(script_text):
 }  // namespace
 
 std::string PythonTool::description() const {
-    return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for computation, data transformation, or anything better expressed in Python than bash.","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
+    return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. Any installed library is importable. To install a missing library before importing it, run: subprocess.run([\"pip\", \"install\", \"<pkg>\"], check=True)","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
 }
 
 ToolResult PythonTool::execute(const ToolArgs& args) const {

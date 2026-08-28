@@ -6,14 +6,9 @@ add_library(agentcore STATIC
   ollama_client.cpp
   policy.cpp
   session_store.cpp
-  tools_file.cpp
-  tools_memory.cpp
   tools_python.cpp
-  tools_search.cpp
-  tools_shell.cpp
+  tools_subagent.cpp
   tools_util.cpp
-  tools_web.cpp
-  tools_websearch.cpp
   workspace_context.cpp
 )
 

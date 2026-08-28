@@ -13,18 +13,8 @@
 
 namespace {
 
-// The tools this app exposes: exactly the ones in config/basic_tools.json.
-// `memory`, `webfetch` and `websearch` are implemented in agentcore too, but
-// they belong to the other config/*.json sets and are deliberately not enabled
-// here.
-//
-// Each description() already returns that tool's entry from basic_tools.json
-// verbatim, so nothing has to be kept in sync by hand.
 std::vector<std::string> tool_schemas() {
   return {
-      agent::BashTool().description(),   agent::ReadTool().description(),
-      agent::WriteTool().description(),  agent::EditTool().description(),
-      agent::FindTool().description(),   agent::GrepTool().description(),
       agent::PythonTool().description(),
   };
 }
@@ -45,17 +35,8 @@ void print_schemas() {
   std::cout << out << "\n";
 }
 
-// Same name -> tool mapping as BasicAgent::dispatch(), minus the tools this app
-// doesn't enable. An unknown name is a failed ToolResult rather than a thrown
-// error: it is still an answer about the call that was requested.
 agent::ToolResult dispatch(const std::string& name,
                            const agent::ToolArgs& args) {
-  if (name == "bash") return agent::BashTool().execute(args);
-  if (name == "read") return agent::ReadTool().execute(args);
-  if (name == "write") return agent::WriteTool().execute(args);
-  if (name == "edit") return agent::EditTool().execute(args);
-  if (name == "find") return agent::FindTool().execute(args);
-  if (name == "grep") return agent::GrepTool().execute(args);
   if (name == "python") return agent::PythonTool().execute(args);
 
   agent::ToolResult unknown;
