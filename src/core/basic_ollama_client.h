@@ -20,7 +20,10 @@ struct ChatMessage {
   std::string role;  // "system" | "user" | "assistant" | "tool"
   std::string content;
   std::vector<ToolCall> tool_calls;
-  std::string tool_name;  // Only meaningful when role == "tool".
+  std::string tool_name;    // Only meaningful when role == "tool".
+  std::string skill_label;  // Non-empty: this message is loaded content for that
+                            // skill, and `skill unload` removes it. Never sent
+                            // to Ollama or persisted.
 };
 
 struct ChatResult {

@@ -107,15 +107,17 @@ class AgentPythonIntegrationTest : public test::ToolTest {
     return events_;
   }
 
-  bool called_python() const {
+  bool called_tool(const std::string& name) const {
     for (const AgentEvent& event : events()) {
       if (event.kind == AgentEvent::Kind::ToolCall and
-          event.tool_name == "python") {
+          event.tool_name == name) {
         return true;
       }
     }
     return false;
   }
+
+  bool called_python() const { return called_tool("python"); }
 
   std::string tool_output() const {
     std::string all;
@@ -208,6 +210,31 @@ TEST_F(AgentPythonIntegrationTest, CreatesMarkdownFile) {
   EXPECT_NE(md.find("alpha"), std::string::npos) << md;
   EXPECT_NE(md.find("beta"), std::string::npos) << md;
   EXPECT_NE(md.find("gamma"), std::string::npos) << md;
+}
+
+TEST_F(AgentPythonIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
+  write_file(
+      ".m8trix/skills/rot13/SKILL.md",
+      "---\n"
+      "name: rot13\n"
+      "description: Apply the ROT13 substitution cipher to a piece of text. Use "
+      "when the user asks to rot13, decode a rot13 string, or apply a Caesar "
+      "shift of 13.\n"
+      "---\n\n"
+      "# rot13\n\n"
+      "Use Python's `str.translate` with a table built from "
+      "`string.ascii_lowercase` / `string.ascii_uppercase` rotated by 13. Print "
+      "only the transformed text, nothing else.\n");
+
+  const AgentResult result =
+      run("Decode this rot13 string and tell me what it says: 'Uryyb Jbeyq'");
+
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(called_tool("skill"))
+      << "the agent should load the rot13 skill from the catalog";
+  EXPECT_TRUE(called_python()) << "the skill says to run the cipher in python";
+  EXPECT_NE(result.conclusion.find("Hello World"), std::string::npos)
+      << "conclusion: " << result.conclusion;
 }
 
 }  // namespace

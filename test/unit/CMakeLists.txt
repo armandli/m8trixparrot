@@ -4,10 +4,13 @@ include(GoogleTest)
 # run fast enough that splitting them per tool would only cost link time.
 add_executable(unit_tests
   loopback_server.cpp
+  skills_test.cpp
   tools_python_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_compile_definitions(unit_tests PRIVATE M8_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 target_link_libraries(unit_tests
   PRIVATE agentcore
@@ -25,6 +28,7 @@ add_executable(core_tests
   loopback_server.cpp
   agent_pool_test.cpp
   agent_context_test.cpp
+  agent_skills_test.cpp
   agent_tools_test.cpp
   ollama_client_test.cpp
   session_store_test.cpp

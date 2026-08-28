@@ -134,6 +134,7 @@ const char* kHelpText =
     "/memory   show the agent's memory notes\n"
     "/session  show the current session id\n"
     "/context  show context token usage and the auto-summarize threshold\n"
+    "/skills   list available skills (and re-scan the skills directory)\n"
     "/reset    start a new session (memory is kept)\n"
     "/quit     exit\n"
     "\n"
@@ -401,6 +402,8 @@ int main(int argc, char** argv) {
   int max_agents = 16;
   int num_ctx = 0;
   int summarize_at = 200000;
+  std::string skills_dir = ".m8trix/skills";
+  bool no_skills = false;
 
   app.add_option("model,-m,--model", model, "Ollama model to run the agent on")
       ->capture_default_str();
@@ -423,6 +426,10 @@ int main(int argc, char** argv) {
                  "Auto-summarize the transcript at this many tokens "
                  "(also capped at 80% of the context window)")
       ->capture_default_str();
+  app.add_option("--skills-dir", skills_dir,
+                 "Directory to load skills from (<dir>/<name>/SKILL.md)")
+      ->capture_default_str();
+  app.add_flag("--no-skills", no_skills, "Disable the skill system");
 
   std::string policy_name = "sane";
   app.add_option("-p,--policy", policy_name,
@@ -480,6 +487,8 @@ int main(int argc, char** argv) {
   options.max_agents = max_agents;
   options.context_window_tokens = static_cast<int>(std::max<int64_t>(0, window));
   options.context_summarize_at_tokens = summarize_at;
+  options.skills_dir = skills_dir;
+  options.enable_skills = not no_skills;
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
   agent::Agent root_agent(options, policy, root_id, "", 0);
@@ -648,6 +657,39 @@ int main(int argc, char** argv) {
     scroll_y = 1.0f;
   };
 
+  // Adds `display` as the user turn and runs `objective` (usually the same
+  // string; a /command expands it) on a detached thread.
+  auto start_turn = [&](std::string display, std::string objective) {
+    std::list<TranscriptNode>::iterator turn_begin;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      add_node(transcript, TranscriptNode::Kind::User, std::move(display));
+      turn_begin = std::prev(transcript.end());
+      waiting_for_reply = true;
+      scroll_y = 1.0f;
+    }
+
+    std::thread([&root_agent, &mutex, &transcript, &waiting_for_reply,
+                 &scroll_y, &screen, objective = std::move(objective),
+                 turn_begin] {
+      const agent::AgentResult result = root_agent.run_turn(objective);
+
+      std::lock_guard<std::mutex> lock(mutex);
+      if (not result.ok and not result.hit_step_limit and
+          not result.error.empty()) {
+        add_node(transcript, TranscriptNode::Kind::Error, result.error);
+      }
+      // The turn is done, so its tool activity and subagent blocks fold away
+      // and the transcript reads as conversation again.
+      for (auto it = turn_begin; it != transcript.end(); ++it) {
+        collapse_subtree(*it);
+      }
+      waiting_for_reply = false;
+      scroll_y = 1.0f;
+      screen.PostEvent(f::Event::Custom);
+    }).detach();
+  };
+
   auto send_message = [&] {
     if (input_value.empty()) {
       return;
@@ -668,7 +710,19 @@ int main(int argc, char** argv) {
       return;
     }
     if (entered == "/help") {
-      push_notice(TranscriptNode::Kind::Notice, kHelpText);
+      std::string help = kHelpText;
+      bool header = false;
+      for (const agent::SkillInfo& skill : root_agent.skill_catalog().skills) {
+        if (not skill.command) continue;
+        if (not header) {
+          help += "\n\nskill commands:";
+          header = true;
+        }
+        help += "\n/" + skill.name +
+                (skill.argument_hint.empty() ? "" : "  " + skill.argument_hint) +
+                " — " + skill.description;
+      }
+      push_notice(TranscriptNode::Kind::Notice, help);
       return;
     }
     if (entered == "/memory") {
@@ -708,34 +762,50 @@ int main(int argc, char** argv) {
                   "started a new session; memory kept");
       return;
     }
-
-    std::list<TranscriptNode>::iterator turn_begin;
-    {
-      std::lock_guard<std::mutex> lock(mutex);
-      add_node(transcript, TranscriptNode::Kind::User, entered);
-      turn_begin = std::prev(transcript.end());
-      waiting_for_reply = true;
-      scroll_y = 1.0f;
+    if (entered == "/skills") {
+      if (not waiting_for_reply) root_agent.reload_skills();
+      const agent::SkillCatalog& catalog = root_agent.skill_catalog();
+      std::string msg;
+      for (const agent::SkillInfo& skill : catalog.skills) {
+        msg += (skill.command ? "/" : "  ") + skill.name + " — " +
+               skill.description + "\n";
+      }
+      for (const std::string& note : catalog.notes) msg += "(" + note + ")\n";
+      push_notice(TranscriptNode::Kind::Notice,
+                  msg.empty() ? "no skills found in the skills directory" : msg);
+      return;
     }
 
-    std::thread([&root_agent, &mutex, &transcript, &waiting_for_reply,
-                 &scroll_y, &screen, entered, turn_begin] {
-      const agent::AgentResult result = root_agent.run_turn(entered);
+    // /<name> [args] for a skill whose frontmatter opted in with command: true.
+    if (entered.size() > 1 and entered[0] == '/') {
+      const size_t space = entered.find(' ');
+      const std::string cmd = entered.substr(
+          1, space == std::string::npos ? std::string::npos : space - 1);
+      const std::string cmd_args =
+          space == std::string::npos ? "" : entered.substr(space + 1);
+      const agent::SkillInfo* skill = root_agent.skill_catalog().find(cmd);
+      if (skill != nullptr and skill->command) {
+        if (not skill->argument_hint.empty() and cmd_args.empty()) {
+          push_notice(TranscriptNode::Kind::Notice, "/" + cmd + "  " +
+                                                        skill->argument_hint +
+                                                        "\n" + skill->description);
+          return;
+        }
+        if (waiting_for_reply) {
+          push_notice(TranscriptNode::Kind::Notice,
+                      "the agent is working; wait for it to finish");
+          return;
+        }
+        std::string objective = "Run the \"" + cmd +
+                                "\" skill: use the `skill` tool to load it, then "
+                                "follow its SKILL.md instructions.";
+        if (not cmd_args.empty()) objective += "  Arguments: " + cmd_args;
+        start_turn(entered, std::move(objective));
+        return;
+      }
+    }
 
-      std::lock_guard<std::mutex> lock(mutex);
-      if (not result.ok and not result.hit_step_limit and
-          not result.error.empty()) {
-        add_node(transcript, TranscriptNode::Kind::Error, result.error);
-      }
-      // The turn is done, so its tool activity and subagent blocks fold away
-      // and the transcript reads as conversation again.
-      for (auto it = turn_begin; it != transcript.end(); ++it) {
-        collapse_subtree(*it);
-      }
-      waiting_for_reply = false;
-      scroll_y = 1.0f;
-      screen.PostEvent(f::Event::Custom);
-    }).detach();
+    start_turn(entered, entered);
   };
 
   auto cursor_on_first_line = [&] {

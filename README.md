@@ -69,3 +69,25 @@ build/chat_tui --help                         # list all options
 ```
 
 Type a message and press Enter to send it; type `/quit` to exit.
+
+## Skills
+
+`m8trixparrot` loads **skills** — reusable procedures for specific tasks — from
+`.m8trix/skills/<name>/SKILL.md`, in the
+[Agent Skills](https://agentskills.io) format (YAML frontmatter with `name` and
+`description`, then a markdown body; supporting files under the skill directory).
+
+Every turn the agent sees a catalog of each skill's name + description. It loads
+one on demand with the `skill` tool (`skill` action `load` — the body enters the
+conversation; read the skill's other files with `python`), and drops it with
+`skill` action `unload` to reclaim context.
+
+- `/skills` in the TUI lists the skills (and re-scans the directory).
+- A skill whose frontmatter sets `metadata.command: "true"` is also
+  `/its-name [args]` in the TUI; `metadata.argument-hint` documents the args.
+- `metadata.requires` (space-separated names) records dependencies on other
+  skills — shown in the catalog, not auto-loaded.
+- `--skills-dir <path>` changes the location; `--no-skills` turns the system off.
+
+`.m8trix/skills/` is tracked by git (unlike the rest of `.m8trix/`); the bundled
+`todo-scan` skill is a working example.

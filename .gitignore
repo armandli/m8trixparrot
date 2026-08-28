@@ -68,5 +68,8 @@ vcpkg_installed/
 Testing/
 .cache/
 
-# m8trixparrot's per-workspace sessions and memory
-.m8trix/
+# m8trixparrot's per-workspace sessions and memory. Skills are meant to be
+# shared, so they are tracked (ignore .m8trix/'s contents, not the dir itself,
+# so the negation below can take effect).
+.m8trix/*
+!.m8trix/skills/

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,6 +12,7 @@
 #include <core/ollama_client.h>
 #include <core/policy.h>
 #include <core/session_store.h>
+#include <core/skills.h>
 #include <core/tools.h>
 
 namespace agent {
@@ -86,6 +88,12 @@ struct AgentOptions {
   // When false, subagent_create / subagent_wait are neither advertised to the
   // model nor dispatchable — the agent runs python-only, as a single agent.
   bool enable_subagents = true;
+
+  // Skills are discovered from <skills_dir>/<name>/SKILL.md (relative to cwd, or
+  // absolute). enable_skills gates the system-prompt catalog, the `skill` tool,
+  // and the TUI's /<name> command triggers.
+  std::string skills_dir = ".m8trix/skills";
+  bool enable_skills = true;
 };
 
 // Forward declaration: the subagent tools reach the pool through
@@ -158,6 +166,13 @@ struct Agent {
   // Current contents of kMemoryPath; empty when the model hasn't written any.
   std::string memory() const;
 
+  // The skills available to this agent (name + description in the system
+  // prompt; body loaded on demand). Scanned lazily and cached.
+  const SkillCatalog& skill_catalog() const;
+  // Re-scan mOptions.skills_dir. For the TUI's /skills; not thread-safe against
+  // a running turn.
+  void reload_skills();
+
   // Drops the transcript and starts a new session id. Memory survives, since
   // it is the part meant to outlive a conversation.
   void reset();
@@ -193,6 +208,18 @@ struct Agent {
   // Emit a ContextUsage event with the current token count and threshold.
   void emit_context_usage() const;
 
+  // Lazily scans mOptions.skills_dir the first time it is needed.
+  const SkillCatalog& catalog() const;
+
+  // enable_skills and the catalog is non-empty: the `skill` tool is advertised.
+  bool skills_offered() const;
+
+  // The skill a finished tool call's result should be tagged with (for
+  // `skill unload`): the loaded skill name for a `skill load`, or the skill
+  // whose directory a `python` script read from. "" otherwise.
+  std::string skill_label_for(const ToolCall& call, const ToolArgs& args,
+                              const ToolResult& result) const;
+
   AgentOptions mOptions;
   const PolicyInterface& mPolicy;
   SessionStore mStore;
@@ -203,6 +230,7 @@ struct Agent {
   int mDepth = 0;
   std::string mLabel;
   std::atomic<int64_t> mContextTokens{0};
+  mutable std::optional<SkillCatalog> mCatalog;
 };
 
 }  // namespace agent

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -29,9 +30,10 @@ std::string clip(const std::string& text, size_t limit) {
 // A one-line rendering of the arguments that matter for display, so the UI can
 // show "grep pattern=\"teh\"" rather than the whole JSON object.
 std::string summarize(const std::string& tool_name, const ToolArgs& args) {
-  static const char* kInteresting[] = {"command",   "path",  "pattern",
-                                       "query",     "url",   "content",
-                                       "objective", "id"};
+  static const char* kInteresting[] = {"command", "path",      "pattern",
+                                       "query",   "url",       "content",
+                                       "objective", "id",      "action",
+                                       "name"};
 
   std::string summary;
   for (const char* key : kInteresting) {
@@ -69,24 +71,17 @@ constexpr const char* kSummarySystemPrompt =
     "remains; any errors hit and how they were handled. Drop chit-chat and "
     "superseded intermediate steps. Output only the summary, no preamble.";
 
-// Rough token count for the summarize trigger before Ollama reports a real one:
-// ~4 chars per token over message content and tool-call arguments, plus a fixed
-// allowance for the system prompt and tool schemas every call also carries.
-int64_t estimate_tokens(const std::vector<ChatMessage>& transcript) {
-  size_t chars = 0;
-  for (const ChatMessage& message : transcript) {
-    chars += message.content.size();
-    for (const ToolCall& call : message.tool_calls) {
-      chars += call.name.size() + call.arguments.size();
-    }
-  }
-  return static_cast<int64_t>(chars / 4) + 1200;
-}
-
-// The transcript flattened to labelled text, for the summarizer to read.
+// The transcript flattened to labelled text, for the summarizer to read. A
+// message that is loaded skill content is reduced to a placeholder — the model
+// can reload the skill after summarizing, so its body needn't be re-digested.
 std::string render_transcript(const std::vector<ChatMessage>& transcript) {
   std::ostringstream out;
   for (const ChatMessage& message : transcript) {
+    if (not message.skill_label.empty()) {
+      out << "[skill '" << message.skill_label
+          << "' content was loaded here]\n\n";
+      continue;
+    }
     out << "[" << message.role;
     if (not message.tool_name.empty()) out << " " << message.tool_name;
     out << "]\n";
@@ -120,8 +115,13 @@ Agent::Agent(AgentOptions options, const PolicyInterface& policy, std::string id
       mDepth(depth),
       mLabel(depth == 0 ? "root" : "subagent") {}
 
+bool Agent::skills_offered() const {
+  return mOptions.enable_skills and not catalog().skills.empty();
+}
+
 std::vector<std::string> Agent::tool_schemas() const {
   std::vector<std::string> schemas{PythonTool().description()};
+  if (skills_offered()) schemas.push_back(SkillTool::description());
   if (mOptions.enable_subagents) {
     schemas.push_back(SubagentCreateTool::description());
     schemas.push_back(SubagentWaitTool::description());
@@ -131,11 +131,37 @@ std::vector<std::string> Agent::tool_schemas() const {
 
 std::vector<std::string> Agent::tool_names() const {
   std::vector<std::string> names{"python"};
+  if (skills_offered()) names.push_back("skill");
   if (mOptions.enable_subagents) {
     names.push_back("subagent_create");
     names.push_back("subagent_wait");
   }
   return names;
+}
+
+const SkillCatalog& Agent::catalog() const {
+  if (not mCatalog) mCatalog = SkillCatalog::discover(mOptions.skills_dir);
+  return *mCatalog;
+}
+
+const SkillCatalog& Agent::skill_catalog() const { return catalog(); }
+
+void Agent::reload_skills() {
+  mCatalog = SkillCatalog::discover(mOptions.skills_dir);
+}
+
+std::string Agent::skill_label_for(const ToolCall& call, const ToolArgs& args,
+                                   const ToolResult& result) const {
+  if (not mOptions.enable_skills) return std::string();
+  if (call.name == "skill") {
+    if (not result.ok) return std::string();
+    const std::optional<std::string> action = string_arg(args, "action");
+    const std::optional<std::string> name = string_arg(args, "name");
+    if (action and name and *action == "load") return *name;
+    return std::string();
+  }
+  if (call.name == "python") return catalog().label_for_text(call.arguments);
+  return std::string();
 }
 
 std::string Agent::memory() const {
@@ -147,6 +173,7 @@ void Agent::reset() {
   mTranscript.clear();
   mSessionId.clear();
   mContextTokens.store(0);
+  mCatalog.reset();  // pick up skills added since the last scan
 }
 
 int64_t Agent::summarize_threshold() const {
@@ -173,13 +200,24 @@ void Agent::maybe_summarize_context() {
   if (mTranscript.size() < 2) return;
 
   const int64_t current =
-      std::max(mContextTokens.load(), estimate_tokens(mTranscript));
+      std::max(mContextTokens.load(), estimate_transcript_tokens(mTranscript));
   if (current < summarize_threshold()) return;
 
   emit({AgentEvent::Kind::Notice,
         "context at ~" + human_tokens(current) +
             " tokens; summarizing before continuing",
         "", ""});
+
+  // Skills loaded before the summary lose their body (render_transcript drops
+  // it); tell the model which they were so it can reload any it still needs.
+  std::vector<std::string> loaded;
+  for (const ChatMessage& message : mTranscript) {
+    if (not message.skill_label.empty() and
+        std::find(loaded.begin(), loaded.end(), message.skill_label) ==
+            loaded.end()) {
+      loaded.push_back(message.skill_label);
+    }
+  }
 
   std::vector<ChatMessage> request;
   request.push_back(ChatMessage{"system", kSummarySystemPrompt, {}, ""});
@@ -198,13 +236,18 @@ void Agent::maybe_summarize_context() {
     return;
   }
 
-  mTranscript.clear();
-  mTranscript.push_back(ChatMessage{
-      "user",
+  std::string seed =
       "The earlier conversation was summarized to save context. Summary:\n\n" +
-          reply.content + "\n\nContinue the task from here.",
-      {}, ""});
-  mContextTokens.store(estimate_tokens(mTranscript));
+      reply.content + "\n\nContinue the task from here.";
+  if (not loaded.empty()) {
+    seed += "\n\nSkills loaded before this summary:";
+    for (const std::string& name : loaded) seed += " " + name;
+    seed += ". Reload any you still need with the `skill` tool.";
+  }
+
+  mTranscript.clear();
+  mTranscript.push_back(ChatMessage{"user", seed, {}, ""});
+  mContextTokens.store(estimate_transcript_tokens(mTranscript));
 
   AgentEvent summarized;
   summarized.kind = AgentEvent::Kind::ContextSummarized;
@@ -278,6 +321,30 @@ std::string Agent::system_prompt() const {
     prompt << "- not inside a git repository\n";
   }
 
+  if (mOptions.enable_skills) {
+    std::ostringstream list;
+    int shown = 0;
+    for (const SkillInfo& skill : catalog().skills) {
+      if (not skill.model_invocable) continue;
+      list << "- " << skill.name << " — " << skill.description;
+      if (not skill.dependencies.empty()) {
+        list << "  (depends on:";
+        for (const std::string& dep : skill.dependencies) list << " " << dep;
+        list << ")";
+      }
+      list << "\n";
+      ++shown;
+    }
+    if (shown > 0) {
+      prompt << "\nSkills available — reusable procedures for specific tasks. "
+                "To use one, call `skill` action \"load\" with its name to read "
+                "its SKILL.md, follow it (reading its other files with `python` "
+                "as needed), then call `skill` action \"unload\" with that name "
+                "to drop it from context when finished:\n"
+             << clip(list.str(), 4000);
+    }
+  }
+
   const std::string notes = memory();
   if (not notes.empty()) {
     prompt << "\nYour memory notes:\n" << clip(notes, 8000) << "\n";
@@ -289,6 +356,8 @@ std::string Agent::system_prompt() const {
 ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
   if (tool_name == "python")
     return PythonTool().execute(args);
+  if (mOptions.enable_skills and tool_name == "skill")
+    return SkillTool{mTranscript, mContextTokens, catalog()}.execute(args);
   if (mOptions.enable_subagents and tool_name == "subagent_create")
     return SubagentCreateTool{mId, mPolicy, mOptions}.execute(args);
   if (mOptions.enable_subagents and tool_name == "subagent_wait")
@@ -418,8 +487,10 @@ AgentResult Agent::run_turn(const std::string& objective) {
       if (content.empty()) content = "[no output]";
 
       emit({AgentEvent::Kind::ToolResult, content, call.name, ""});
-      mTranscript.push_back(ChatMessage{
-          "tool", clip(content, kMaxToolResultBytes), {}, call.name});
+      ChatMessage tool_message{"tool", clip(content, kMaxToolResultBytes),
+                               {}, call.name};
+      tool_message.skill_label = skill_label_for(call, args, executed);
+      mTranscript.push_back(std::move(tool_message));
     }
   }
 
