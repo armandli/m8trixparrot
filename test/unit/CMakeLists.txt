@@ -25,6 +25,7 @@ add_executable(core_tests
   loopback_server.cpp
   agent_pool_test.cpp
   agent_context_test.cpp
+  agent_tools_test.cpp
   ollama_client_test.cpp
   session_store_test.cpp
 )

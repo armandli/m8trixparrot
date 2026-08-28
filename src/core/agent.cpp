@@ -120,16 +120,22 @@ Agent::Agent(AgentOptions options, const PolicyInterface& policy, std::string id
       mDepth(depth),
       mLabel(depth == 0 ? "root" : "subagent") {}
 
-std::vector<std::string> Agent::tool_schemas() {
-  return {
-      PythonTool().description(),
-      SubagentCreateTool::description(),
-      SubagentWaitTool::description(),
-  };
+std::vector<std::string> Agent::tool_schemas() const {
+  std::vector<std::string> schemas{PythonTool().description()};
+  if (mOptions.enable_subagents) {
+    schemas.push_back(SubagentCreateTool::description());
+    schemas.push_back(SubagentWaitTool::description());
+  }
+  return schemas;
 }
 
-std::vector<std::string> Agent::tool_names() {
-  return {"python", "subagent_create", "subagent_wait"};
+std::vector<std::string> Agent::tool_names() const {
+  std::vector<std::string> names{"python"};
+  if (mOptions.enable_subagents) {
+    names.push_back("subagent_create");
+    names.push_back("subagent_wait");
+  }
+  return names;
 }
 
 std::string Agent::memory() const {
@@ -213,11 +219,12 @@ std::string Agent::system_prompt() const {
   const int live = AgentPool::instance().live_count();
   const int free_slots = std::max(0, mOptions.max_agents - live);
 
+  const std::vector<std::string> names = tool_names();
+
   std::ostringstream prompt;
   prompt << "You are a coding agent working in a terminal on the user's "
             "machine. You have "
-         << Agent::tool_names().size() << " tools: "
-         << join_tool_names(Agent::tool_names())
+         << names.size() << " tools: " << join_tool_names(names)
          << ". Use them rather than guessing or asking the user to run things "
             "for you.\n\n";
 
@@ -240,7 +247,9 @@ std::string Agent::system_prompt() const {
             "script with "
             "`subprocess.run([\"pip\", \"install\", \"<pkg>\"], check=True)` "
             "before importing it.\n";
-  if (mDepth >= mOptions.max_depth) {
+  if (not mOptions.enable_subagents) {
+    prompt << "- You have no subagent tools; do all the work yourself.\n";
+  } else if (mDepth >= mOptions.max_depth) {
     prompt << "- You are at the maximum depth and cannot spawn subagents; do "
               "all the work yourself.\n";
   } else {
@@ -282,9 +291,9 @@ std::string Agent::system_prompt() const {
 ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
   if (tool_name == "python")
     return PythonTool().execute(args);
-  if (tool_name == "subagent_create")
+  if (mOptions.enable_subagents and tool_name == "subagent_create")
     return SubagentCreateTool{mId, mPolicy, mOptions}.execute(args);
-  if (tool_name == "subagent_wait")
+  if (mOptions.enable_subagents and tool_name == "subagent_wait")
     return SubagentWaitTool{}.execute(args);
 
   ToolResult unknown;

@@ -82,6 +82,10 @@ struct AgentOptions {
   // Auto-summarize the transcript once it reaches this many tokens. The
   // effective trigger is min(this, 0.8 * context_window_tokens).
   int context_summarize_at_tokens = 200000;
+
+  // When false, subagent_create / subagent_wait are neither advertised to the
+  // model nor dispatchable — the agent runs python-only, as a single agent.
+  bool enable_subagents = true;
 };
 
 // Forward declaration: the subagent tools reach the pool through
@@ -158,10 +162,11 @@ struct Agent {
   // it is the part meant to outlive a conversation.
   void reset();
 
-  // The tool schemas handed to the model, in advertised order.
-  static std::vector<std::string> tool_schemas();
+  // The tool schemas handed to the model, in advertised order. Depends on
+  // mOptions.enable_subagents, so it is an instance method.
+  std::vector<std::string> tool_schemas() const;
   // Just the names, for the system prompt.
-  static std::vector<std::string> tool_names();
+  std::vector<std::string> tool_names() const;
 
  protected:
   // Runs one tool call, policy first. Never throws and never reports failure as
