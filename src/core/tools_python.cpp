@@ -33,9 +33,11 @@ std::mutex& python_mutex() {
 void ensure_interpreter() {
   static struct Guard {
     // The interpreter is not sandboxed, so a script can still shell out to pip.
-    // Deny it a package index and any interactive prompt, so `pip install X`
-    // fails fast ("No matching distribution found") instead of mutating the
-    // environment. Package installation is not a capability this tool offers.
+    // Deny it a package index and any interactive prompt, so a script's own
+    // `pip install X` fails fast ("No matching distribution found") instead of
+    // mutating the environment. The `package_install` tool (package_installer.h)
+    // is the one sanctioned installer: it unsets PIP_NO_INDEX for just its own
+    // child process rather than for the interpreter as a whole.
     struct Lockdown {
       Lockdown() {
         ::setenv("PIP_NO_INDEX", "1", 1);
@@ -69,8 +71,15 @@ def _m8_run(script_text):
 
 void ensure_python_ready() { ensure_interpreter(); }
 
+std::string python_executable() {
+  ensure_interpreter();
+  std::lock_guard<std::mutex> lock(python_mutex());
+  py::gil_scoped_acquire gil;
+  return py::module_::import("sys").attr("executable").cast<std::string>();
+}
+
 std::string PythonTool::description() const {
-    return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. The Python standard library and the packages already installed in the environment are available; you cannot install new ones.","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
+    return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. The Python standard library and any already-installed packages are available; a script cannot pip install new ones itself — use the package_install tool for that, then this tool can import it.","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
 }
 
 ToolResult PythonTool::execute(const ToolArgs& args) const {

@@ -5,9 +5,11 @@ add_library(agentcore STATIC
   json_util.cpp
   basic_ollama_client.cpp
   ollama_client.cpp
+  package_installer.cpp
   policy.cpp
   session_store.cpp
   skills.cpp
+  tools_package_install.cpp
   tools_python.cpp
   tools_subagent.cpp
   tools_util.cpp

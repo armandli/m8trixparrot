@@ -16,6 +16,7 @@ namespace {
 std::vector<std::string> tool_schemas() {
   return {
       agent::PythonTool().description(),
+      agent::PackageInstallTool().description(),
   };
 }
 
@@ -38,6 +39,7 @@ void print_schemas() {
 agent::ToolResult dispatch(const std::string& name,
                            const agent::ToolArgs& args) {
   if (name == "python") return agent::PythonTool().execute(args);
+  if (name == "package_install") return agent::PackageInstallTool().execute(args);
 
   agent::ToolResult unknown;
   unknown.error = "no tool named '" + name +

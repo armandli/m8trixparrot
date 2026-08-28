@@ -94,6 +94,11 @@ struct AgentOptions {
   // and the TUI's /<name> command triggers.
   std::string skills_dir = ".m8trix/skills";
   bool enable_skills = true;
+
+  // When false, package_install is neither advertised nor dispatchable — the
+  // python tool is limited to the standard library and whatever is already
+  // installed, as before package_install existed.
+  bool enable_package_install = true;
 };
 
 // Forward declaration: the subagent tools reach the pool through

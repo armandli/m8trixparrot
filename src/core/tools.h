@@ -139,6 +139,21 @@ struct PythonTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
+// The embedded interpreter's own python binary (sys.executable) — what
+// `package_install` invokes `pip` through, so an installed package lands
+// where `python` scripts can import it. Acquires the GIL; safe from any
+// thread, but blocks behind whatever script is currently running.
+std::string python_executable();
+
+// Installs a single package by name, deduplicated through the process-wide
+// PackageInstaller singleton (package_installer.h) so concurrent subagents
+// asking for the same package produce one `pip install` rather than one each.
+struct PackageInstallTool {
+  std::string description() const;
+  // package (string, required).
+  ToolResult execute(const ToolArgs& args) const;
+};
+
 }  // namespace agent
 
 #endif  // TOOLS_H

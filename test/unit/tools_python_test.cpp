@@ -100,13 +100,13 @@ TEST_F(PythonTest, ConsecutiveCallsAreIsolated) {
     EXPECT_EQ(result.output.find("first"), std::string::npos);
 }
 
-// Package installation is not a capability the tool offers, so the schema must
-// not tell the model to run pip.
-TEST(PythonToolTest, DescriptionDoesNotAdvertisePackageInstall) {
+// A script can't shell out to pip itself; the schema should point the model at
+// package_install rather than suggesting subprocess.
+TEST(PythonToolTest, DescriptionPointsToPackageInstallNotSubprocess) {
     const std::string description = PythonTool().description();
 
-    EXPECT_EQ(description.find("pip"), std::string::npos) << description;
     EXPECT_EQ(description.find("subprocess"), std::string::npos) << description;
+    EXPECT_NE(description.find("package_install"), std::string::npos) << description;
 }
 
 // ensure_python_ready() denies pip a package index, so a `pip install` a script

@@ -31,7 +31,9 @@ add_executable(core_tests
   agent_skills_test.cpp
   agent_tools_test.cpp
   ollama_client_test.cpp
+  package_installer_test.cpp
   session_store_test.cpp
+  tools_package_install_test.cpp
 )
 
 target_include_directories(core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

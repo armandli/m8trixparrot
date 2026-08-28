@@ -121,6 +121,9 @@ bool Agent::skills_offered() const {
 
 std::vector<std::string> Agent::tool_schemas() const {
   std::vector<std::string> schemas{PythonTool().description()};
+  if (mOptions.enable_package_install) {
+    schemas.push_back(PackageInstallTool().description());
+  }
   if (skills_offered()) schemas.push_back(SkillTool::description());
   if (mOptions.enable_subagents) {
     schemas.push_back(SubagentCreateTool::description());
@@ -131,6 +134,7 @@ std::vector<std::string> Agent::tool_schemas() const {
 
 std::vector<std::string> Agent::tool_names() const {
   std::vector<std::string> names{"python"};
+  if (mOptions.enable_package_install) names.push_back("package_install");
   if (skills_offered()) names.push_back("skill");
   if (mOptions.enable_subagents) {
     names.push_back("subagent_create");
@@ -285,9 +289,16 @@ std::string Agent::system_prompt() const {
   prompt << "Working rules:\n"
             "- Use `python` for all computation, file I/O, data transformation, "
             "and anything scriptable. Prefer Python over describing what you "
-            "would do.\n"
-            "- Only the Python standard library and already-installed packages "
-            "are importable; you cannot install new ones.\n";
+            "would do.\n";
+  if (mOptions.enable_package_install) {
+    prompt << "- If a script needs a package that isn't installed, call "
+              "`package_install` with just its name first, then run the "
+              "script. Don't call it again for a package you already "
+              "installed or that already imported successfully.\n";
+  } else {
+    prompt << "- Only the Python standard library and already-installed "
+              "packages are importable; you cannot install new ones.\n";
+  }
   if (not mOptions.enable_subagents) {
     prompt << "- You have no subagent tools; do all the work yourself.\n";
   } else if (mDepth >= mOptions.max_depth) {
@@ -356,6 +367,8 @@ std::string Agent::system_prompt() const {
 ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
   if (tool_name == "python")
     return PythonTool().execute(args);
+  if (mOptions.enable_package_install and tool_name == "package_install")
+    return PackageInstallTool().execute(args);
   if (mOptions.enable_skills and tool_name == "skill")
     return SkillTool{mTranscript, mContextTokens, catalog()}.execute(args);
   if (mOptions.enable_subagents and tool_name == "subagent_create")

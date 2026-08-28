@@ -1,6 +1,6 @@
 // AgentOptions::enable_subagents: with it off, the agent advertises only the
 // `python` tool and refuses a subagent call rather than acting on it. Default
-// options keep all three tools. tool_names() / tool_schemas() need no network;
+// options keep all four tools. tool_names() / tool_schemas() need no network;
 // the refusal path is driven through a scripted LoopbackServer.
 
 #include <string>
@@ -17,20 +17,21 @@
 namespace agent {
 namespace {
 
-TEST(AgentToolsTest, DefaultOptionsAdvertiseAllThreeTools) {
+TEST(AgentToolsTest, DefaultOptionsAdvertiseAllFourTools) {
   const YoloPolicy policy;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(AgentOptions{}, policy, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python", "subagent_create",
-                                      "subagent_wait"}),
+  EXPECT_EQ((std::vector<std::string>{"python", "package_install",
+                                      "subagent_create", "subagent_wait"}),
             agent.tool_names());
-  EXPECT_EQ(3u, agent.tool_schemas().size());
+  EXPECT_EQ(4u, agent.tool_schemas().size());
 }
 
-TEST(AgentToolsTest, PythonOnlyWhenSubagentsDisabled) {
+TEST(AgentToolsTest, PythonOnlyWhenSubagentsAndPackageInstallDisabled) {
   AgentOptions options;
   options.enable_subagents = false;
+  options.enable_package_install = false;
 
   const YoloPolicy policy;
   const std::string id = AgentPool::instance().register_root("root");
