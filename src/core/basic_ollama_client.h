@@ -28,6 +28,8 @@ struct ChatResult {
   std::string content;
   std::vector<ToolCall> tool_calls;
   std::string error;
+  int64_t prompt_eval_count = 0;  // Input tokens Ollama processed this call.
+  int64_t eval_count = 0;         // Output tokens generated this call.
 };
 
 struct GenerateOptions {
@@ -99,6 +101,11 @@ struct ShowResult {
   std::string error;
 };
 
+// The largest value of any key named "context_length" or "<arch>.context_length"
+// in an /api/show `model_info` object (passed as its raw JSON text). Returns 0
+// when the text is absent or has no such key.
+int64_t context_length_from_model_info(const std::string& model_info_json);
+
 // Synchronous, non-singleton HTTP client for the Ollama API. Owns a host
 // string; all methods take the model name explicitly. Not thread-safe for
 // concurrent calls on the same instance — create one per thread if needed.
@@ -108,9 +115,11 @@ struct BasicOllamaClient {
 
   // `tools` holds each tool's schema as JSON object text. Wrapped as
   // {"type":"function","function":<schema>} on the way out. Empty = no tools.
+  // `num_ctx > 0` is sent as options.num_ctx to fix the context window.
   ChatResult chat(std::string_view model,
                    const std::vector<ChatMessage>& messages,
-                   const std::vector<std::string>& tools = {}) const;
+                   const std::vector<std::string>& tools = {},
+                   int64_t num_ctx = 0) const;
 
   GenerateResult generate(std::string_view model, std::string_view prompt,
                            const GenerateOptions& options = {},

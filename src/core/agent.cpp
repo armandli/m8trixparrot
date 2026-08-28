@@ -1,6 +1,7 @@
 #include <core/agent.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -58,6 +59,55 @@ std::string join_tool_names(const std::vector<std::string>& names) {
   return joined;
 }
 
+constexpr const char* kSummarySystemPrompt =
+    "You are compacting a coding agent's working context. Below is the full "
+    "transcript so far. Produce a dense summary that a fresh instance of the "
+    "agent can use to continue with no loss of essential information. Preserve: "
+    "the user's most recent request, verbatim, as the active task; every "
+    "decision made and why; concrete findings - file paths, identifiers, "
+    "values, and command output that matter; what has been completed; what "
+    "remains; any errors hit and how they were handled. Drop chit-chat and "
+    "superseded intermediate steps. Output only the summary, no preamble.";
+
+// Rough token count for the summarize trigger before Ollama reports a real one:
+// ~4 chars per token over message content and tool-call arguments, plus a fixed
+// allowance for the system prompt and tool schemas every call also carries.
+int64_t estimate_tokens(const std::vector<ChatMessage>& transcript) {
+  size_t chars = 0;
+  for (const ChatMessage& message : transcript) {
+    chars += message.content.size();
+    for (const ToolCall& call : message.tool_calls) {
+      chars += call.name.size() + call.arguments.size();
+    }
+  }
+  return static_cast<int64_t>(chars / 4) + 1200;
+}
+
+// The transcript flattened to labelled text, for the summarizer to read.
+std::string render_transcript(const std::vector<ChatMessage>& transcript) {
+  std::ostringstream out;
+  for (const ChatMessage& message : transcript) {
+    out << "[" << message.role;
+    if (not message.tool_name.empty()) out << " " << message.tool_name;
+    out << "]\n";
+    if (not message.content.empty()) out << message.content << "\n";
+    for (const ToolCall& call : message.tool_calls) {
+      out << "-> called " << call.name << "(" << call.arguments << ")\n";
+    }
+    out << "\n";
+  }
+  return out.str();
+}
+
+// "128k" / "1.5M" / "640".
+std::string human_tokens(int64_t n) {
+  if (n < 1000) return std::to_string(n);
+  if (n < 1000000) return std::to_string((n + 500) / 1000) + "k";
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%.1fM", static_cast<double>(n) / 1000000.0);
+  return std::string(buf);
+}
+
 }  // namespace
 
 Agent::Agent(AgentOptions options, const PolicyInterface& policy, std::string id,
@@ -90,6 +140,72 @@ std::string Agent::memory() const {
 void Agent::reset() {
   mTranscript.clear();
   mSessionId.clear();
+  mContextTokens.store(0);
+}
+
+int64_t Agent::summarize_threshold() const {
+  const int64_t hard = mOptions.context_summarize_at_tokens;
+  if (mOptions.context_window_tokens <= 0) return hard;
+  const int64_t soft =
+      static_cast<int64_t>(mOptions.context_window_tokens) * 4 / 5;
+  return std::min(hard, soft);
+}
+
+int64_t Agent::context_limit() const { return summarize_threshold(); }
+
+int64_t Agent::context_tokens() const { return mContextTokens.load(); }
+
+void Agent::emit_context_usage() const {
+  AgentEvent event;
+  event.kind = AgentEvent::Kind::ContextUsage;
+  event.tokens = mContextTokens.load();
+  event.token_budget = summarize_threshold();
+  emit(event);
+}
+
+void Agent::maybe_summarize_context() {
+  if (mTranscript.size() < 2) return;
+
+  const int64_t current =
+      std::max(mContextTokens.load(), estimate_tokens(mTranscript));
+  if (current < summarize_threshold()) return;
+
+  emit({AgentEvent::Kind::Notice,
+        "context at ~" + human_tokens(current) +
+            " tokens; summarizing before continuing",
+        "", ""});
+
+  std::vector<ChatMessage> request;
+  request.push_back(ChatMessage{"system", kSummarySystemPrompt, {}, ""});
+  request.push_back(ChatMessage{"user", render_transcript(mTranscript), {}, ""});
+
+  const uint64_t ticket = OllamaClient::instance().enqueue_chat(request, {});
+  const ChatResult reply = OllamaClient::instance().wait_for(ticket);
+
+  if (not reply.ok or reply.content.empty()) {
+    emit({AgentEvent::Kind::Notice,
+          "context summarization failed (" +
+              (reply.error.empty() ? std::string("empty response")
+                                   : reply.error) +
+              "); continuing",
+          "", ""});
+    return;
+  }
+
+  mTranscript.clear();
+  mTranscript.push_back(ChatMessage{
+      "user",
+      "The earlier conversation was summarized to save context. Summary:\n\n" +
+          reply.content + "\n\nContinue the task from here.",
+      {}, ""});
+  mContextTokens.store(estimate_tokens(mTranscript));
+
+  AgentEvent summarized;
+  summarized.kind = AgentEvent::Kind::ContextSummarized;
+  summarized.text = "context summarized (~" + human_tokens(current) +
+                    " tokens folded into a summary)";
+  summarized.tokens = current;
+  emit(summarized);
 }
 
 std::string Agent::system_prompt() const {
@@ -211,6 +327,10 @@ AgentResult Agent::run_turn(const std::string& objective) {
   for (int step = 0; step < mOptions.max_steps; ++step) {
     self.steps = step + 1;
 
+    // Compact the transcript before it can overflow the context window. This
+    // may itself run an Ollama call and replace mTranscript with a summary.
+    maybe_summarize_context();
+
     // The system message is rebuilt every step rather than stored, so a memory
     // write lands in the very next call.
     std::vector<ChatMessage> messages;
@@ -229,6 +349,9 @@ AgentResult Agent::run_turn(const std::string& objective) {
       if (mDepth == 0) save();
       return self;
     }
+
+    mContextTokens.store(reply.prompt_eval_count);
+    emit_context_usage();
 
     mTranscript.push_back(
         ChatMessage{"assistant", reply.content, reply.tool_calls, ""});

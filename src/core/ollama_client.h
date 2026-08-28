@@ -29,6 +29,15 @@ struct OllamaClient {
   static void configure(const std::string& model,
                         const std::string& host = "http://localhost:11434");
 
+  // Context window to request on every chat call (sent as options.num_ctx).
+  // 0 leaves it to Ollama's default. Set once at startup.
+  static void set_num_ctx(int64_t num_ctx);
+  int64_t num_ctx() const { return mNumCtx.load(); }
+
+  // The model's context length from /api/show (0 if it can't be determined).
+  // Synchronous, runs on the caller's thread — call it before starting turns.
+  int64_t context_length(std::string_view model) const;
+
   // Enqueues a chat request and returns a ticket number immediately.
   uint64_t enqueue_chat(const std::vector<ChatMessage>& messages,
                         const std::vector<std::string>& tools = {});
@@ -60,6 +69,7 @@ private:
   std::deque<Job> mQueue;
   std::mutex mQueueMutex;
   std::condition_variable mQueueCv;
+  std::atomic<int64_t> mNumCtx{0};
   std::atomic<uint64_t> mNextTicket{0};
   std::unordered_map<uint64_t, std::future<ChatResult>> mResults;
   std::mutex mResultsMutex;

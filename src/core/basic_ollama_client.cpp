@@ -96,7 +96,8 @@ BasicOllamaClient::BasicOllamaClient(const std::string& host) : mHost(host) {
 
 ChatResult BasicOllamaClient::chat(std::string_view model,
                                     const std::vector<ChatMessage>& messages,
-                                    const std::vector<std::string>& tools) const {
+                                    const std::vector<std::string>& tools,
+                                    int64_t num_ctx) const {
   ChatResult result;
 
   JsonWriter body;
@@ -138,6 +139,14 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
     }
     body.end_array();
   }
+  if (num_ctx > 0) {
+    GenerateOptions::ModelParams params;
+    params.num_ctx = num_ctx;
+    const std::string options = model_params_to_json(params);
+    if (not options.empty()) {
+      body.field("options", RawJson::of_raw(options));
+    }
+  }
   body.end_object();
 
   const HttpResult http = post_json("/api/chat", body.str());
@@ -176,6 +185,16 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
     } else {
       result.error = "failed to parse ollama response: missing message";
     }
+  }
+
+  // The usage counts are top-level siblings that follow `message`. A second
+  // parse of the (small) body is cheaper than reasoning about the On-Demand
+  // cursor's position after descending into `message`. Best effort.
+  if (result.ok) {
+    with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
+      result.prompt_eval_count = int_field(obj, "prompt_eval_count");
+      result.eval_count = int_field(obj, "eval_count");
+    });
   }
 
   return result;
@@ -326,6 +345,39 @@ EmbedResult BasicOllamaClient::embed(
 
   if (result.error.empty()) result.ok = true;
   return result;
+}
+
+int64_t context_length_from_model_info(const std::string& model_info_json) {
+  if (model_info_json.empty() or model_info_json == "null") return 0;
+
+  constexpr std::string_view kSuffix = ".context_length";
+  int64_t best = 0;
+  try {
+    simdjson::ondemand::parser parser;
+    simdjson::padded_string padded(model_info_json);
+    simdjson::ondemand::document doc = parser.iterate(padded);
+
+    simdjson::ondemand::object obj;
+    if (doc.get_object().get(obj)) return 0;
+
+    for (auto field : obj) {
+      std::string_view key;
+      if (field.unescaped_key().get(key)) continue;
+      const bool matches =
+          key == "context_length" or
+          (key.size() >= kSuffix.size() and
+           key.substr(key.size() - kSuffix.size()) == kSuffix);
+      if (not matches) continue;
+
+      int64_t value = 0;
+      if (not field.value().get_int64().get(value) and value > best) {
+        best = value;
+      }
+    }
+  } catch (const std::exception&) {
+    return 0;
+  }
+  return best;
 }
 
 ShowResult BasicOllamaClient::show(std::string_view model, bool verbose) const {

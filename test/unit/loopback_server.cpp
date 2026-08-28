@@ -8,8 +8,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <string>
-#include <utility>
 
 namespace agent::test {
 
@@ -28,10 +28,8 @@ const char* reason_for(int status) {
   }
 }
 
-}  // namespace
-
-LoopbackServer::LoopbackServer(int status, std::string content_type,
-                               std::string body) {
+std::string http_response(int status, const std::string& content_type,
+                          const std::string& body) {
   std::string response = "HTTP/1.1 " + std::to_string(status) + " " +
                          reason_for(status) + "\r\n";
   if (not content_type.empty()) {
@@ -40,8 +38,28 @@ LoopbackServer::LoopbackServer(int status, std::string content_type,
   response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
   response += "Connection: close\r\n\r\n";
   response += body;
-  mResponse = std::move(response);
+  return response;
+}
 
+}  // namespace
+
+LoopbackServer::LoopbackServer(int status, std::string content_type,
+                               std::string body) {
+  mResponses.push_back(http_response(status, content_type, body));
+  listen_and_serve();
+}
+
+LoopbackServer::LoopbackServer(std::vector<std::string> json_bodies) {
+  for (const std::string& body : json_bodies) {
+    mResponses.push_back(http_response(200, "application/json", body));
+  }
+  if (mResponses.empty()) {
+    mResponses.push_back(http_response(200, "application/json", "{}"));
+  }
+  listen_and_serve();
+}
+
+void LoopbackServer::listen_and_serve() {
   mListenFd = ::socket(AF_INET, SOCK_STREAM, 0);
   if (mListenFd < 0) return;
 
@@ -58,7 +76,7 @@ LoopbackServer::LoopbackServer(int status, std::string content_type,
     mListenFd = -1;
     return;
   }
-  if (::listen(mListenFd, 4) != 0) {
+  if (::listen(mListenFd, 8) != 0) {
     ::close(mListenFd);
     mListenFd = -1;
     return;
@@ -95,16 +113,20 @@ void LoopbackServer::serve() {
     const int fd = ::accept(mListenFd, nullptr, nullptr);
     if (fd < 0) return;  // Listening socket closed, or the run is over.
 
-    // Drain the request. It is never parsed — every path gets the same canned
-    // response — but curl won't read the reply until its own write completes.
+    // Drain the request. It is never parsed — the path is ignored — but curl
+    // won't read the reply until its own write completes.
     char buffer[4096];
     const ssize_t got = ::recv(fd, buffer, sizeof(buffer), 0);
     (void)got;
 
+    const std::string& response =
+        mResponses[std::min(mIndex, mResponses.size() - 1)];
+    ++mIndex;
+
     size_t sent = 0;
-    while (sent < mResponse.size()) {
-      const ssize_t n = ::send(fd, mResponse.data() + sent,
-                               mResponse.size() - sent, MSG_NOSIGNAL);
+    while (sent < response.size()) {
+      const ssize_t n = ::send(fd, response.data() + sent,
+                               response.size() - sent, MSG_NOSIGNAL);
       if (n <= 0) break;
       sent += static_cast<size_t>(n);
     }

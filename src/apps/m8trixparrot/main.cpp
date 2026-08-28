@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstdio>
 
 #include <algorithm>
@@ -132,6 +133,7 @@ const char* kHelpText =
     "/help     show this message\n"
     "/memory   show the agent's memory notes\n"
     "/session  show the current session id\n"
+    "/context  show context token usage and the auto-summarize threshold\n"
     "/reset    start a new session (memory is kept)\n"
     "/quit     exit\n"
     "\n"
@@ -358,6 +360,34 @@ void render_result_body(std::list<TranscriptNode>& out,
   }
 }
 
+// "128k" / "1.5M" / "640".
+std::string human_tokens(int64_t n) {
+  if (n < 1000) return std::to_string(n);
+  if (n < 1000000) return std::to_string((n + 500) / 1000) + "k";
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%.1fM", static_cast<double>(n) / 1000000.0);
+  return std::string(buf);
+}
+
+// Drops routing-map entries for `node` and every Subagent under it, before the
+// list it lives in is cleared (a stale pointer into a cleared std::list would
+// dangle). Safe because an agent that summarizes has already waited on its
+// children, so their threads are done emitting.
+void forget_subtree(
+    TranscriptNode& node,
+    std::unordered_map<std::string, TranscriptNode*>& subagent_nodes,
+    std::unordered_map<std::string, std::list<TranscriptNode>*>&
+        agent_containers) {
+  for (TranscriptNode& child : node.children) {
+    forget_subtree(child, subagent_nodes, agent_containers);
+  }
+  if (node.kind == TranscriptNode::Kind::Subagent and
+      not node.agent_id.empty()) {
+    subagent_nodes.erase(node.agent_id);
+    agent_containers.erase(node.agent_id);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -369,6 +399,8 @@ int main(int argc, char** argv) {
   int max_steps = 12;
   int max_depth = 3;
   int max_agents = 16;
+  int num_ctx = 0;
+  int summarize_at = 200000;
 
   app.add_option("model,-m,--model", model, "Ollama model to run the agent on")
       ->capture_default_str();
@@ -383,6 +415,13 @@ int main(int argc, char** argv) {
       ->capture_default_str();
   app.add_option("--max-agents", max_agents,
                  "Maximum agents live at once across the whole run")
+      ->capture_default_str();
+  app.add_option("--num-ctx", num_ctx,
+                 "Context window to request from Ollama (0 = detect from the model)")
+      ->capture_default_str();
+  app.add_option("--summarize-at", summarize_at,
+                 "Auto-summarize the transcript at this many tokens "
+                 "(also capped at 80% of the context window)")
       ->capture_default_str();
 
   std::string policy_name = "sane";
@@ -424,10 +463,23 @@ int main(int argc, char** argv) {
   // Bring Python up on the main thread before any agent thread touches it.
   agent::ensure_python_ready();
 
+  int64_t window = num_ctx;
+  if (window <= 0) {
+    window = agent::OllamaClient::instance().context_length(model);
+    if (window <= 0) {
+      std::cerr << "warning: could not detect the context length for '" << model
+                << "'; auto-summarizing at a flat " << summarize_at
+                << " tokens\n";
+    }
+  }
+  if (window > 0) agent::OllamaClient::set_num_ctx(window);
+
   agent::AgentOptions options;
   options.max_steps = max_steps;
   options.max_depth = max_depth;
   options.max_agents = max_agents;
+  options.context_window_tokens = static_cast<int>(std::max<int64_t>(0, window));
+  options.context_summarize_at_tokens = summarize_at;
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
   agent::Agent root_agent(options, policy, root_id, "", 0);
@@ -444,6 +496,8 @@ int main(int argc, char** argv) {
   float scroll_y = 1.0f;  // 0 = top of history, 1 = bottom (most recent).
   f::Box viewport_box = kNoBox;
   std::atomic<bool> shutting_down{false};
+  int64_t ctx_tokens = 0;   // Root context usage, from ContextUsage events.
+  int64_t ctx_budget = 0;   // The auto-summarize threshold. Both under `mutex`.
 
   auto screen = f::App::TerminalOutput();
 
@@ -518,6 +572,32 @@ int main(int argc, char** argv) {
             it->second->ok = event.ok;
             collapse_subtree(*it->second);
           }
+          break;
+        }
+
+        case agent::AgentEvent::Kind::ContextUsage:
+          if (event.depth == 0) {
+            ctx_tokens = event.tokens;
+            ctx_budget = event.token_budget;
+          }
+          break;
+
+        case agent::AgentEvent::Kind::ContextSummarized: {
+          // Compact this agent's view to match its now-summarized transcript.
+          for (TranscriptNode& node : *container) {
+            forget_subtree(node, subagent_nodes, agent_containers);
+          }
+          container->clear();
+          if (event.depth == 0) {
+            // Everything lived under the root; rebuild the routing tables.
+            subagent_nodes.clear();
+            agent_containers.clear();
+            agent_containers[root_id] = &transcript;
+            container = &transcript;
+          }
+          add_node(*container, TranscriptNode::Kind::Notice,
+                   "\xe2\x94\x80\xe2\x94\x80 " + event.text +
+                       " \xe2\x94\x80\xe2\x94\x80");
           break;
         }
       }
@@ -601,6 +681,18 @@ int main(int argc, char** argv) {
       const std::string id = root_agent.session_id();
       push_notice(TranscriptNode::Kind::Notice,
                   id.empty() ? "no session saved yet" : "session " + id);
+      return;
+    }
+    if (entered == "/context") {
+      const int64_t used = root_agent.context_tokens();
+      const int64_t win = root_agent.context_window();
+      const int64_t limit = root_agent.context_limit();
+      std::string msg =
+          used > 0 ? "context: ~" + std::to_string(used) + " tokens"
+                   : "context: not measured yet";
+      if (win > 0) msg += "  (window " + std::to_string(win) + ")";
+      msg += "  auto-summarize at " + std::to_string(limit);
+      push_notice(TranscriptNode::Kind::Notice, msg);
       return;
     }
     if (entered == "/reset") {
@@ -698,6 +790,8 @@ int main(int argc, char** argv) {
   auto root = f::Renderer(input, [&] {
     std::vector<f::Element> lines;
     float current_scroll_y;
+    int64_t header_ctx_tokens;
+    int64_t header_ctx_budget;
     {
       std::lock_guard<std::mutex> lock(mutex);
 
@@ -712,11 +806,19 @@ int main(int argc, char** argv) {
         lines.push_back(f::text("agent is working...") | f::dim);
       }
       current_scroll_y = scroll_y;
+      header_ctx_tokens = ctx_tokens;
+      header_ctx_budget = ctx_budget;
+    }
+
+    std::string ctx_part;
+    if (header_ctx_budget > 0) {
+      ctx_part = "  |  ctx: " + human_tokens(header_ctx_tokens) + "/" +
+                 human_tokens(header_ctx_budget);
     }
 
     return f::vbox({
-               f::text("m8trixparrot  |  model: " + model +
-                       "  |  policy: " + policy.name()) |
+               f::text("m8trixparrot  |  model: " + model + "  |  policy: " +
+                       policy.name() + ctx_part) |
                    f::bold | f::center,
                f::separator(),
                f::vbox(lines) |

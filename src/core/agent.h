@@ -1,6 +1,8 @@
 #ifndef AGENT_H
 #define AGENT_H
 
+#include <atomic>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -33,9 +35,11 @@ struct AgentEvent {
     ToolResult,     // `text` is what the tool produced.
     Denied,         // The policy refused; `text` is its reason.
     Error,          // The turn is failing; `text` says why.
-    Notice,         // Everything else worth showing (step limit, resume, ...).
-    SubagentStart,  // A child agent began: `agent_id` is the child, `summary` its objective.
-    SubagentDone,   // A child agent finished: `text` is its conclusion or error.
+    Notice,            // Everything else worth showing (step limit, resume, ...).
+    SubagentStart,     // A child agent began: `agent_id` is the child, `summary` its objective.
+    SubagentDone,      // A child agent finished: `text` is its conclusion or error.
+    ContextUsage,      // After a model call: `tokens` / `token_budget` are current.
+    ContextSummarized, // The transcript was just compacted: `text` describes it.
   };
 
   Kind kind = Kind::Assistant;
@@ -50,6 +54,9 @@ struct AgentEvent {
   int depth = 0;
   std::string agent_label;  // "root" | "subagent"
   bool ok = true;           // SubagentDone: did the child succeed.
+
+  int64_t tokens = 0;        // ContextUsage / ContextSummarized: token count.
+  int64_t token_budget = 0;  // ContextUsage: the auto-summarize threshold.
 };
 
 using AgentObserver = std::function<void(const AgentEvent&)>;
@@ -67,6 +74,14 @@ struct AgentOptions {
   // How many agents may be live at once across the whole tree. subagent_create
   // refuses when this many are already running.
   int max_agents = 16;
+
+  // The model's context window (num_ctx) in force. 0 = unknown, in which case
+  // the auto-summarize trigger is just context_summarize_at_tokens.
+  int context_window_tokens = 0;
+
+  // Auto-summarize the transcript once it reaches this many tokens. The
+  // effective trigger is min(this, 0.8 * context_window_tokens).
+  int context_summarize_at_tokens = 200000;
 };
 
 // Forward declaration: the subagent tools reach the pool through
@@ -128,6 +143,14 @@ struct Agent {
   int depth() const { return mDepth; }
   const std::vector<ChatMessage>& transcript() const { return mTranscript; }
 
+  // Tokens the model processed on the last call (or an estimate before the
+  // first). Thread-safe: the running turn writes it, a UI may read it.
+  int64_t context_tokens() const;
+  // The num_ctx in force (0 if unknown) and the effective auto-summarize
+  // trigger, min(context_summarize_at_tokens, 0.8 * window).
+  int64_t context_window() const { return mOptions.context_window_tokens; }
+  int64_t context_limit() const;
+
   // Current contents of kMemoryPath; empty when the model hasn't written any.
   std::string memory() const;
 
@@ -155,6 +178,16 @@ struct Agent {
   // to the process-wide AgentPool observer.
   void emit(AgentEvent event) const;
 
+  // The effective auto-summarize trigger for this agent.
+  int64_t summarize_threshold() const;
+
+  // If the transcript is at/over the threshold, replace it with a one-message
+  // summary produced by an Ollama call. Runs at the top of each turn step.
+  void maybe_summarize_context();
+
+  // Emit a ContextUsage event with the current token count and threshold.
+  void emit_context_usage() const;
+
   AgentOptions mOptions;
   const PolicyInterface& mPolicy;
   SessionStore mStore;
@@ -164,6 +197,7 @@ struct Agent {
   std::string mParentId;
   int mDepth = 0;
   std::string mLabel;
+  std::atomic<int64_t> mContextTokens{0};
 };
 
 }  // namespace agent

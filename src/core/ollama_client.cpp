@@ -26,6 +26,22 @@ void OllamaClient::configure(const std::string& model, const std::string& host) 
   inst.mBasicClient.mHost = host;
 }
 
+void OllamaClient::set_num_ctx(int64_t num_ctx) {
+  instance().mNumCtx.store(num_ctx);
+}
+
+int64_t OllamaClient::context_length(std::string_view model) const {
+  const ShowResult shown = mBasicClient.show(model);
+  if (not shown.ok) return 0;
+  const int64_t from_info =
+      context_length_from_model_info(shown.model_info.text);
+  if (from_info > 0) return from_info;
+  if (shown.model_params and shown.model_params->num_ctx) {
+    return *shown.model_params->num_ctx;
+  }
+  return 0;
+}
+
 uint64_t OllamaClient::enqueue_chat(const std::vector<ChatMessage>& messages,
                                      const std::vector<std::string>& tools) {
   std::promise<ChatResult> promise;
@@ -72,7 +88,8 @@ void OllamaClient::worker_loop() {
       job = std::move(mQueue.front());
       mQueue.pop_front();
     }
-    job.promise.set_value(mBasicClient.chat(mModel, job.messages, job.tools));
+    job.promise.set_value(
+        mBasicClient.chat(mModel, job.messages, job.tools, mNumCtx.load()));
   }
 }
 

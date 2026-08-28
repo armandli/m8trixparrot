@@ -22,7 +22,10 @@ gtest_discover_tests(unit_tests)
 # session store. Kept out of unit_tests because those tools chdir into a temp
 # directory and rely on running sequentially.
 add_executable(core_tests
+  loopback_server.cpp
   agent_pool_test.cpp
+  agent_context_test.cpp
+  ollama_client_test.cpp
   session_store_test.cpp
 )
 
