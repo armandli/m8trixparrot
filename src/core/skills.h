@@ -21,17 +21,18 @@ namespace agent {
 // `python`.
 
 struct SkillInfo {
-  std::string name;         // the directory name; frontmatter `name` must match
-  std::string description;  // frontmatter `description`
-  std::string dir;             // "<skills_dir>/<name>"
-  std::string skill_md_path;   // "<dir>/SKILL.md"
+  // the directory name; frontmatter `name` must match
+  std::string name;
+  std::string description;    // frontmatter `description`
+  std::string dir;            // "<skills_dir>/<name>"
+  std::string skill_md_path;  // "<dir>/SKILL.md"
 
   // From the frontmatter's `metadata:` map. These are m8trix extensions the
   // Agent Skills spec allows there (its top-level keys stay portable).
-  std::vector<std::string> dependencies;  // metadata.requires; informational only
-  bool command = false;                    // metadata.command: /<name> in the TUI
-  std::string argument_hint;               // metadata.argument-hint
-  bool model_invocable = true;              // metadata.model-invocable != "false"
+  std::vector<std::string> dependencies;  // metadata.requires (informational)
+  bool command = false;         // metadata.command: /<name> in the TUI
+  std::string argument_hint;    // metadata.argument-hint
+  bool model_invocable = true;  // metadata.model-invocable != "false"
 };
 
 // Result of parsing a SKILL.md's frontmatter. Exposed for testing.
@@ -80,7 +81,7 @@ struct SkillTool {
   static std::string description();
   ToolResult execute(const ToolArgs& args) const;
 
- protected:
+protected:
   ToolResult load(const SkillInfo& skill,
                   const std::optional<std::string>& file) const;
   ToolResult unload(const SkillInfo& skill) const;

@@ -1,5 +1,5 @@
-#ifndef M8TRIXSH_TERMINAL_EMULATOR_H
-#define M8TRIXSH_TERMINAL_EMULATOR_H
+#ifndef TERMINAL_EMULATOR_H
+#define TERMINAL_EMULATOR_H
 
 #include <cstdint>
 
@@ -90,7 +90,7 @@ struct TerminalEmulator {
   };
   Cursor cursor() const { return mCursor; }
 
- protected:
+protected:
   RenderCell to_render_cell(const VTermScreenCell& cell) const;
   void rebuild_grid();
   void push_scrollback(int cols, const VTermScreenCell* cells);
@@ -108,7 +108,7 @@ struct TerminalEmulator {
   static int resize_trampoline(int rows, int cols, void* user);
   static int osc_trampoline(int command, VTermStringFragment frag, void* user);
 
- private:
+private:
   VTerm* mVt = nullptr;
   VTermScreen* mScreen = nullptr;
   VTermState* mState = nullptr;
@@ -144,4 +144,4 @@ ftxui::Element terminal_element(
 
 }  // namespace m8sh
 
-#endif  // M8TRIXSH_TERMINAL_EMULATOR_H
+#endif  // TERMINAL_EMULATOR_H

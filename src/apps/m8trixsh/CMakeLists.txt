@@ -3,6 +3,8 @@ add_executable(m8trixsh
   terminal_emulator.cpp
 )
 
+target_include_directories(m8trixsh PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 target_link_libraries(m8trixsh
   PRIVATE agentui   # PUBLIC-links agentcore
   PRIVATE ftxui::component
@@ -17,6 +19,10 @@ include(GoogleTest)
 add_executable(m8trixsh_terminal_test
   terminal_emulator_test.cpp
   terminal_emulator.cpp
+)
+
+target_include_directories(m8trixsh_terminal_test
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(m8trixsh_terminal_test

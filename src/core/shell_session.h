@@ -56,11 +56,11 @@ struct ShellSession {
   // proc_pidinfo on macOS, /proc/<pid>/cwd on Linux.
   std::string cwd() const;
 
- protected:
+protected:
   void reader_loop();
   void stop_child();
 
- private:
+private:
   int mMaster = -1;
   pid_t mChild = -1;
   std::thread mReader;

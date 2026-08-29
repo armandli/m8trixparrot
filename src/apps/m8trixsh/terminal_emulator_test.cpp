@@ -1,6 +1,6 @@
 // The libvterm integration: what feed() puts in the grid, what keys/OSC produce.
 
-#include "terminal_emulator.h"
+#include <terminal_emulator.h>
 
 #include <string>
 

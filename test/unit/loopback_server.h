@@ -36,7 +36,7 @@ struct LoopbackServer {
   // e.g. url("/page.html") -> "http://127.0.0.1:54321/page.html"
   std::string url(const std::string& path = "/") const;
 
- protected:
+protected:
   void listen_and_serve();
   void serve();
 

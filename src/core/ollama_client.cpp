@@ -43,7 +43,7 @@ int64_t OllamaClient::context_length(std::string_view model) const {
 }
 
 uint64_t OllamaClient::enqueue_chat(const std::vector<ChatMessage>& messages,
-                                     const std::vector<std::string>& tools) {
+                                    const std::vector<std::string>& tools) {
   std::promise<ChatResult> promise;
   const uint64_t ticket = mNextTicket.fetch_add(1, std::memory_order_relaxed);
   {
@@ -83,7 +83,7 @@ void OllamaClient::worker_loop() {
     Job job;
     {
       std::unique_lock<std::mutex> lk(mQueueMutex);
-      mQueueCv.wait(lk, [this] { return !mQueue.empty() || mShutdown; });
+      mQueueCv.wait(lk, [this] { return not mQueue.empty() or mShutdown; });
       if (mQueue.empty()) return;
       job = std::move(mQueue.front());
       mQueue.pop_front();

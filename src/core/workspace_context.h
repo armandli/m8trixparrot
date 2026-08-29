@@ -7,9 +7,12 @@ namespace agent {
 
 struct WorkspaceContext {
   std::string cwd;
-  std::string repo_root;   // Empty if start_path isn't inside a git repository.
-  std::string git_branch;  // Empty if not in a repo; "HEAD detached at <sha>" if detached.
-  std::string git_status;  // Raw porcelain-style text; empty if not in a repo or tree is clean.
+  // Empty if start_path isn't inside a git repository.
+  std::string repo_root;
+  // Empty if not in a repo; "HEAD detached at <sha>" if detached.
+  std::string git_branch;
+  // Raw porcelain-style text; empty if not in a repo or the tree is clean.
+  std::string git_status;
   bool in_git_repo = false;
 
   // Detects the workspace context starting from `start_path` (default: the

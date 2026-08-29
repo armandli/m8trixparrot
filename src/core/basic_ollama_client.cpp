@@ -64,7 +64,7 @@ GenerateOptions::ModelParams parse_model_params(const std::string& raw) {
   return params;
 }
 
-template <typename Extract>
+template<typename Extract>
 std::string with_parsed_object(const std::string& body, Extract extract) {
   try {
     simdjson::ondemand::parser parser;
@@ -95,9 +95,9 @@ BasicOllamaClient::BasicOllamaClient(const std::string& host) : mHost(host) {
 }
 
 ChatResult BasicOllamaClient::chat(std::string_view model,
-                                    const std::vector<ChatMessage>& messages,
-                                    const std::vector<std::string>& tools,
-                                    int64_t num_ctx) const {
+                                   const std::vector<ChatMessage>& messages,
+                                   const std::vector<std::string>& tools,
+                                   int64_t num_ctx) const {
   ChatResult result;
 
   JsonWriter body;
@@ -440,7 +440,7 @@ BasicOllamaClient::HttpResult BasicOllamaClient::post_json(
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,
-                    static_cast<long>(payload.size()));
+                   static_cast<long>(payload.size()));
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3600L);

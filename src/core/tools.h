@@ -42,7 +42,7 @@ std::string find_workspace_root();
 // The outcome of create_workspace_venv(). `venv_dir` is the path that was or
 // would be created (empty for NotAProject); `detail` explains a Failed result.
 struct VenvBootstrap {
-  enum class Status { Created, AlreadyPresent, NotAProject, Failed };
+  enum class Status : int { Created, AlreadyPresent, NotAProject, Failed };
   Status status = Status::Failed;
   std::string venv_dir;
   std::string detail;

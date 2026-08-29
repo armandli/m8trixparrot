@@ -673,9 +673,9 @@ std::string HtmlConverter::convert(std::string_view html) {
 // Content type dispatch.
 // ---------------------------------------------------------------------------
 
-enum struct Rendering { Html, Text, Unsupported };
+enum struct Rendering : int { Html, Text, Unsupported };
 
-Rendering rendering_for(const std::string& content_type, const std::string& body) {
+Rendering rendering_for(std::string_view content_type, std::string_view body) {
   // "text/html; charset=utf-8" -> "text/html"
   std::string media = to_lower(content_type);
   const size_t semicolon = media.find(';');
@@ -685,8 +685,7 @@ Rendering rendering_for(const std::string& content_type, const std::string& body
   if (media.empty()) {
     // No header to go on: anything with a NUL byte is binary, the rest is
     // probably readable.
-    return is_binary(std::string_view(body).substr(
-               0, std::min<size_t>(body.size(), 8192)))
+    return is_binary(body.substr(0, std::min<size_t>(body.size(), 8192)))
                ? Rendering::Unsupported
                : Rendering::Text;
   }

@@ -1,4 +1,4 @@
-#include "terminal_emulator.h"
+#include <terminal_emulator.h>
 
 #include <algorithm>
 #include <array>
@@ -471,8 +471,7 @@ int TerminalEmulator::osc_trampoline(int command, VTermStringFragment frag,
 
 namespace {
 
-class TerminalNode : public f::Node {
- public:
+struct TerminalNode : f::Node {
   TerminalNode(TerminalEmulator& emu,
                std::function<void(int, int)> on_resize, f::Box* out_box,
                bool focused)
@@ -549,7 +548,7 @@ class TerminalNode : public f::Node {
     }
   }
 
- private:
+private:
   TerminalEmulator& mEmu;
   std::function<void(int, int)> mOnResize;
   f::Box* mOutBox;

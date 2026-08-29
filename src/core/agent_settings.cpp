@@ -12,7 +12,7 @@ namespace {
 // returning nullopt (rather than a caller-supplied fallback) so absent-or-
 // wrong-type is distinguishable from "present and this value".
 std::optional<std::string> optional_string_field(simdjson::ondemand::object& obj,
-                                                  std::string_view key) {
+                                                 std::string_view key) {
   std::string_view out;
   if (obj[key].get_string().get(out)) return std::nullopt;
   return std::string(out);

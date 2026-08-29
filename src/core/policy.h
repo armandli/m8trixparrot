@@ -15,7 +15,7 @@ namespace agent {
 // was refused and why in terms the model can act on ("... use `read` instead"
 // beats "denied by policy").
 struct PolicyResult {
-  enum struct Decision {
+  enum struct Decision : int {
     Allow,
     Deny,
     // Prompt — stop and ask the human — belongs here once there is an agent

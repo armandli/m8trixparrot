@@ -33,11 +33,11 @@ std::string rtrim_newlines(std::string text) {
 
 // True when `dir` carries a marker that makes it a workspace root.
 bool has_project_marker(const std::filesystem::path& dir) {
-  namespace fs = std::filesystem;
+  namespace sf = std::filesystem;
   std::error_code ec;
-  return fs::exists(dir / ".git", ec) or fs::exists(dir / ".m8trix", ec) or
-         fs::exists(dir / "pyproject.toml", ec) or
-         fs::exists(dir / "requirements.txt", ec);
+  return sf::exists(dir / ".git", ec) or sf::exists(dir / ".m8trix", ec) or
+         sf::exists(dir / "pyproject.toml", ec) or
+         sf::exists(dir / "requirements.txt", ec);
 }
 
 // Prepends the venv's site-packages to the running interpreter's sys.path and
@@ -158,12 +158,12 @@ def _m8_run(script_text):
     // never writes a venv into whatever directory it happens to run in.
     struct Venv {
       Venv() {
-        namespace fs = std::filesystem;
+        namespace sf = std::filesystem;
         const std::string root = find_workspace_root();
         if (root.empty()) return;
-        const fs::path venv_path = fs::path(root) / kVenvDir;
+        const sf::path venv_path = sf::path(root) / kVenvDir;
         std::error_code ec;
-        if (fs::exists(venv_path / "pyvenv.cfg", ec)) {
+        if (sf::exists(venv_path / "pyvenv.cfg", ec)) {
           activate_venv_locked(venv_path);
         }
       }
@@ -176,13 +176,13 @@ def _m8_run(script_text):
 }  // namespace
 
 std::string find_workspace_root() {
-  namespace fs = std::filesystem;
+  namespace sf = std::filesystem;
   std::error_code ec;
-  fs::path dir = fs::current_path(ec);
+  sf::path dir = sf::current_path(ec);
   if (ec) return std::string();
   for (;;) {
     if (has_project_marker(dir)) return dir.string();
-    const fs::path parent = dir.parent_path();
+    const sf::path parent = dir.parent_path();
     if (parent.empty() or parent == dir) return std::string();
     dir = parent;
   }
@@ -191,7 +191,7 @@ std::string find_workspace_root() {
 void ensure_python_ready() { ensure_interpreter(); }
 
 VenvBootstrap create_workspace_venv() {
-  namespace fs = std::filesystem;
+  namespace sf = std::filesystem;
   ensure_interpreter();  // struct Venv already activates .m8trixenv if present
 
   VenvBootstrap result;
@@ -201,11 +201,11 @@ VenvBootstrap create_workspace_venv() {
     return result;
   }
 
-  const fs::path venv_path = fs::path(root) / kVenvDir;
+  const sf::path venv_path = sf::path(root) / kVenvDir;
   result.venv_dir = venv_path.string();
 
   std::error_code ec;
-  const bool already = fs::exists(venv_path / "pyvenv.cfg", ec);
+  const bool already = sf::exists(venv_path / "pyvenv.cfg", ec);
 
   if (not already) {
     std::string base_python;
@@ -225,7 +225,7 @@ VenvBootstrap create_workspace_venv() {
         run_shell_capture(shell_quote(base_python) + " -m venv " +
                           shell_quote(venv_path.string()) + " 2>&1");
 
-    if (not fs::exists(venv_path / "pyvenv.cfg", ec)) {
+    if (not sf::exists(venv_path / "pyvenv.cfg", ec)) {
       result.status = VenvBootstrap::Status::Failed;
       result.detail = rtrim_newlines(output);
       if (result.detail.empty()) {
@@ -245,39 +245,39 @@ VenvBootstrap create_workspace_venv() {
 }
 
 std::string PythonTool::description() const {
-    return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. The Python standard library and any already-installed packages are available; a script cannot pip install new ones itself — use the package_install tool for that, then this tool can import it.","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
+  return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. The Python standard library and any already-installed packages are available; a script cannot pip install new ones itself — use the package_install tool for that, then this tool can import it.","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";
 }
 
 ToolResult PythonTool::execute(const ToolArgs& args) const {
-    ToolResult result;
+  ToolResult result;
 
-    const std::optional<std::string> script = string_arg(args, "script");
-    if (not script or script->empty()) {
-        result.error = "python: missing required string argument 'script'";
-        return result;
-    }
-
-    ensure_interpreter();
-
-    std::string output;
-    {
-        std::lock_guard<std::mutex> lock(python_mutex());
-        py::gil_scoped_acquire gil;
-        try {
-            output = py::globals()["_m8_run"](py::str(*script)).cast<std::string>();
-        } catch (const py::error_already_set& e) {
-            result.error = "python: interpreter error: " + std::string(e.what());
-            return result;
-        }
-    }
-
-    TruncatedOutput truncated = truncate_output(std::move(output), "python");
-    result.ok = true;
-    result.output = std::move(truncated.text);
-    result.output += truncation_note(truncated);
-    result.truncated = truncated.truncated;
-    result.overflow_path = std::move(truncated.overflow_path);
+  const std::optional<std::string> script = string_arg(args, "script");
+  if (not script or script->empty()) {
+    result.error = "python: missing required string argument 'script'";
     return result;
+  }
+
+  ensure_interpreter();
+
+  std::string output;
+  {
+    std::lock_guard<std::mutex> lock(python_mutex());
+    py::gil_scoped_acquire gil;
+    try {
+      output = py::globals()["_m8_run"](py::str(*script)).cast<std::string>();
+    } catch (const py::error_already_set& e) {
+      result.error = "python: interpreter error: " + std::string(e.what());
+      return result;
+    }
+  }
+
+  TruncatedOutput truncated = truncate_output(std::move(output), "python");
+  result.ok = true;
+  result.output = std::move(truncated.text);
+  result.output += truncation_note(truncated);
+  result.truncated = truncated.truncated;
+  result.overflow_path = std::move(truncated.overflow_path);
+  return result;
 }
 
 }  // namespace agent

@@ -49,40 +49,39 @@ bool mentions_number(const std::string& haystack, const std::string& n) {
   return false;
 }
 
-class AgentPythonIntegrationTest : public test::ToolTest {
- protected:
+struct AgentPythonIntegrationTest : test::ToolTest {
   void SetUp() override {
     const char* host_env = std::getenv("OLLAMA_HOST");
-    host_ = (host_env != nullptr and *host_env != '\0')
+    mHost = (host_env != nullptr and *host_env != '\0')
                 ? host_env
                 : "http://localhost:11434";
     const char* model_env = std::getenv("M8_TEST_MODEL");
-    model_ = (model_env != nullptr and *model_env != '\0') ? model_env
+    mModel = (model_env != nullptr and *model_env != '\0') ? model_env
                                                            : "qwen3.8:27b-mlx";
 
-    if (not BasicOllamaClient(host_).show(model_).ok) {
-      GTEST_SKIP() << "Ollama model '" << model_ << "' not reachable at "
-                   << host_ << " — start Ollama and `ollama pull " << model_
+    if (not BasicOllamaClient(mHost).show(mModel).ok) {
+      GTEST_SKIP() << "Ollama model '" << mModel << "' not reachable at "
+                   << mHost << " — start Ollama and `ollama pull " << mModel
                    << "` (or set OLLAMA_HOST / M8_TEST_MODEL) to run this suite.";
     }
 
     test::ToolTest::SetUp();  // fresh temp dir, chdir into it
-    base_ready_ = true;
+    mBaseReady = true;
 
     ensure_python_ready();  // on the main thread, before any turn
-    OllamaClient::configure(model_, host_);
+    OllamaClient::configure(mModel, mHost);
     OllamaClient::set_num_ctx(0);
     AgentPool::configure(/*max_agents=*/4, /*max_depth=*/0);
 
     AgentPool::instance().set_observer([this](const AgentEvent& event) {
-      std::lock_guard<std::mutex> lock(events_mutex_);
-      events_.push_back(event);
+      std::lock_guard<std::mutex> lock(mEventsMutex);
+      mEvents.push_back(event);
     });
   }
 
   void TearDown() override {
     AgentPool::instance().set_observer({});
-    if (base_ready_) test::ToolTest::TearDown();
+    if (mBaseReady) test::ToolTest::TearDown();
   }
 
   AgentOptions opts() const {
@@ -103,8 +102,8 @@ class AgentPythonIntegrationTest : public test::ToolTest {
   }
 
   std::vector<AgentEvent> events() const {
-    std::lock_guard<std::mutex> lock(events_mutex_);
-    return events_;
+    std::lock_guard<std::mutex> lock(mEventsMutex);
+    return mEvents;
   }
 
   bool called_tool(const std::string& name) const {
@@ -142,11 +141,12 @@ class AgentPythonIntegrationTest : public test::ToolTest {
     return rc == CURLE_OK;
   }
 
-  std::string host_;
-  std::string model_;
-  bool base_ready_ = false;
-  mutable std::mutex events_mutex_;
-  std::vector<AgentEvent> events_;
+protected:
+  std::string mHost;
+  std::string mModel;
+  bool mBaseReady = false;
+  mutable std::mutex mEventsMutex;
+  std::vector<AgentEvent> mEvents;
 };
 
 TEST_F(AgentPythonIntegrationTest, FindsDetailInRepoFile) {

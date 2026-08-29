@@ -94,7 +94,8 @@ struct ModelDetails {
 struct ShowResult {
   bool ok = false;
   std::string parameters;
-  std::optional<GenerateOptions::ModelParams> model_params;  // Parsed from `parameters`.
+  // Parsed from `parameters`.
+  std::optional<GenerateOptions::ModelParams> model_params;
   std::string license;
   std::string modified_at;
   std::vector<std::string> capabilities;
@@ -120,20 +121,25 @@ struct BasicOllamaClient {
   // {"type":"function","function":<schema>} on the way out. Empty = no tools.
   // `num_ctx > 0` is sent as options.num_ctx to fix the context window.
   ChatResult chat(std::string_view model,
-                   const std::vector<ChatMessage>& messages,
-                   const std::vector<std::string>& tools = {},
-                   int64_t num_ctx = 0) const;
+                  const std::vector<ChatMessage>& messages,
+                  const std::vector<std::string>& tools = {},
+                  int64_t num_ctx = 0) const;
 
-  GenerateResult generate(std::string_view model, std::string_view prompt,
-                           const GenerateOptions& options = {},
-                           const std::optional<GenerateOptions::ModelParams>& default_params = std::nullopt) const;
+  GenerateResult generate(
+      std::string_view model, std::string_view prompt,
+      const GenerateOptions& options = {},
+      const std::optional<GenerateOptions::ModelParams>& default_params =
+          std::nullopt) const;
 
   ShowResult show(std::string_view model, bool verbose = false) const;
 
-  EmbedResult embed(std::string_view model,
-                     const std::vector<std::string>& input,
-                     const EmbedOptions& options = {},
-                     const std::optional<GenerateOptions::ModelParams>& default_params = std::nullopt) const;
+  EmbedResult embed(
+      std::string_view model, const std::vector<std::string>& input,
+      const EmbedOptions& options = {},
+      const std::optional<GenerateOptions::ModelParams>& default_params =
+          std::nullopt) const;
+
+  std::string mHost;
 
 protected:
   struct HttpResult {
@@ -144,7 +150,7 @@ protected:
   };
 
   HttpResult post_json(const std::string& path,
-                        const std::string& payload) const;
+                       const std::string& payload) const;
 
   static GenerateOptions::ModelParams merge_model_params(
       GenerateOptions::ModelParams params,
@@ -152,9 +158,6 @@ protected:
 
   static std::string model_params_to_json(
       const GenerateOptions::ModelParams& params);
-
-public:
-  std::string mHost;
 };
 
 }  // namespace agent

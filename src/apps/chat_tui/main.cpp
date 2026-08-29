@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
     input_cursor = 0;
 
     std::thread([&client, &mutex, &history, &waiting_for_reply, &scroll_y,
-                 &screen, model, outgoing = std::move(outgoing)] {
+                &screen, model, outgoing = std::move(outgoing)] {
       const agent::ChatResult result = client.chat(model, outgoing);
 
       std::lock_guard<std::mutex> lock(mutex);

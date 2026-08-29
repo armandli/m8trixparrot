@@ -34,14 +34,13 @@
 #include <core/sane_policy.h>
 #include <core/shell_session.h>
 #include <core/tools.h>
-
-#include "terminal_emulator.h"
+#include <terminal_emulator.h>
 
 namespace f = ftxui;
 
 namespace {
 
-enum struct Mode { Shell, Ai };
+enum struct Mode : int { Shell, Ai };
 
 // Runs `ollama list` and returns the model names in its NAME column.
 std::vector<std::string> list_ollama_models(bool& command_ok) {
@@ -489,8 +488,8 @@ int main(int argc, char** argv) {
     screen.PostEvent(f::Event::Custom);
 
     std::thread([&root_agent, &ui_mutex, &transcript, &ai_turn_running,
-                 &left_scroll, &screen, &shutting_down,
-                 objective = std::move(objective), turn_begin] {
+                &left_scroll, &screen, &shutting_down,
+                objective = std::move(objective), turn_begin] {
       const agent::AgentResult result = root_agent.run_turn(objective);
       if (shutting_down.load()) return;
       std::lock_guard<std::mutex> lock(ui_mutex);

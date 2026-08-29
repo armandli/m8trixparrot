@@ -94,7 +94,7 @@ std::string SessionStore::session_file_path(const std::string& session_id) const
 }
 
 SessionStoreResult SessionStore::store(const AgentResult& result_tree,
-                                        const std::string& session_id) const {
+                                       const std::string& session_id) const {
   SessionStoreResult result;
 
   std::string id = session_id;

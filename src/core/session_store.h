@@ -26,7 +26,7 @@ struct SessionResult {
 
 struct SessionStoreResult {
   bool ok = false;
-  std::string session_id;  // The ID used — caller-supplied, or freshly generated.
+  std::string session_id;  // The ID used: caller-supplied or freshly generated.
   std::string error;
 };
 
@@ -37,7 +37,7 @@ struct SessionStore {
   // empty, a new UUIDv4 is generated and used. Overwrites any existing file
   // for that ID (this is a full checkpoint, not an append).
   SessionStoreResult store(const AgentResult& result,
-                            const std::string& session_id = "") const;
+                           const std::string& session_id = "") const;
 
   SessionResult load(const std::string& session_id) const;
 

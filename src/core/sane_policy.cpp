@@ -57,7 +57,7 @@ bool is_pseudo_device(const std::string& path) {
 }
 
 struct Token {
-  enum struct Kind { Word, Operator, Redirect };
+  enum struct Kind : int { Word, Operator, Redirect };
 
   Kind kind = Kind::Word;
   std::string text;
@@ -383,7 +383,7 @@ std::string SanePolicy::inspect_command(const std::string& command) const {
 }
 
 PolicyResult SanePolicy::verify(std::string_view tool_name,
-                                      const ToolArgs& args) const {
+                                const ToolArgs& args) const {
   if (tool_name == "bash") {
     const std::optional<std::string> command = string_arg(args, "command");
     if (not command) return PolicyResult::allow();

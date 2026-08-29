@@ -43,7 +43,7 @@ struct ToolSegment {
 // conversation readable afterwards. A subagent is a nested block: its own
 // activity renders under it, indented, and folds to one line when it finishes.
 struct TranscriptNode {
-  enum struct Kind { User, Assistant, ToolGroup, Error, Notice, Subagent };
+  enum struct Kind : int { User, Assistant, ToolGroup, Error, Notice, Subagent };
 
   Kind kind = Kind::Assistant;
   std::string text;                   // Every kind except ToolGroup / Subagent.

@@ -56,7 +56,7 @@ struct JsonWriter {
   JsonWriter& null_value();
 
   // key + value in one call.
-  template <typename T>
+  template<typename T>
   JsonWriter& field(std::string_view name, const T& v) {
     key(name);
     return value(v);

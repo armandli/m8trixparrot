@@ -19,7 +19,7 @@ PolicyResult PolicyResult::deny(std::string reason) {
 std::string YoloPolicy::name() const { return "yolo"; }
 
 PolicyResult YoloPolicy::verify(std::string_view tool_name,
-                                 const ToolArgs& args) const {
+                                const ToolArgs& args) const {
   (void)tool_name;
   (void)args;
   return PolicyResult::allow();

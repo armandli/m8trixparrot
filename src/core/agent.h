@@ -31,17 +31,18 @@ inline constexpr const char* kAgentSessionDir = ".m8trix/sessions";
 // depth of the agent that raised it: a UI can then render the recursion as a
 // tree rather than a flat stream.
 struct AgentEvent {
-  enum struct Kind {
-    Assistant,      // Model text, whether or not the turn is over.
-    ToolCall,       // About to run `tool_name` with `summary`.
-    ToolResult,     // `text` is what the tool produced.
-    Denied,         // The policy refused; `text` is its reason.
-    Error,          // The turn is failing; `text` says why.
-    Notice,            // Everything else worth showing (step limit, resume, ...).
-    SubagentStart,     // A child agent began: `agent_id` is the child, `summary` its objective.
-    SubagentDone,      // A child agent finished: `text` is its conclusion or error.
-    ContextUsage,      // After a model call: `tokens` / `token_budget` are current.
-    ContextSummarized, // The transcript was just compacted: `text` describes it.
+  enum struct Kind : int {
+    Assistant,   // Model text, whether or not the turn is over.
+    ToolCall,    // About to run `tool_name` with `summary`.
+    ToolResult,  // `text` is what the tool produced.
+    Denied,      // The policy refused; `text` is its reason.
+    Error,       // The turn is failing; `text` says why.
+    Notice,      // Everything else worth showing (step limit, resume, ...).
+    // A child agent began: `agent_id` is the child, `summary` its objective.
+    SubagentStart,
+    SubagentDone,       // A child agent finished: `text` is the conclusion.
+    ContextUsage,       // After a model call: `tokens` / `token_budget` set.
+    ContextSummarized,  // The transcript was just compacted: `text` describes.
   };
 
   Kind kind = Kind::Assistant;
@@ -202,7 +203,7 @@ struct Agent {
   // Just the names, for the system prompt.
   std::vector<std::string> tool_names() const;
 
- protected:
+protected:
   // Runs one tool call, policy first. Never throws and never reports failure as
   // anything but a ToolResult: a tool that fails is information the model
   // needs, not a reason to abandon the turn.
@@ -212,7 +213,7 @@ struct Agent {
   // in the transcript.
   std::string system_prompt() const;
 
- private:
+private:
   // Stamps the event with this agent's id/parent/depth/label and forwards it
   // to the process-wide AgentPool observer.
   void emit(AgentEvent event) const;

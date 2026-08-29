@@ -66,7 +66,8 @@ private:
 
   Runner mRunner;
   std::deque<Job> mQueue;
-  std::unordered_map<std::string, std::shared_future<PackageInstallResult>> mInFlight;
+  std::unordered_map<std::string, std::shared_future<PackageInstallResult>>
+      mInFlight;
   std::unordered_set<std::string> mInstalled;
   std::mutex mMutex;
   std::condition_variable mCv;

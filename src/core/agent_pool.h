@@ -65,7 +65,7 @@ struct AgentPool {
 
   ~AgentPool();
 
- private:
+private:
   AgentPool() = default;
 
   // One agent's slot in the registry. Never moved (holds a mutex/cv) and never

@@ -25,8 +25,8 @@
 #include <core/agent.h>
 #include <core/agent_pool.h>
 #include <core/agent_settings.h>
-#include <core/sane_policy.h>
 #include <core/policy.h>
+#include <core/sane_policy.h>
 #include <core/tools.h>
 
 namespace f = ftxui;
@@ -419,8 +419,8 @@ int main(int argc, char** argv) {
     }
 
     std::thread([&root_agent, &mutex, &transcript, &waiting_for_reply,
-                 &scroll_y, &screen, &running_agents,
-                 objective = std::move(objective), turn_begin] {
+                &scroll_y, &screen, &running_agents,
+                objective = std::move(objective), turn_begin] {
       const agent::AgentResult result = root_agent.run_turn(objective);
 
       std::lock_guard<std::mutex> lock(mutex);
