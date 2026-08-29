@@ -2,6 +2,7 @@
 #define TOOLS_H
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <utility>
@@ -164,6 +165,18 @@ struct PythonTool {
 struct PackageInstallTool {
   std::string description() const;
   // package (string, required).
+  ToolResult execute(const ToolArgs& args) const;
+};
+
+// Asks the operator a question and blocks until they answer. Stateful, like
+// SkillTool: constructed at the dispatch site with a reference to the handler
+// held in AgentOptions, which must outlive the call. `ask` runs on the agent's
+// own thread, so a slow human only stalls that one turn.
+struct AskUserTool {
+  const std::function<std::string(const std::string&)>& ask;
+
+  std::string description() const;
+  // prompt (string, required).
   ToolResult execute(const ToolArgs& args) const;
 };
 

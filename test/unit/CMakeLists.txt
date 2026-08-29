@@ -5,7 +5,9 @@ include(GoogleTest)
 add_executable(unit_tests
   agent_settings_test.cpp
   loopback_server.cpp
+  shell_session_test.cpp
   skills_test.cpp
+  tools_file_test.cpp
   tools_python_test.cpp
   tools_shell_test.cpp
 )

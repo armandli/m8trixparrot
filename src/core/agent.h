@@ -99,6 +99,24 @@ struct AgentOptions {
   // python tool is limited to the standard library and whatever is already
   // installed, as before package_install existed.
   bool enable_package_install = true;
+
+  // When true, the file tools (`read`, `write`, `edit`) are advertised and
+  // dispatchable alongside `python`. Off by default: the python-centric agents
+  // do their file I/O through `python`, and turning these on would change the
+  // tool set every existing caller sees.
+  bool enable_file_tools = false;
+
+  // Appended verbatim to the end of every system_prompt() when non-empty. The
+  // hook for an app to give the agent task-specific standing instructions
+  // without forking the prompt builder.
+  std::string extra_system_prompt;
+
+  // When set, the `ask_user` tool is advertised and dispatchable: the agent
+  // calls it with a question, this runs (on the agent's own thread, so it may
+  // block), and its return value becomes the tool result. A UI supplies a
+  // handler that shows the question and waits for the operator's reply. Copied
+  // by value into subagents, like the rest of AgentOptions.
+  std::function<std::string(const std::string& prompt)> ask_user_handler;
 };
 
 // Forward declaration: the subagent tools reach the pool through
@@ -214,6 +232,9 @@ struct Agent {
 
   // enable_skills and the catalog is non-empty: the `skill` tool is advertised.
   bool skills_offered() const;
+
+  // A handler is set in mOptions: the `ask_user` tool is advertised.
+  bool ask_user_offered() const;
 
   // The skill a finished tool call's result should be tagged with (for
   // `skill unload`): the loaded skill name for a `skill load`, or the skill
