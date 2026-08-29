@@ -92,8 +92,8 @@ int main(int argc, char** argv) {
       "Defaults for model, policy, and the flags below may also be set in "
       "<workdir>/.m8trix/settings.json (keys: model, policy, max_steps, "
       "max_depth, max_agents, num_ctx, summarize_at, skills_dir, "
-      "enable_skills, enable_subagents, enable_package_install); an "
-      "explicit flag here always overrides it.");
+      "enable_skills, enable_subagents, enable_package_install, "
+      "enable_web_search); an explicit flag here always overrides it.");
 
   // .m8trix/settings.json (if present) supplies defaults for the flags below —
   // loaded before the flags are declared so CLI11's ->capture_default_str()
@@ -215,11 +215,18 @@ int main(int argc, char** argv) {
   options.context_summarize_at_tokens = summarize_at;
   options.skills_dir = skills_dir;
   options.enable_skills = not no_skills;
-  // No CLI flag for these two — settings.json is their only knob.
+  // No CLI flag for these three — settings.json is their only knob.
   options.enable_subagents =
       settings.enable_subagents.value_or(options.enable_subagents);
   options.enable_package_install =
       settings.enable_package_install.value_or(options.enable_package_install);
+  options.enable_web_search =
+      settings.enable_web_search.value_or(options.enable_web_search);
+  if (options.enable_web_search and not agent::web_search_available()) {
+    std::cerr << "warning: enable_web_search is set but no Parallel API key was "
+                 "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
+                 "websearch calls will fail\n";
+  }
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
   agent::Agent root_agent(options, policy, root_id, "", 0);

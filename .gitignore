@@ -73,6 +73,9 @@ Testing/
 # so the negation below can take effect).
 .m8trix/*
 !.m8trix/skills/
+# The Parallel Search API key for the `websearch` tool. Covered by .m8trix/*
+# above; spelled out here so it is obvious this is a secret and never committed.
+.m8trix/parallel_api_key
 
 # m8trixparrot's dedicated Python virtual environment, created automatically
 # on first use (see tools_python.cpp's ensure_interpreter()).

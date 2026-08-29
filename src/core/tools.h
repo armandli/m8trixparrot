@@ -129,14 +129,21 @@ struct WebFetchTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
-// A stub: description() is real and the arguments are validated, but no search
-// backend has been chosen yet, so execute() always reports that web search is
-// unimplemented. Don't wire this into an agent loop expecting results.
+// Searches the web through the Parallel Search API (POST /v1/search over
+// libcurl). The API key comes from PARALLEL_API_KEY or, failing that, the
+// .m8trix/parallel_api_key file under the working directory; a missing key is
+// reported as a tool error, not a crash. PARALLEL_API_BASE overrides the host.
+// Advertised only when AgentOptions::enable_web_search is set.
 struct WebSearchTool {
   std::string description() const;
   // query (string, required), limit (number, optional).
   ToolResult execute(const ToolArgs& args) const;
 };
+
+// True when WebSearchTool::execute() would find an API key (PARALLEL_API_KEY, or
+// .m8trix/parallel_api_key under the working directory). For an app that wants
+// to warn when web search is enabled but unconfigured.
+bool web_search_available();
 
 // Brings the embedded Python interpreter up (idempotent) and, when this
 // workspace already has a .m8trixenv, activates it. Call once from the main

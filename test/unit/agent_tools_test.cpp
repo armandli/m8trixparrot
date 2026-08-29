@@ -1,6 +1,7 @@
-// AgentOptions::enable_subagents: with it off, the agent advertises only the
+// AgentOptions tool gates: with subagents off, the agent advertises only the
 // `python` and `bash` tools and refuses a subagent call rather than acting on
-// it. Default options keep all five tools. tool_names() / tool_schemas() need
+// it. Default options keep five tools; `enable_file_tools` and
+// `enable_web_search` add more when set. tool_names() / tool_schemas() need
 // no network; the refusal path is driven through a scripted LoopbackServer.
 
 #include <algorithm>
@@ -67,6 +68,29 @@ TEST(AgentToolsTest, FileToolsAdvertisedOnlyWhenEnabled) {
                                       "subagent_wait"}),
             agent.tool_names());
   EXPECT_EQ(8u, agent.tool_schemas().size());
+}
+
+TEST(AgentToolsTest, WebSearchAdvertisedOnlyWhenEnabled) {
+  const YoloPolicy policy;
+
+  {
+    const std::string id = AgentPool::instance().register_root("root");
+    const Agent agent(AgentOptions{}, policy, id, "", 0);
+    const std::vector<std::string> names = agent.tool_names();
+    EXPECT_EQ(names.end(),
+              std::find(names.begin(), names.end(), std::string("websearch")));
+  }
+
+  AgentOptions options;
+  options.enable_web_search = true;
+  const std::string id = AgentPool::instance().register_root("root");
+  const Agent agent(options, policy, id, "", 0);
+
+  EXPECT_EQ((std::vector<std::string>{"python", "bash", "package_install",
+                                      "websearch", "subagent_create",
+                                      "subagent_wait"}),
+            agent.tool_names());
+  EXPECT_EQ(6u, agent.tool_schemas().size());
 }
 
 TEST(AgentToolsTest, AskUserAdvertisedOnlyWithAHandler) {

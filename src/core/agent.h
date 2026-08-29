@@ -107,6 +107,12 @@ struct AgentOptions {
   // tool set every existing caller sees.
   bool enable_file_tools = false;
 
+  // When true, `websearch` is advertised and dispatchable. Off by default: it
+  // needs a Parallel API key (PARALLEL_API_KEY or .m8trix/parallel_api_key), and
+  // turning it on would change the tool set every existing caller sees. Each app
+  // opts in from its own config.
+  bool enable_web_search = false;
+
   // Appended verbatim to the end of every system_prompt() when non-empty. The
   // hook for an app to give the agent task-specific standing instructions
   // without forking the prompt builder.

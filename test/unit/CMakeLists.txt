@@ -10,6 +10,7 @@ add_executable(unit_tests
   tools_file_test.cpp
   tools_python_test.cpp
   tools_shell_test.cpp
+  tools_websearch_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

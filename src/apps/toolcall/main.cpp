@@ -17,6 +17,7 @@ std::vector<std::string> tool_schemas() {
   return {
       agent::PythonTool().description(),
       agent::PackageInstallTool().description(),
+      agent::WebSearchTool().description(),
   };
 }
 
@@ -40,6 +41,7 @@ agent::ToolResult dispatch(const std::string& name,
                            const agent::ToolArgs& args) {
   if (name == "python") return agent::PythonTool().execute(args);
   if (name == "package_install") return agent::PackageInstallTool().execute(args);
+  if (name == "websearch") return agent::WebSearchTool().execute(args);
 
   agent::ToolResult unknown;
   unknown.error = "no tool named '" + name +
@@ -149,8 +151,9 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  // Both tools this runner exposes target the workspace .m8trixenv; build and
-  // activate it the same way the main agent does.
+  // python / package_install target the workspace .m8trixenv; build and
+  // activate it the same way the main agent does. websearch needs none of
+  // this, but the bootstrap is cheap once the venv exists.
   const agent::VenvBootstrap venv = agent::create_workspace_venv();
   if (venv.status == agent::VenvBootstrap::Status::Failed) {
     std::cerr << "error: could not create the .m8trixenv virtualenv at "

@@ -134,6 +134,9 @@ std::vector<std::string> Agent::tool_schemas() const {
   if (mOptions.enable_package_install) {
     schemas.push_back(PackageInstallTool().description());
   }
+  if (mOptions.enable_web_search) {
+    schemas.push_back(WebSearchTool().description());
+  }
   if (skills_offered()) schemas.push_back(SkillTool::description());
   if (mOptions.enable_subagents) {
     schemas.push_back(SubagentCreateTool::description());
@@ -153,6 +156,7 @@ std::vector<std::string> Agent::tool_names() const {
     names.push_back("edit");
   }
   if (mOptions.enable_package_install) names.push_back("package_install");
+  if (mOptions.enable_web_search) names.push_back("websearch");
   if (skills_offered()) names.push_back("skill");
   if (mOptions.enable_subagents) {
     names.push_back("subagent_create");
@@ -324,6 +328,11 @@ std::string Agent::system_prompt() const {
               "own thread and `subagent_wait` to collect its conclusion. Give "
               "each subagent a self-contained objective.\n";
   }
+  if (mOptions.enable_web_search) {
+    prompt << "- Use `websearch` to look things up on the live web — current "
+              "events, library or API docs, unfamiliar errors. It returns "
+              "result URLs and snippets.\n";
+  }
   prompt << "- Keep going until the task is done, then end the turn with a "
             "plain message and no tool call. Make that final message a "
             "self-contained summary of the objective and what you found or "
@@ -391,6 +400,8 @@ ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
     return EditTool().execute(args);
   if (mOptions.enable_package_install and tool_name == "package_install")
     return PackageInstallTool().execute(args);
+  if (mOptions.enable_web_search and tool_name == "websearch")
+    return WebSearchTool().execute(args);
   if (ask_user_offered() and tool_name == "ask_user")
     return AskUserTool{mOptions.ask_user_handler}.execute(args);
   if (mOptions.enable_skills and tool_name == "skill")
