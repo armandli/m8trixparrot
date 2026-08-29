@@ -5,6 +5,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <pybind11/embed.h>
 
@@ -30,10 +31,88 @@ std::string rtrim_newlines(std::string text) {
   return text;
 }
 
+// True when `dir` carries a marker that makes it a workspace root.
+bool has_project_marker(const std::filesystem::path& dir) {
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  return fs::exists(dir / ".git", ec) or fs::exists(dir / ".m8trix", ec) or
+         fs::exists(dir / "pyproject.toml", ec) or
+         fs::exists(dir / "requirements.txt", ec);
+}
+
+// Prepends the venv's site-packages to the running interpreter's sys.path and
+// exports VIRTUAL_ENV / PATH — the parts of "activating a venv" that reach
+// in-process imports and any console script a python script shells out to.
+// Idempotent: a repeat call for the same venv doesn't stack duplicates. The
+// caller must hold the GIL.
+void activate_venv_locked(const std::filesystem::path& venv_path) {
+  const std::string venv_python = (venv_path / "bin" / "python3").string();
+  const std::string site_packages = rtrim_newlines(run_shell_capture(
+      shell_quote(venv_python) +
+      " -c \"import sysconfig; print(sysconfig.get_path('purelib'))\" "
+      "2>/dev/null"));
+  if (site_packages.empty()) return;
+
+  const py::str entry(site_packages);
+  py::object sys_path = py::module_::import("sys").attr("path");
+  if (sys_path.contains(entry)) sys_path.attr("remove")(entry);
+  sys_path.attr("insert")(0, entry);
+
+  ::setenv("VIRTUAL_ENV", venv_path.string().c_str(), 1);
+  const std::string bin = (venv_path / "bin").string();
+  const char* path = std::getenv("PATH");
+  const std::string current = path != nullptr ? path : "";
+  if (current != bin and current.rfind(bin + ":", 0) != 0) {
+    ::setenv("PATH", (bin + ":" + current).c_str(), 1);
+  }
+}
+
+// The interpreter the linked libpython was built from. NOT sys.executable — for
+// an embedded interpreter that is the host binary (see test/integration/main.cpp),
+// which cannot create a venv. Prefers the ABI-matching prefix python from
+// sysconfig, falls back to python3 / python on PATH, and accepts a candidate
+// only if it runs and reports this interpreter's (major, minor). Empty when
+// nothing suitable turns up. The caller must hold the GIL.
+std::string resolve_base_python_locked() {
+  const py::object version_info =
+      py::module_::import("sys").attr("version_info");
+  const std::string want =
+      std::to_string(version_info.attr("major").cast<int>()) + "." +
+      std::to_string(version_info.attr("minor").cast<int>());
+
+  std::vector<std::string> candidates;
+
+  const py::module_ sysconfig = py::module_::import("sysconfig");
+  const py::object bindir = sysconfig.attr("get_config_var")("BINDIR");
+  const py::object short_version =
+      sysconfig.attr("get_config_var")("py_version_short");
+  if (not bindir.is_none() and not short_version.is_none()) {
+    candidates.push_back((std::filesystem::path(bindir.cast<std::string>()) /
+                          ("python" + short_version.cast<std::string>()))
+                             .string());
+  }
+
+  const py::module_ shutil = py::module_::import("shutil");
+  for (const char* name : {"python3", "python"}) {
+    const py::object found = shutil.attr("which")(name);
+    if (not found.is_none()) candidates.push_back(found.cast<std::string>());
+  }
+
+  for (const std::string& candidate : candidates) {
+    std::error_code ec;
+    if (not std::filesystem::is_regular_file(candidate, ec)) continue;
+    const std::string got = rtrim_newlines(run_shell_capture(
+        shell_quote(candidate) +
+        " -c \"import sys; print('%d.%d' % sys.version_info[:2])\" 2>/dev/null"));
+    if (got == want) return candidate;
+  }
+  return std::string();
+}
+
 // Initializes the embedded Python interpreter, defines the _m8_run helper, and
-// brings up its dedicated kVenvDir virtual environment — exactly once per
-// process. After init the GIL is released so any agent thread can acquire it;
-// it is retaken at process exit before finalization.
+// activates this workspace's kVenvDir venv if it already exists — exactly once
+// per process. After init the GIL is released so any agent thread can acquire
+// it; it is retaken at process exit before finalization.
 //
 // Member order matters: lockdown runs first (plain setenv, before anything
 // Python), then interp holds the GIL, init and venv run while it is held,
@@ -73,45 +152,20 @@ def _m8_run(script_text):
       }
     } init;
 
-    // Creates kVenvDir (relative to cwd) if it isn't already there, using the
-    // embedded interpreter's own python so its compiled packages stay
-    // ABI-compatible, then prepends its site-packages to sys.path so `python`
-    // scripts can import whatever package_install puts there. Also exports
-    // VIRTUAL_ENV and prepends the venv's bin/ to PATH — the rest of what
-    // activating a venv normally does — so a script that shells out to a
-    // venv-installed console script (anything but pip, which stays behind the
-    // PIP_NO_INDEX lockdown) finds it. Failure at any step degrades silently
-    // to running without a venv rather than aborting interpreter startup.
+    // If this workspace already has a .m8trixenv, activate it now. Building it
+    // when it is missing is create_workspace_venv()'s job (called from main()),
+    // not the interpreter's — so a stray `python` tool call or a unit test
+    // never writes a venv into whatever directory it happens to run in.
     struct Venv {
       Venv() {
         namespace fs = std::filesystem;
-
-        const std::string interpreter_python =
-            py::module_::import("sys").attr("executable").cast<std::string>();
-        const fs::path venv_path = fs::absolute(kVenvDir);
-
-        if (not fs::exists(venv_path / "pyvenv.cfg")) {
-          run_shell_capture(shell_quote(interpreter_python) + " -m venv " +
-                            shell_quote(venv_path.string()) + " 2>&1");
+        const std::string root = find_workspace_root();
+        if (root.empty()) return;
+        const fs::path venv_path = fs::path(root) / kVenvDir;
+        std::error_code ec;
+        if (fs::exists(venv_path / "pyvenv.cfg", ec)) {
+          activate_venv_locked(venv_path);
         }
-        if (not fs::exists(venv_path / "pyvenv.cfg")) return;
-
-        const std::string venv_python =
-            (venv_path / "bin" / "python3").string();
-        const std::string site_packages = rtrim_newlines(run_shell_capture(
-            shell_quote(venv_python) +
-            " -c \"import sysconfig; print(sysconfig.get_path('purelib'))\" "
-            "2>/dev/null"));
-        if (site_packages.empty()) return;
-
-        py::module_::import("sys").attr("path").attr("insert")(0,
-                                                                site_packages);
-        ::setenv("VIRTUAL_ENV", venv_path.string().c_str(), 1);
-        const char* path = std::getenv("PATH");
-        ::setenv("PATH",
-                ((venv_path / "bin").string() + ":" + (path ? path : ""))
-                    .c_str(),
-                1);
       }
     } venv;
 
@@ -121,7 +175,74 @@ def _m8_run(script_text):
 
 }  // namespace
 
+std::string find_workspace_root() {
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  fs::path dir = fs::current_path(ec);
+  if (ec) return std::string();
+  for (;;) {
+    if (has_project_marker(dir)) return dir.string();
+    const fs::path parent = dir.parent_path();
+    if (parent.empty() or parent == dir) return std::string();
+    dir = parent;
+  }
+}
+
 void ensure_python_ready() { ensure_interpreter(); }
+
+VenvBootstrap create_workspace_venv() {
+  namespace fs = std::filesystem;
+  ensure_interpreter();  // struct Venv already activates .m8trixenv if present
+
+  VenvBootstrap result;
+  const std::string root = find_workspace_root();
+  if (root.empty()) {
+    result.status = VenvBootstrap::Status::NotAProject;
+    return result;
+  }
+
+  const fs::path venv_path = fs::path(root) / kVenvDir;
+  result.venv_dir = venv_path.string();
+
+  std::error_code ec;
+  const bool already = fs::exists(venv_path / "pyvenv.cfg", ec);
+
+  if (not already) {
+    std::string base_python;
+    {
+      py::gil_scoped_acquire gil;
+      base_python = resolve_base_python_locked();
+    }
+    if (base_python.empty()) {
+      result.status = VenvBootstrap::Status::Failed;
+      result.detail =
+          "found no Python to build the venv with (checked sysconfig BINDIR "
+          "and PATH for python3 / python)";
+      return result;
+    }
+
+    const std::string output =
+        run_shell_capture(shell_quote(base_python) + " -m venv " +
+                          shell_quote(venv_path.string()) + " 2>&1");
+
+    if (not fs::exists(venv_path / "pyvenv.cfg", ec)) {
+      result.status = VenvBootstrap::Status::Failed;
+      result.detail = rtrim_newlines(output);
+      if (result.detail.empty()) {
+        result.detail = "'" + base_python + " -m venv' created no pyvenv.cfg";
+      }
+      return result;
+    }
+  }
+
+  {
+    py::gil_scoped_acquire gil;
+    activate_venv_locked(venv_path);
+  }
+  result.status = already ? VenvBootstrap::Status::AlreadyPresent
+                          : VenvBootstrap::Status::Created;
+  return result;
+}
 
 std::string PythonTool::description() const {
     return R"json({"name":"python","description":"Execute a Python script in-process and return its captured stdout and stderr. Use for all computation, file I/O, data transformation, and anything scriptable. The Python standard library and any already-installed packages are available; a script cannot pip install new ones itself — use the package_install tool for that, then this tool can import it.","parameters":{"type":"object","properties":{"script":{"type":"string","description":"Python script to execute"}},"required":["script"]}})json";

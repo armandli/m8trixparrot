@@ -25,12 +25,37 @@ using ToolArgValue =
 // so a lookup by string_view doesn't allocate.
 using ToolArgs = std::map<std::string, ToolArgValue, std::less<>>;
 
-// The dedicated Python virtual environment ensure_python_ready() creates on
-// first use, relative to the working directory. python scripts and
+// The dedicated Python virtual environment create_workspace_venv() builds at
+// the workspace root (find_workspace_root()). python scripts and
 // package_install both target this venv rather than whatever environment the
 // m8trixparrot binary itself happens to be running under, so installs land in
 // a sandbox scoped to this workspace instead of mutating a shared/dev venv.
 inline constexpr const char* kVenvDir = ".m8trixenv";
+
+// The nearest ancestor of the current working directory (inclusive) that
+// carries a project marker — .git, .m8trix, pyproject.toml, or
+// requirements.txt. Empty when the cwd sits under none of them (a bare scratch
+// directory), which is the signal to skip the .m8trixenv bootstrap entirely.
+std::string find_workspace_root();
+
+// The outcome of create_workspace_venv(). `venv_dir` is the path that was or
+// would be created (empty for NotAProject); `detail` explains a Failed result.
+struct VenvBootstrap {
+  enum class Status { Created, AlreadyPresent, NotAProject, Failed };
+  Status status = Status::Failed;
+  std::string venv_dir;
+  std::string detail;
+};
+
+// Builds .m8trixenv at find_workspace_root() with a real ABI-compatible base
+// Python (the embedded interpreter's own sys.executable is the host binary, so
+// it can't be used), then activates it for this process — prepends its
+// site-packages to sys.path and exports VIRTUAL_ENV / PATH. Call once from
+// main() right after argv parsing, on the main thread; it brings the
+// interpreter up as a side effect. A Failed result should stop startup with a
+// message; a NotAProject result is normal (scratch dir) and means "carry on
+// against the base interpreter".
+VenvBootstrap create_workspace_venv();
 
 struct ToolResult {
   bool ok = false;
@@ -112,11 +137,13 @@ struct WebSearchTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
-// Brings the embedded Python interpreter up (idempotent). Call once from the
-// main thread at startup: an agent runs its tools on its own thread, and the
+// Brings the embedded Python interpreter up (idempotent) and, when this
+// workspace already has a .m8trixenv, activates it. Call once from the main
+// thread at startup: an agent runs its tools on its own thread, and the
 // interpreter must be initialised — and its GIL released — from the main thread
 // before any of those threads touch Python. Also sets PIP_NO_INDEX /
-// PIP_NO_INPUT process-wide so a script cannot install packages.
+// PIP_NO_INPUT process-wide so a script cannot install packages. Building the
+// venv when it is missing is create_workspace_venv()'s job, not this one's.
 void ensure_python_ready();
 
 // Executes a Python script in-process via pybind11 embedding. stdout and

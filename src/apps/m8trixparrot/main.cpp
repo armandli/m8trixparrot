@@ -484,8 +484,22 @@ int main(int argc, char** argv) {
 
   agent::OllamaClient::configure(model);
   agent::AgentPool::configure(max_agents, max_depth);
-  // Bring Python up on the main thread before any agent thread touches it.
-  agent::ensure_python_ready();
+
+  // Bring Python up (main thread, before any agent thread touches it) and
+  // build/activate this workspace's .m8trixenv. A hard failure is worth
+  // stopping for: the agent would otherwise run against the base interpreter
+  // and package_install would be broken.
+  const agent::VenvBootstrap venv = agent::create_workspace_venv();
+  if (venv.status == agent::VenvBootstrap::Status::Failed) {
+    std::cerr << "error: could not create the .m8trixenv virtualenv at "
+              << venv.venv_dir << "\n       " << venv.detail << "\n";
+    return 1;
+  }
+  if (venv.status == agent::VenvBootstrap::Status::NotAProject) {
+    std::cerr << "note: launch directory is not a project (no .git, .m8trix, "
+                 "pyproject.toml or requirements.txt here or in any parent); "
+                 "skipping .m8trixenv and running against the base Python\n";
+  }
 
   int64_t window = num_ctx;
   if (window <= 0) {

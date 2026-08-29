@@ -149,6 +149,19 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  // Both tools this runner exposes target the workspace .m8trixenv; build and
+  // activate it the same way the main agent does.
+  const agent::VenvBootstrap venv = agent::create_workspace_venv();
+  if (venv.status == agent::VenvBootstrap::Status::Failed) {
+    std::cerr << "error: could not create the .m8trixenv virtualenv at "
+              << venv.venv_dir << ": " << venv.detail << "\n";
+    return 1;
+  }
+  if (venv.status == agent::VenvBootstrap::Status::NotAProject) {
+    std::cerr << "note: not in a project directory; running against the base "
+                 "Python\n";
+  }
+
   const agent::ToolResult result = dispatch(name, args);
   print_result(result);
   return result.ok ? 0 : 1;

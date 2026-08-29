@@ -5,6 +5,7 @@
 // missing argument or an interpreter-level crash is an error.
 
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -102,7 +103,7 @@ TEST_F(PythonTest, ConsecutiveCallsAreIsolated) {
 
 // A script can't shell out to pip itself; the schema should point the model at
 // package_install rather than suggesting subprocess.
-TEST(PythonToolTest, DescriptionPointsToPackageInstallNotSubprocess) {
+TEST_F(PythonTest, DescriptionPointsToPackageInstallNotSubprocess) {
     const std::string description = PythonTool().description();
 
     EXPECT_EQ(description.find("subprocess"), std::string::npos) << description;
@@ -111,12 +112,26 @@ TEST(PythonToolTest, DescriptionPointsToPackageInstallNotSubprocess) {
 
 // ensure_python_ready() denies pip a package index, so a `pip install` a script
 // shells out to anyway fails fast instead of writing to the environment.
-TEST(PythonToolTest, PackageIndexIsDisabled) {
+TEST_F(PythonTest, PackageIndexIsDisabled) {
     ensure_python_ready();
 
     const char* no_index = std::getenv("PIP_NO_INDEX");
     ASSERT_NE(no_index, nullptr);
     EXPECT_STREQ(no_index, "1");
+}
+
+// find_workspace_root() walks up from the cwd to the nearest directory carrying
+// a project marker, and is empty in a bare directory with none.
+TEST_F(PythonTest, FindWorkspaceRootFindsMarkerAncestor) {
+    // ToolTest has chdir'd us into a fresh, marker-less temp directory.
+    EXPECT_TRUE(find_workspace_root().empty());
+
+    init_git_repo();  // drops a .git into dir()
+    std::filesystem::create_directories(dir() / "pkg" / "deep");
+    std::filesystem::current_path(dir() / "pkg" / "deep");
+
+    EXPECT_EQ(std::filesystem::path(find_workspace_root()),
+              std::filesystem::canonical(dir()));
 }
 
 }  // namespace

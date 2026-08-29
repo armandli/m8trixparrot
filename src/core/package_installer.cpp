@@ -3,18 +3,23 @@
 #include <cstdlib>
 #include <filesystem>
 
-#include <core/tools.h>       // kVenvDir, ensure_python_ready()
+#include <core/tools.h>       // kVenvDir, find_workspace_root(), ensure_python_ready()
 #include <core/tools_util.h>  // shell_quote(), run_shell_capture()
 
 namespace agent {
 
 namespace {
 
-// The venv's own python, not whatever interpreter this process happens to be
-// running under — ensure_python_ready() guarantees it exists before this path
-// is used.
+// The workspace .m8trixenv's own python, not whatever interpreter this process
+// happens to be running under. The venv lives at the workspace root (the same
+// place create_workspace_venv() puts it), which is where it stays even when
+// m8trixparrot was launched from a subdirectory.
 std::string venv_python() {
-  return (std::filesystem::absolute(kVenvDir) / "bin" / "python3").string();
+  const std::string root = find_workspace_root();
+  const std::filesystem::path base =
+      root.empty() ? std::filesystem::absolute(kVenvDir)
+                   : std::filesystem::path(root) / kVenvDir;
+  return (base / "bin" / "python3").string();
 }
 
 // `pip show` is a local metadata lookup — no index needed, so it runs under
@@ -34,6 +39,14 @@ PackageInstallResult pip_install(const std::string& package) {
 
   PackageInstallResult result;
   const std::string python = venv_python();
+
+  if (not std::filesystem::exists(python)) {
+    result.error =
+        "this workspace has no .m8trixenv virtualenv — launch m8trixparrot from "
+        "inside a project directory (.git / .m8trix / pyproject.toml / "
+        "requirements.txt)";
+    return result;
+  }
 
   if (is_installed(python, package)) {
     result.ok = true;
