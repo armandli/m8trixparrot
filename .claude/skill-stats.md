@@ -7,6 +7,6 @@
 | create-skill | 3 | 0 |
 | format-cpp | 6 | 0 |
 | ftxui-guide-cpp | 1 | 0 |
-| pull | 8 | 0 |
+| pull | 9 | 0 |
 | refactor-cpp | 3 | 0 |
 
