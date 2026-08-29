@@ -6,17 +6,20 @@
 
 namespace agent {
 
-// Where the startup settings file lives, relative to the working directory.
-// Read once at process startup (see load_startup_settings); nothing in the
-// agent core re-reads it during a run.
+// Where m8trixparrot's startup settings file lives, relative to the working
+// directory. Read once at process startup (see load_startup_settings); nothing
+// in the agent core re-reads it during a run.
 inline constexpr const char* kAgentSettingsPath = ".m8trix/settings.json";
 
-// The subset of startup configuration that can be pinned per-repo via
-// kAgentSettingsPath: the model and permission policy, plus every field of
-// AgentOptions. Every field is optional so a caller can layer "unset -> keep
-// whatever default was already in force" without this struct knowing what
-// those defaults are; a command line flag applied after loading these
-// settings should still win.
+// m8trixsh keeps its config out of the workspace, in a home-directory dotfile
+// in shell-env format (see load_shellrc_settings). Callers join it with $HOME.
+inline constexpr const char* kShellRcFilename = ".m8shrc";
+
+// The subset of startup configuration a caller can pin from a config file: the
+// model and permission policy, plus the app-relevant fields of AgentOptions.
+// Every field is optional so a caller can layer "unset -> keep whatever default
+// was already in force" without this struct knowing what those defaults are; a
+// command line flag applied after loading these settings should still win.
 struct StartupSettings {
   std::optional<std::string> model;
   std::optional<std::string> policy;
@@ -29,6 +32,7 @@ struct StartupSettings {
   std::optional<bool> enable_skills;
   std::optional<bool> enable_subagents;
   std::optional<bool> enable_package_install;
+  std::optional<bool> enable_web_search;
 
   // m8trixsh only; the other apps ignore these.
   std::optional<std::string> shell;            // the shell to run in the PTY pane
@@ -44,6 +48,16 @@ struct StartupSettings {
 // absent or holds an unexpected type is left unset rather than erroring —
 // same fallback philosophy as json_util's *_field() readers.
 StartupSettings load_startup_settings(const std::string& path,
+                                      std::string& warning);
+
+// Reads `path` as a shell-env-style config: one `KEY=VALUE` per line, `#`
+// comments, an optional leading `export `, optional surrounding quotes on the
+// value. Keys are the upper-case field names (MODEL, POLICY, MAX_STEPS,
+// ENABLE_WEB_SEARCH, ...); unknown keys and lines without `=` are ignored.
+// Same fallback philosophy as load_startup_settings: a missing file returns an
+// all-unset StartupSettings and leaves `warning` untouched; a file that exists
+// but can't be read is reported through `warning`.
+StartupSettings load_shellrc_settings(const std::string& path,
                                       std::string& warning);
 
 }  // namespace agent

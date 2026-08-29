@@ -93,9 +93,25 @@ make run APP=m8trixsh           # or: build/m8trixsh --model qwen3.8:27b-mlx
 The left (AI) pane collapses to a thin strip when there is no AI activity. The
 permission policy defaults to `yolo` — your approval of each script before it
 runs is the safety gate; `--policy sane` confines writes to the working
-directory and `/tmp`. `.m8trix/settings.json` also accepts `shell` and
-`mode_switch_key` (`tab` | `ctrl-]` | `ctrl-o` | `ctrl-\` | `f12` — rebind it if
-you want Tab-completion in the shell).
+directory and `/tmp`.
+
+Unlike `m8trixparrot`, `m8trixsh` reads its defaults from **`~/.m8shrc`** — a
+shell-env-style file, one `KEY=VALUE` per line (`#` comments, optional `export`
+and surrounding quotes). A CLI flag always overrides it.
+
+```sh
+# ~/.m8shrc
+MODEL=qwen3.8:27b-mlx
+POLICY=sane
+ENABLE_WEB_SEARCH=1
+SHELL=/bin/zsh
+MODE_SWITCH_KEY=ctrl-o        # tab | ctrl-] | ctrl-o | ctrl-\ | f12
+```
+
+Recognized keys: `MODEL`, `POLICY`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`,
+`SKILLS_DIR`, `ENABLE_SKILLS`, `ENABLE_SUBAGENTS`, `ENABLE_PACKAGE_INSTALL`,
+`ENABLE_WEB_SEARCH`, `SHELL`, `MODE_SWITCH_KEY`. `MODE_SWITCH_KEY` rebinds the
+shell/ai toggle if you want Tab-completion in the shell.
 
 ## Skills
 
@@ -118,3 +134,26 @@ conversation; read the skill's other files with `python`), and drops it with
 
 `.m8trix/skills/` is tracked by git (unlike the rest of `.m8trix/`); the bundled
 `todo-scan` skill is a working example.
+
+## Web search
+
+The `websearch` tool queries the web through the
+[Parallel](https://parallel.ai) Search API and returns a numbered list of
+results (title, URL, snippet). It needs a Parallel API key, taken from the
+`PARALLEL_API_KEY` environment variable or, failing that, the first line of
+`.m8trix/parallel_api_key` (gitignored — never commit the key). `PARALLEL_API_BASE`
+overrides the API host for a proxy or a test double.
+
+`websearch` is **off by default**; each app opts in from its own config:
+
+- **m8trixparrot** — `"enable_web_search": true` in `<workdir>/.m8trix/settings.json`
+- **m8trixsh** — `ENABLE_WEB_SEARCH=1` in `~/.m8shrc`
+
+With no key configured the app prints a warning and `websearch` calls return an
+error (the agent adapts). `make integration-test` includes live checks — a
+direct API call and a full agent turn — when a key is present, and skips them
+otherwise. Ad-hoc:
+
+```sh
+build/toolcall '{"name":"websearch","arguments":{"query":"...","limit":5}}'
+```

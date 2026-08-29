@@ -27,6 +27,7 @@
 #include <core/policy.h>
 #include <core/tools.h>
 
+#include <parallel_key.h>
 #include <tool_test_env.h>
 
 namespace agent {
@@ -89,6 +90,7 @@ struct AgentPythonIntegrationTest : test::ToolTest {
     options.max_steps = 16;
     options.max_depth = 0;
     options.enable_subagents = false;      // python-only tool specification
+    options.enable_web_search = mEnableWebSearch;
     options.context_window_tokens = 0;
     options.context_summarize_at_tokens = 100'000'000;  // never mid-test
     return options;
@@ -145,6 +147,7 @@ protected:
   std::string mHost;
   std::string mModel;
   bool mBaseReady = false;
+  bool mEnableWebSearch = false;  // a test opts in before calling run()
   mutable std::mutex mEventsMutex;
   std::vector<AgentEvent> mEvents;
 };
@@ -235,6 +238,30 @@ TEST_F(AgentPythonIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
   EXPECT_TRUE(called_python()) << "the skill says to run the cipher in python";
   EXPECT_NE(result.conclusion.find("Hello World"), std::string::npos)
       << "conclusion: " << result.conclusion;
+}
+
+// `websearch` reaches the model only with AgentOptions::enable_web_search set;
+// this also needs a Parallel API key and outbound network.
+TEST_F(AgentPythonIntegrationTest, CallsWebSearchWhenEnabledAndAKeyIsConfigured) {
+  if (not test::parallel_key_available()) {
+    GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
+                    ".m8trix/parallel_api_key to run this test";
+  }
+  if (not network_up()) {
+    GTEST_SKIP() << "no outbound network";
+  }
+  mEnableWebSearch = true;
+
+  const AgentResult result = run(
+      "Use the websearch tool to find the official website of the company "
+      "\"Parallel Web Systems\". Report the URL you found.");
+
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(called_tool("websearch"))
+      << "the agent had a websearch tool and the task asked for it";
+  EXPECT_NE(tool_output().find("http"), std::string::npos)
+      << "websearch should have returned result URLs; tool output:\n"
+      << tool_output();
 }
 
 }  // namespace

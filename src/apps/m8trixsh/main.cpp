@@ -143,14 +143,19 @@ int main(int argc, char** argv) {
   CLI::App app{"m8trixsh - an intelligent shell over Ollama"};
   app.footer(
       "Defaults for model, policy, and the flags below may also be set in "
-      "<workdir>/.m8trix/settings.json (keys: model, policy, max_steps, "
-      "num_ctx, summarize_at, skills_dir, enable_skills, enable_subagents, "
-      "enable_package_install, shell, mode_switch_key); an explicit flag here "
-      "always overrides it.");
+      "~/.m8shrc, one KEY=VALUE per line (keys: MODEL, POLICY, MAX_STEPS, "
+      "NUM_CTX, SUMMARIZE_AT, SKILLS_DIR, ENABLE_SKILLS, ENABLE_SUBAGENTS, "
+      "ENABLE_PACKAGE_INSTALL, ENABLE_WEB_SEARCH, SHELL, MODE_SWITCH_KEY); an "
+      "explicit flag here always overrides it.");
 
   std::string settings_warning;
-  const agent::StartupSettings settings =
-      agent::load_startup_settings(agent::kAgentSettingsPath, settings_warning);
+  agent::StartupSettings settings;
+  if (const char* home = std::getenv("HOME"); home != nullptr and *home != '\0') {
+    settings = agent::load_shellrc_settings(
+        std::string(home) + "/" + agent::kShellRcFilename, settings_warning);
+  } else {
+    std::cerr << "note: $HOME is unset; not reading ~/.m8shrc\n";
+  }
   if (not settings_warning.empty()) {
     std::cerr << "warning: " << settings_warning << "\n";
   }
@@ -307,6 +312,12 @@ int main(int argc, char** argv) {
   options.enable_package_install =
       settings.enable_package_install.value_or(true);
   options.enable_file_tools = true;
+  options.enable_web_search = settings.enable_web_search.value_or(false);
+  if (options.enable_web_search and not agent::web_search_available()) {
+    std::cerr << "warning: ENABLE_WEB_SEARCH is set but no Parallel API key was "
+                 "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
+                 "websearch calls will fail\n";
+  }
   options.extra_system_prompt = workflow_prompt();
   options.ask_user_handler = [&](const std::string& prompt) -> std::string {
     std::future<std::string> answer;

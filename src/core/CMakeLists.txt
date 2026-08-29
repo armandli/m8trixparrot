@@ -18,6 +18,7 @@ add_library(agentcore STATIC
   tools_python.cpp
   tools_subagent.cpp
   tools_util.cpp
+  tools_websearch.cpp
   workspace_context.cpp
 )
 
