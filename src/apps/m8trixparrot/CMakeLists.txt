@@ -1,7 +1,7 @@
 add_executable(m8trixparrot main.cpp)
 
 target_link_libraries(m8trixparrot
-  PRIVATE agentcore
+  PRIVATE agentui   # PUBLIC-links agentcore
   PRIVATE ftxui::component
   PRIVATE ftxui::dom
   PRIVATE ftxui::screen

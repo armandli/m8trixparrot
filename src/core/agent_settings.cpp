@@ -68,6 +68,8 @@ StartupSettings load_startup_settings(const std::string& path,
   settings.enable_subagents = optional_bool_field(obj, "enable_subagents");
   settings.enable_package_install =
       optional_bool_field(obj, "enable_package_install");
+  settings.shell = optional_string_field(obj, "shell");
+  settings.mode_switch_key = optional_string_field(obj, "mode_switch_key");
 
   return settings;
 }

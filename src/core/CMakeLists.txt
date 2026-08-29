@@ -9,7 +9,10 @@ add_library(agentcore STATIC
   package_installer.cpp
   policy.cpp
   session_store.cpp
+  shell_session.cpp
   skills.cpp
+  tools_ask_user.cpp
+  tools_file.cpp
   tools_package_install.cpp
   tools_shell.cpp
   tools_python.cpp

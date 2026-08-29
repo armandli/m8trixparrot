@@ -28,6 +28,10 @@ find_package(CURL REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBGIT2 REQUIRED IMPORTED_TARGET libgit2)
 
+# libvterm powers m8trixsh's terminal pane. Not REQUIRED: when it is missing the
+# rest of the repo still configures and m8trixsh is skipped (see src/apps).
+pkg_check_modules(LIBVTERM IMPORTED_TARGET vterm)
+
 FetchContent_Declare(
   pybind11
   GIT_REPOSITORY https://github.com/pybind/pybind11

@@ -30,10 +30,10 @@ std::string clip(const std::string& text, size_t limit) {
 // A one-line rendering of the arguments that matter for display, so the UI can
 // show "grep pattern=\"teh\"" rather than the whole JSON object.
 std::string summarize(const std::string& tool_name, const ToolArgs& args) {
-  static const char* kInteresting[] = {"command", "path",      "pattern",
-                                       "query",   "url",       "content",
-                                       "objective", "id",      "action",
-                                       "name"};
+  static const char* kInteresting[] = {"command",   "path",   "pattern",
+                                       "query",     "url",    "content",
+                                       "objective", "id",     "action",
+                                       "name",      "prompt"};
 
   std::string summary;
   for (const char* key : kInteresting) {
@@ -119,9 +119,18 @@ bool Agent::skills_offered() const {
   return mOptions.enable_skills and not catalog().skills.empty();
 }
 
+bool Agent::ask_user_offered() const {
+  return static_cast<bool>(mOptions.ask_user_handler);
+}
+
 std::vector<std::string> Agent::tool_schemas() const {
   std::vector<std::string> schemas{PythonTool().description(),
                                    BashTool().description()};
+  if (mOptions.enable_file_tools) {
+    schemas.push_back(ReadTool().description());
+    schemas.push_back(WriteTool().description());
+    schemas.push_back(EditTool().description());
+  }
   if (mOptions.enable_package_install) {
     schemas.push_back(PackageInstallTool().description());
   }
@@ -130,17 +139,26 @@ std::vector<std::string> Agent::tool_schemas() const {
     schemas.push_back(SubagentCreateTool::description());
     schemas.push_back(SubagentWaitTool::description());
   }
+  if (ask_user_offered()) {
+    schemas.push_back(AskUserTool{mOptions.ask_user_handler}.description());
+  }
   return schemas;
 }
 
 std::vector<std::string> Agent::tool_names() const {
   std::vector<std::string> names{"python", "bash"};
+  if (mOptions.enable_file_tools) {
+    names.push_back("read");
+    names.push_back("write");
+    names.push_back("edit");
+  }
   if (mOptions.enable_package_install) names.push_back("package_install");
   if (skills_offered()) names.push_back("skill");
   if (mOptions.enable_subagents) {
     names.push_back("subagent_create");
     names.push_back("subagent_wait");
   }
+  if (ask_user_offered()) names.push_back("ask_user");
   return names;
 }
 
@@ -353,6 +371,10 @@ std::string Agent::system_prompt() const {
     }
   }
 
+  if (not mOptions.extra_system_prompt.empty()) {
+    prompt << "\n\n" << mOptions.extra_system_prompt << "\n";
+  }
+
   return prompt.str();
 }
 
@@ -361,8 +383,16 @@ ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
     return PythonTool().execute(args);
   if (tool_name == "bash")
     return BashTool().execute(args);
+  if (mOptions.enable_file_tools and tool_name == "read")
+    return ReadTool().execute(args);
+  if (mOptions.enable_file_tools and tool_name == "write")
+    return WriteTool().execute(args);
+  if (mOptions.enable_file_tools and tool_name == "edit")
+    return EditTool().execute(args);
   if (mOptions.enable_package_install and tool_name == "package_install")
     return PackageInstallTool().execute(args);
+  if (ask_user_offered() and tool_name == "ask_user")
+    return AskUserTool{mOptions.ask_user_handler}.execute(args);
   if (mOptions.enable_skills and tool_name == "skill")
     return SkillTool{mTranscript, mContextTokens, catalog()}.execute(args);
   if (mOptions.enable_subagents and tool_name == "subagent_create")

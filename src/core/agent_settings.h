@@ -29,6 +29,10 @@ struct StartupSettings {
   std::optional<bool> enable_skills;
   std::optional<bool> enable_subagents;
   std::optional<bool> enable_package_install;
+
+  // m8trixsh only; the other apps ignore these.
+  std::optional<std::string> shell;             // the shell to run in the PTY pane
+  std::optional<std::string> mode_switch_key;   // key that toggles shell/ai mode
 };
 
 // Reads `path` as a StartupSettings if it exists. A missing file is the
