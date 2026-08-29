@@ -318,11 +318,11 @@ private:
 
 // AFTER
 struct Widget {
-  Widget(int v) : value_(v) {}
-  int get() const { return value_; }
+  Widget(int v) : mValue(v) {}
+  int get() const { return mValue; }
 
 private:
-  int value_;
+  int mValue;
 };
 ```
 
@@ -354,7 +354,7 @@ protected:
   void helper();
 
 private:
-  int state_;
+  int mState;
 };
 ```
 
@@ -380,7 +380,7 @@ protected:
   void internal_method();
 
 private:
-  int data_;
+  int mData;
 };
 ```
 
@@ -421,16 +421,16 @@ double Point::distance_to(Point const& other) const {
 
 // AFTER
 struct Point {
-  int x() const { return x_; }
-  int y() const { return y_; }
+  int x() const { return mX; }
+  int y() const { return mY; }
   double distance_to(Point const& other) const {
-    auto dx = x_ - other.x_;
-    auto dy = y_ - other.y_;
+    auto dx = mX - other.mX;
+    auto dy = mY - other.mY;
     return std::sqrt(dx * dx + dy * dy);
   }
 
 private:
-  int x_, y_;
+  int mX, mY;
 };
 ```
 
@@ -1068,7 +1068,7 @@ namespace my_project::core {
 
 template<typename T>
 struct Processor {
-  Processor(std::string_view name) : name_(name) {}
+  Processor(std::string_view name) : mName(name) {}
 
   std::optional<T> process(std::string_view input) {
     if (input.empty() or not validate(input)) {
@@ -1081,7 +1081,7 @@ protected:
   bool validate(std::string_view s) { return not s.empty(); }
 
 private:
-  std::string name_;
+  std::string mName;
 };
 
 }  // namespace my_project::core
@@ -1105,8 +1105,9 @@ private:
 - F4: `||` -> `or`, `!` -> `not`
 - G1: `const string&` -> `string_view` (input is read-only so converted)
 - G3: `T*` return -> `std::optional<T>` (not polymorphic, not ownership — was `new`, but result is a value type once fixed)
+- H3: `name_` -> `mName`
 
-Note: `name_` parameter stays `std::string_view` even though it's stored in a `std::string` member — the conversion from `string_view` to `string` happens implicitly in the initializer list, which is safe and efficient.
+Note: the `name` parameter stays `std::string_view` even though it's stored in a `std::string` member — the conversion from `string_view` to `string` happens implicitly in the initializer list, which is safe and efficient.
 
 ## Compound Example: Pre-C++17 Project
 
