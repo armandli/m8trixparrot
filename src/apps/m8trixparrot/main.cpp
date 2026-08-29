@@ -139,7 +139,8 @@ const char* kHelpText =
     "/quit     exit\n"
     "\n"
     "click a > / v header to fold or unfold that tool call, group, or subagent\n"
-    "Ctrl+T    fold or unfold everything at once";
+    "Ctrl+T    fold or unfold everything at once\n"
+    "Ctrl+G    while subagents run: toggle the pane grid / the transcript";
 
 TranscriptNode& add_node(std::list<TranscriptNode>& nodes,
                          TranscriptNode::Kind kind, std::string text) {
@@ -272,6 +273,38 @@ void render_node(std::vector<f::Element>& lines, TranscriptNode& node,
   }
 }
 
+// The live body of one subagent pane: its own activity only, no subagent
+// header (the tile's border carries the objective), flush left.
+void render_pane_body(std::vector<f::Element>& lines, TranscriptNode& sub) {
+  if (sub.children.empty()) {
+    lines.push_back(f::text("(starting...)") | f::dim);
+    return;
+  }
+  for (TranscriptNode& child : sub.children) render_node(lines, child, 0);
+}
+
+// One tile of the subagent grid: a bordered window titled with the subagent's
+// depth and objective, its activity auto-scrolled to the newest line. Called
+// only from the render pass, which holds `mutex` (reads `sub.children`).
+f::Element render_pane(TranscriptNode& sub) {
+  std::vector<f::Element> body;
+  render_pane_body(body, sub);
+  f::Element title = f::hbox({
+      f::text("d" + std::to_string(sub.depth) + "  ") | f::bold |
+          f::color(f::Color::Blue),
+      f::text(clip_lines(sub.objective, 1)) | f::bold,
+      f::text("  (running)") | f::dim,
+  });
+  f::Element content = f::vbox(std::move(body)) |
+                       f::focusPositionRelative(0.f, 1.f) | f::yframe | f::flex;
+  return f::window(std::move(title), std::move(content)) | f::flex;
+}
+
+// Fills the empty cells of the last grid row. `| f::flex` is mandatory: gridbox
+// sizes a column/row to the min flex of its cells, so a non-flex cell would
+// collapse its whole column.
+f::Element empty_pane() { return f::filler() | f::border | f::flex; }
+
 // Toggles the header the click landed on, anywhere in the tree. Returns true
 // when it consumed the click.
 bool hit_test(TranscriptNode& node, int x, int y) {
@@ -368,6 +401,20 @@ std::string human_tokens(int64_t n) {
   char buf[32];
   std::snprintf(buf, sizeof(buf), "%.1fM", static_cast<double>(n) / 1000000.0);
   return std::string(buf);
+}
+
+// The subagent grid's shape for `n` running panes: cols = ceil(sqrt(n)),
+// rows = ceil(n / cols). Integer-only so perfect squares land exactly.
+// n=1 -> 1x1, 2 -> 1x2, 3..4 -> 2x2, 5..6 -> 2x3, 7..9 -> 3x3, 10..16 -> up to 4x4.
+struct GridShape {
+  int cols;
+  int rows;
+};
+
+GridShape grid_shape(int n) {
+  int cols = 1;
+  while (cols * cols < n) ++cols;
+  return {cols, (n + cols - 1) / cols};
 }
 
 // Drops routing-map entries for `node` and every Subagent under it, before the
@@ -544,7 +591,17 @@ int main(int argc, char** argv) {
   int64_t ctx_tokens = 0;   // Root context usage, from ContextUsage events.
   int64_t ctx_budget = 0;   // The auto-summarize threshold. Both under `mutex`.
 
-  auto screen = f::App::TerminalOutput();
+  // Subagent ids currently running, in spawn order. An unordered_map iteration
+  // order is unstable and would make panes jump between frames. Ids, not
+  // TranscriptNode*: on ContextSummarized the owning std::list is cleared, so a
+  // cached pointer could dangle; resolving through `subagent_nodes` at render
+  // time lets a pruned pane simply vanish. Guarded by `mutex`.
+  std::vector<std::string> running_agents;
+  // Ctrl+G while subagents run: show the transcript instead of the pane grid.
+  // Reset to false whenever `running_agents` empties. Guarded by `mutex`.
+  bool force_conversation_view = false;
+
+  auto screen = f::App::Fullscreen();
 
   // One process-wide observer for every agent in the tree. Set before any turn
   // runs; the callback fires on arbitrary agent threads.
@@ -607,6 +664,7 @@ int main(int argc, char** argv) {
           TranscriptNode& stored = parent->back();
           agent_containers[event.agent_id] = &stored.children;
           subagent_nodes[event.agent_id] = &stored;
+          running_agents.push_back(event.agent_id);
           break;
         }
 
@@ -617,6 +675,7 @@ int main(int argc, char** argv) {
             it->second->ok = event.ok;
             collapse_subtree(*it->second);
           }
+          std::erase(running_agents, event.agent_id);
           break;
         }
 
@@ -640,6 +699,12 @@ int main(int argc, char** argv) {
             agent_containers[root_id] = &transcript;
             container = &transcript;
           }
+          // A subagent whose node was just pruned (or already finished) is no
+          // longer a live pane.
+          std::erase_if(running_agents, [&](const std::string& id) {
+            auto it = subagent_nodes.find(id);
+            return it == subagent_nodes.end() or it->second->done;
+          });
           add_node(*container, TranscriptNode::Kind::Notice,
                    "\xe2\x94\x80\xe2\x94\x80 " + event.text +
                        " \xe2\x94\x80\xe2\x94\x80");
@@ -706,8 +771,8 @@ int main(int argc, char** argv) {
     }
 
     std::thread([&root_agent, &mutex, &transcript, &waiting_for_reply,
-                 &scroll_y, &screen, objective = std::move(objective),
-                 turn_begin] {
+                 &scroll_y, &screen, &running_agents,
+                 objective = std::move(objective), turn_begin] {
       const agent::AgentResult result = root_agent.run_turn(objective);
 
       std::lock_guard<std::mutex> lock(mutex);
@@ -720,6 +785,9 @@ int main(int argc, char** argv) {
       for (auto it = turn_begin; it != transcript.end(); ++it) {
         collapse_subtree(*it);
       }
+      // Every subagent has emitted SubagentDone by now; this is belt-and-braces
+      // so a missed event can't strand the grid over the transcript.
+      running_agents.clear();
       waiting_for_reply = false;
       scroll_y = 1.0f;
       screen.PostEvent(f::Event::Custom);
@@ -806,6 +874,8 @@ int main(int argc, char** argv) {
         subagent_nodes.clear();
         agent_containers.clear();
         agent_containers[root_id] = &transcript;
+        running_agents.clear();
+        force_conversation_view = false;
       }
       push_notice(TranscriptNode::Kind::Notice, "started a new session");
       return;
@@ -907,9 +977,13 @@ int main(int argc, char** argv) {
 
   auto root = f::Renderer(input, [&] {
     std::vector<f::Element> lines;
+    std::vector<f::Element> tiles;
     float current_scroll_y;
     int64_t header_ctx_tokens;
     int64_t header_ctx_budget;
+    int running_n;
+    bool show_grid;
+    bool transcript_forced;  // Subagents running, but Ctrl+G chose the transcript.
     {
       std::lock_guard<std::mutex> lock(mutex);
 
@@ -918,10 +992,30 @@ int main(int argc, char** argv) {
       // where it used to be.
       for (TranscriptNode& node : transcript) reset_boxes(node);
 
-      for (TranscriptNode& node : transcript) render_node(lines, node, 0);
+      // A pane whose node was pruned by a summarize, or that already finished,
+      // is not live any more.
+      std::erase_if(running_agents, [&](const std::string& id) {
+        auto it = subagent_nodes.find(id);
+        return it == subagent_nodes.end() or it->second->done;
+      });
+      running_n = static_cast<int>(running_agents.size());
+      if (running_n == 0) force_conversation_view = false;
+      show_grid = running_n > 0 and not force_conversation_view;
+      transcript_forced = running_n > 0 and force_conversation_view;
 
-      if (waiting_for_reply) {
-        lines.push_back(f::text("agent is working...") | f::dim);
+      if (show_grid) {
+        // The conversation isn't drawn this frame: kill its click targets so a
+        // stale header box can't answer a click.
+        viewport_box = kNoBox;
+        for (const std::string& id : running_agents) {
+          auto it = subagent_nodes.find(id);
+          if (it != subagent_nodes.end()) tiles.push_back(render_pane(*it->second));
+        }
+      } else {
+        for (TranscriptNode& node : transcript) render_node(lines, node, 0);
+        if (waiting_for_reply) {
+          lines.push_back(f::text("agent is working...") | f::dim);
+        }
       }
       current_scroll_y = scroll_y;
       header_ctx_tokens = ctx_tokens;
@@ -933,16 +1027,43 @@ int main(int argc, char** argv) {
       ctx_part = "  |  ctx: " + human_tokens(header_ctx_tokens) + "/" +
                  human_tokens(header_ctx_budget);
     }
+    std::string sub_part;
+    if (running_n > 0) {
+      sub_part = "  |  subagents: " + std::to_string(running_n) + "/" +
+                 std::to_string(max_agents) +
+                 (transcript_forced ? "  (Ctrl+G: grid)"
+                                    : "  (Ctrl+G: transcript)");
+    }
+
+    f::Element middle;
+    if (show_grid) {
+      const int shown = static_cast<int>(tiles.size());
+      const GridShape gs = grid_shape(std::max(shown, 1));
+      std::vector<f::Elements> matrix;
+      matrix.reserve(gs.rows);
+      for (int r = 0; r < gs.rows; ++r) {
+        f::Elements row;
+        row.reserve(gs.cols);
+        for (int c = 0; c < gs.cols; ++c) {
+          const int idx = r * gs.cols + c;  // row-major fill
+          row.push_back(idx < shown ? std::move(tiles[idx]) : empty_pane());
+        }
+        matrix.push_back(std::move(row));
+      }
+      middle = f::gridbox(std::move(matrix)) | f::flex;
+    } else {
+      middle = f::vbox(lines) |
+               f::focusPositionRelative(0.f, current_scroll_y) |
+               f::vscroll_indicator | f::yframe | f::flex |
+               f::reflect(viewport_box);
+    }
 
     return f::vbox({
                f::text("m8trixparrot  |  model: " + model + "  |  policy: " +
-                       policy.name() + ctx_part) |
+                       policy.name() + ctx_part + sub_part) |
                    f::bold | f::center,
                f::separator(),
-               f::vbox(lines) |
-                   f::focusPositionRelative(0.f, current_scroll_y) |
-                   f::vscroll_indicator | f::yframe | f::flex |
-                   f::reflect(viewport_box),
+               std::move(middle),
                f::separator(),
                input->Render() | f::color(f::Color::White) |
                    f::bgcolor(f::Color::Black) | f::border,
@@ -959,13 +1080,30 @@ int main(int argc, char** argv) {
     static const f::Event kShiftEnterLegacy =
         f::Event::Special("\x1b[27;2;13~");
 
+    // True when the pane grid, not the transcript, owns the middle region.
+    // Call only while holding `mutex`.
+    auto grid_active = [&] {
+      return not running_agents.empty() and not force_conversation_view;
+    };
+
+    if (event == f::Event::CtrlG) {
+      std::lock_guard<std::mutex> lock(mutex);
+      // No grid without subagents; swallow the key anyway so it never reaches
+      // the input.
+      if (not running_agents.empty()) {
+        force_conversation_view = not force_conversation_view;
+      }
+      return true;
+    }
     if (event == f::Event::PageUp) {
       std::lock_guard<std::mutex> lock(mutex);
+      if (grid_active()) return true;
       scroll_y = std::clamp(scroll_y - kPageStep, 0.f, 1.f);
       return true;
     }
     if (event == f::Event::PageDown) {
       std::lock_guard<std::mutex> lock(mutex);
+      if (grid_active()) return true;
       scroll_y = std::clamp(scroll_y + kPageStep, 0.f, 1.f);
       return true;
     }
@@ -991,8 +1129,9 @@ int main(int argc, char** argv) {
           mouse.motion == f::Mouse::Pressed) {
         std::lock_guard<std::mutex> lock(mutex);
         // Only headers inside the scrolling viewport are live: a row laid out
-        // beyond the frame still has a box, and it must not answer clicks.
-        if (viewport_box.Contain(mouse.x, mouse.y)) {
+        // beyond the frame still has a box, and it must not answer clicks. In
+        // grid mode the transcript isn't drawn at all.
+        if (not grid_active() and viewport_box.Contain(mouse.x, mouse.y)) {
           for (TranscriptNode& node : transcript) {
             if (hit_test(node, mouse.x, mouse.y)) return true;
           }
@@ -1001,11 +1140,13 @@ int main(int argc, char** argv) {
       }
       if (event.mouse().button == f::Mouse::WheelUp) {
         std::lock_guard<std::mutex> lock(mutex);
+        if (grid_active()) return true;
         scroll_y = std::clamp(scroll_y - kWheelStep, 0.f, 1.f);
         return true;
       }
       if (event.mouse().button == f::Mouse::WheelDown) {
         std::lock_guard<std::mutex> lock(mutex);
+        if (grid_active()) return true;
         scroll_y = std::clamp(scroll_y + kWheelStep, 0.f, 1.f);
         return true;
       }
