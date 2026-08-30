@@ -15,6 +15,7 @@
 #include <system_error>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <CLI/CLI.hpp>
@@ -34,6 +35,7 @@
 #include <core/sane_policy.h>
 #include <core/shell_session.h>
 #include <core/tools.h>
+#include <shell_integration.h>
 #include <terminal_emulator.h>
 
 namespace f = ftxui;
@@ -74,39 +76,34 @@ std::vector<std::string> list_ollama_models(bool& command_ok) {
 }
 
 const char* kHelpText =
-    "Tab       switch between shell mode and ai mode (rebind: mode_switch_key)\n"
+    "You always type at the shell prompt. The [shell] / [m8trx] tag on the\n"
+    "prompt shows where Enter goes: the shell, or the agent on the left.\n"
     "\n"
-    "ai mode commands:\n"
-    "/help     show this message\n"
-    "/session  show the current session id\n"
-    "/context  show context token usage and the auto-summarize threshold\n"
-    "/skills   list available skills (and re-scan the skills directory)\n"
-    "/reset    start a new session\n"
-    "/quit     exit\n"
+    "Ctrl+]              switch between shell mode and ai mode (rebind:\n"
+    "                   MODE_SWITCH_KEY)\n"
+    "\n"
+    "ai mode, typed at the prompt:\n"
+    "/help              show this message\n"
+    "/session           show the current session id\n"
+    "/context           context token usage and the auto-summarize threshold\n"
+    "/skills            list available skills (and re-scan the skills dir)\n"
+    "/reset             start a new session\n"
+    "/quit              exit\n"
     "\n"
     "click a > / v header to fold or unfold a tool call\n"
-    "Ctrl+T    fold or unfold everything\n"
-    "Ctrl+Left / Ctrl+Right   resize the ai pane";
+    "Ctrl+Alt+F         fold or unfold everything\n"
+    "Ctrl+Alt+J / K     scroll the ai pane\n"
+    "Ctrl+Alt+H / L     resize the ai pane";
 
 // Turns a mode_switch_key setting string into the FTXUI event it names.
 f::Event parse_switch_key(const std::string& name) {
-  if (name == "tab" or name.empty()) return f::Event::Tab;
-  if (name == "ctrl-]") return f::Event::Special(std::string(1, '\x1d'));
+  if (name == "ctrl-]" or name.empty())
+    return f::Event::Special(std::string(1, '\x1d'));
+  if (name == "tab") return f::Event::Tab;
   if (name == "ctrl-o") return f::Event::CtrlO;
   if (name == "ctrl-\\") return f::Event::Special(std::string(1, '\x1c'));
   if (name == "f12") return f::Event::F12;
-  return f::Event::Tab;
-}
-
-// The last path component or two, for the header.
-std::string short_cwd(const std::string& path) {
-  if (path.empty()) return "?";
-  const char* home = std::getenv("HOME");
-  std::string display = path;
-  if (home != nullptr and display.rfind(home, 0) == 0) {
-    display = "~" + display.substr(std::string(home).size());
-  }
-  return display;
+  return f::Event::Special(std::string(1, '\x1d'));
 }
 
 std::string workflow_prompt() {
@@ -132,7 +129,8 @@ std::string workflow_prompt() {
       "final approval.\n"
       "5. On approval, run it with `bash` and report the result.\n"
       "Never run the destructive steps before the script is approved. Keep "
-      "`ask_user` prompts short - the human answers in a small input box.";
+      "`ask_user` prompts short - the human answers by typing at the shell "
+      "prompt.";
 }
 
 }  // namespace
@@ -145,7 +143,8 @@ int main(int argc, char** argv) {
       "Defaults for model, policy, and the flags below may also be set in "
       "~/.m8shrc, one KEY=VALUE per line (keys: MODEL, POLICY, MAX_STEPS, "
       "NUM_CTX, SUMMARIZE_AT, SKILLS_DIR, ENABLE_SKILLS, ENABLE_SUBAGENTS, "
-      "ENABLE_PACKAGE_INSTALL, ENABLE_WEB_SEARCH, SHELL, MODE_SWITCH_KEY); an "
+      "ENABLE_PACKAGE_INSTALL, ENABLE_WEB_SEARCH, SHELL, MODE_SWITCH_KEY, "
+      "PROMPT_FORMAT, PROMPT_SHELL_TAG, PROMPT_AI_TAG, PROMPT_ASK_TAG); an "
       "explicit flag here always overrides it.");
 
   std::string settings_warning;
@@ -168,7 +167,7 @@ int main(int argc, char** argv) {
   std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
   bool no_skills = not settings.enable_skills.value_or(true);
   std::string shell_override = settings.shell.value_or("");
-  std::string switch_key_name = settings.mode_switch_key.value_or("tab");
+  std::string switch_key_name = settings.mode_switch_key.value_or("ctrl-]");
 
   app.add_option("model,-m,--model", model, "Ollama model for ai mode")
       ->capture_default_str();
@@ -194,7 +193,7 @@ int main(int argc, char** argv) {
   app.add_option("--shell", shell_override,
                  "Shell to run in the terminal pane (default: $SHELL)");
   app.add_option("--mode-switch-key", switch_key_name,
-                 "Key that toggles shell/ai mode (tab, ctrl-], ctrl-o, "
+                 "Key that toggles shell/ai mode (ctrl-], tab, ctrl-o, "
                  "ctrl-\\, f12)")
       ->capture_default_str();
 
@@ -249,9 +248,11 @@ int main(int argc, char** argv) {
   std::vector<std::string> running_agents;
 
   Mode mode = Mode::Shell;
+  bool mode_toggle_enabled = true;
   bool ai_turn_running = false;
   bool pending_prompt = false;
   bool left_unread = false;
+  bool want_prompt_redraw = false;
   std::optional<std::promise<std::string>> answer_promise;
   float left_scroll = 1.0f;
   int left_width = 0;  // 0 => auto (2/5 of the terminal)
@@ -263,12 +264,39 @@ int main(int argc, char** argv) {
 
   std::mutex pty_mutex;
   std::string pty_pending;
+  std::vector<std::string> submitted_lines;  // from the shell, in ai mode
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
 
   auto screen = f::App::Fullscreen();
   screen.ForceHandleCtrlC(false);
   screen.ForceHandleCtrlZ(false);
+
+  // --- the shell integration ----------------------------------------------
+  // A throwaway ZDOTDIR that runs the user's ~/.zshrc and then layers
+  // m8trixsh's prompt, mode tag, and Enter-capture on top. zsh only; a
+  // non-zsh shell still runs in the pane, just without the tag / capture.
+  m8sh::PromptConfig prompt_config;
+  prompt_config.format = settings.prompt_format.value_or("");
+  prompt_config.shell_tag = settings.prompt_shell_tag.value_or("");
+  prompt_config.ai_tag = settings.prompt_ai_tag.value_or("");
+  prompt_config.ask_tag = settings.prompt_ask_tag.value_or("");
+  m8sh::ShellIntegration integration(prompt_config);
+
+  const std::string resolved_shell = agent::resolve_shell(shell_override);
+  const bool zsh_shell = m8sh::shell_is_zsh(resolved_shell);
+  std::vector<std::pair<std::string, std::string>> shell_env;
+  if (zsh_shell and integration.ok()) {
+    shell_env = integration.env();
+  } else if (not zsh_shell) {
+    std::cerr << "note: " << resolved_shell
+              << " is not zsh; the [shell]/[m8trx] prompt tag and ai-mode "
+                 "line capture are disabled (the shell pane still works)\n";
+  } else {
+    std::cerr << "warning: shell integration unavailable (" << integration.error()
+              << "); the prompt tag and ai-mode line capture are disabled\n";
+  }
+  const bool integration_active = zsh_shell and integration.ok();
 
   // --- the terminal pane ----------------------------------------------------
   m8sh::TerminalEmulator emu(80, 24);
@@ -278,6 +306,10 @@ int main(int argc, char** argv) {
   emu.on_osc_cwd = [&](std::string p) {
     std::lock_guard<std::mutex> lock(ui_mutex);
     last_osc_cwd = std::move(p);
+  };
+  emu.on_line_submit = [&](std::string line) {
+    std::lock_guard<std::mutex> lock(pty_mutex);
+    submitted_lines.push_back(std::move(line));
   };
   shell.on_bytes = [&](std::string_view b) {
     if (shutting_down.load()) return;
@@ -292,9 +324,11 @@ int main(int argc, char** argv) {
     screen.Post([&] { screen.Exit(); });
   };
 
+  if (not integration_active) mode_toggle_enabled = false;
+
   {
     std::string shell_error;
-    if (not shell.start(80, 24, shell_override, &shell_error)) {
+    if (not shell.start(80, 24, shell_override, &shell_error, shell_env)) {
       std::cerr << "error: could not start the shell: " << shell_error << "\n";
       return 1;
     }
@@ -329,7 +363,12 @@ int main(int argc, char** argv) {
       answer = answer_promise->get_future();
       pending_prompt = true;
       left_scroll = 1.0f;
-      if (mode == Mode::Shell) left_unread = true;
+      if (mode == Mode::Shell) {
+        left_unread = true;
+      } else if (integration_active) {
+        integration.set_mode("ai-ask");
+        want_prompt_redraw = true;
+      }
     }
     screen.PostEvent(f::Event::Custom);
 
@@ -342,6 +381,10 @@ int main(int argc, char** argv) {
       answer_promise.reset();
       add_node(transcript, TranscriptNode::Kind::User, reply);
       left_scroll = 1.0f;
+      if (integration_active and mode == Mode::Ai) {
+        integration.set_mode("ai");
+        want_prompt_redraw = true;
+      }
     }
     screen.PostEvent(f::Event::Custom);
     return reply;
@@ -459,14 +502,6 @@ int main(int argc, char** argv) {
     screen.PostEvent(f::Event::Custom);
   });
 
-  // --- ai input line ----------------------------------------------------
-  std::string input_value;
-  int input_cursor = 0;
-  std::vector<std::string> input_history;
-  constexpr size_t kMaxInputHistory = 100;
-  size_t history_index = 0;
-  std::string history_draft;
-
   auto push_notice = [&](TranscriptNode::Kind kind, std::string text) {
     {
       std::lock_guard<std::mutex> lock(ui_mutex);
@@ -517,18 +552,10 @@ int main(int argc, char** argv) {
     }).detach();
   };
 
-  auto send_message = [&] {
-    if (input_value.empty()) return;
-
-    const std::string entered = input_value;
-    input_history.push_back(entered);
-    if (input_history.size() > kMaxInputHistory) {
-      input_history.erase(input_history.begin());
-    }
-    history_index = input_history.size();
-    history_draft.clear();
-    input_value.clear();
-    input_cursor = 0;
+  // A line the user typed at the shell prompt while in ai mode (captured by the
+  // integration and handed over via OSC 5171). Runs on the UI thread.
+  auto handle_submitted_line = [&](const std::string& entered) {
+    if (entered.empty()) return;
 
     {
       std::lock_guard<std::mutex> lock(ui_mutex);
@@ -645,8 +672,8 @@ int main(int argc, char** argv) {
       std::lock_guard<std::mutex> lock(ui_mutex);
       if (ai_turn_running) {
         add_node(transcript, TranscriptNode::Kind::Notice,
-                 "the agent is working; press Tab for the shell, or wait for "
-                 "it to ask you");
+                 "the agent is working; switch to the shell, or wait for it "
+                 "to ask you");
         left_scroll = 1.0f;
         screen.PostEvent(f::Event::Custom);
         return;
@@ -654,42 +681,6 @@ int main(int argc, char** argv) {
     }
     start_turn(entered, entered);
   };
-
-  auto cursor_on_first_line = [&] {
-    return input_value.substr(0, input_cursor).find('\n') == std::string::npos;
-  };
-  auto cursor_on_last_line = [&] {
-    return input_value.find('\n', input_cursor) == std::string::npos;
-  };
-  auto recall_previous = [&] {
-    if (input_history.empty()) return;
-    if (history_index == input_history.size()) history_draft = input_value;
-    if (history_index == 0) return;
-    history_index--;
-    input_value = input_history[history_index];
-    input_cursor = static_cast<int>(input_value.size());
-  };
-  auto recall_next = [&] {
-    if (history_index >= input_history.size()) return;
-    history_index++;
-    input_value = (history_index == input_history.size())
-                      ? history_draft
-                      : input_history[history_index];
-    input_cursor = static_cast<int>(input_value.size());
-  };
-
-  f::InputOption input_option;
-  input_option.content = &input_value;
-  input_option.cursor_position = &input_cursor;
-  input_option.placeholder =
-      "ai mode: type a request, Enter to send, /help for commands, Tab for the "
-      "shell";
-  input_option.transform = [](f::InputState state) {
-    f::Element element = std::move(state.element);
-    if (state.is_placeholder) element |= f::dim;
-    return element | f::color(f::Color::White) | f::bgcolor(f::Color::Black);
-  };
-  auto input = f::Input(input_option);
 
   const f::Event switch_key = parse_switch_key(switch_key_name);
 
@@ -700,15 +691,30 @@ int main(int argc, char** argv) {
 
   f::Box term_box = kNoBox;
 
-  auto root = f::Renderer(input, [&] {
+  auto root = f::Renderer([&] {
     // Drain the pty into the emulator (UI thread; libvterm is single-threaded).
+    // Feeding it can fire emu.on_line_submit, which queues into submitted_lines.
     {
       std::string chunk;
+      std::vector<std::string> lines_in;
       {
         std::lock_guard<std::mutex> lock(pty_mutex);
         chunk.swap(pty_pending);
       }
       if (not chunk.empty()) emu.feed(chunk);
+      {
+        std::lock_guard<std::mutex> lock(pty_mutex);
+        lines_in.swap(submitted_lines);
+      }
+      for (const std::string& line : lines_in) handle_submitted_line(line);
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(ui_mutex);
+      if (want_prompt_redraw) {
+        want_prompt_redraw = false;
+        emu.write_raw(m8sh::ShellIntegration::redraw_sequence());
+      }
     }
 
     std::vector<f::Element> lines;
@@ -716,8 +722,6 @@ int main(int argc, char** argv) {
     bool prompt_pending = false;
     bool unread = false;
     float scroll = 1.0f;
-    std::int64_t htokens = 0;
-    std::int64_t hbudget = 0;
     int lwidth = 0;
     {
       std::lock_guard<std::mutex> lock(ui_mutex);
@@ -727,8 +731,6 @@ int main(int argc, char** argv) {
       prompt_pending = pending_prompt;
       unread = left_unread;
       scroll = left_scroll;
-      htokens = ctx_tokens;
-      hbudget = ctx_budget;
       lwidth = left_width;
       if (expand_left) {
         for (TranscriptNode& node : transcript) render_node(lines, node, 0);
@@ -761,179 +763,142 @@ int main(int argc, char** argv) {
              f::border | f::size(f::WIDTH, f::EQUAL, 3);
     }
 
+    // The shell always holds the keyboard, so it always draws the cursor.
     f::Element right =
-        m8sh::terminal_element(emu, on_resize, &term_box, mode == Mode::Shell) |
+        m8sh::terminal_element(emu, on_resize, &term_box, /*focused=*/true) |
         f::flex;
 
-    std::string ctx_part;
-    if (hbudget > 0) {
-      ctx_part = "  |  ctx: " + human_tokens(htokens) + "/" +
-                 human_tokens(hbudget);
-    }
-    std::string cwd_now = shell.cwd();
-    if (cwd_now.empty()) {
-      std::lock_guard<std::mutex> lock(ui_mutex);
-      cwd_now = last_osc_cwd;
-    }
-    if (cwd_now.empty()) cwd_now = launch_dir;
-
-    f::Element header =
-        f::text("m8trixsh  |  " + model + "  |  " + policy.name() + "  |  " +
-                (mode == Mode::Shell ? "SHELL" : "AI") + "  |  " +
-                short_cwd(cwd_now) + ctx_part) |
-        f::bold | f::center;
-
-    std::vector<f::Element> stack = {
-        header,
-        f::separator(),
-        f::hbox({left, f::separator(), right}) | f::flex,
-    };
-    if (mode == Mode::Ai) {
-      stack.push_back(f::separator());
-      stack.push_back(input->Render() | f::color(f::Color::White) |
-                      f::bgcolor(f::Color::Black) |
-                      f::borderStyled(f::Color::Magenta));
-    }
-    return f::vbox(std::move(stack)) | f::border;
+    return f::hbox({left, f::separator(), right}) | f::border;
   });
 
   root = f::CatchEvent(root, [&](f::Event event) {
-    static const f::Event kAltEnterCR = f::Event::Special("\x1b\r");
-    static const f::Event kAltEnterLF = f::Event::Special("\x1b\n");
-    static const f::Event kShiftEnterCsiU = f::Event::Special("\x1b[13;2u");
-    static const f::Event kShiftEnterLegacy = f::Event::Special("\x1b[27;2;13~");
-
-    if (event == switch_key) {
+    // The mode toggle: flip, tell the shell, repaint the prompt in place.
+    if (mode_toggle_enabled and event == switch_key) {
       std::lock_guard<std::mutex> lock(ui_mutex);
       mode = (mode == Mode::Shell) ? Mode::Ai : Mode::Shell;
-      if (mode == Mode::Ai) left_unread = false;
+      if (mode == Mode::Ai) {
+        left_unread = false;
+        integration.set_mode(pending_prompt ? "ai-ask" : "ai");
+      } else {
+        integration.set_mode("shell");
+      }
+      emu.write_raw(m8sh::ShellIntegration::redraw_sequence());
       screen.PostEvent(f::Event::Custom);
       return true;
     }
 
-    if (event == f::Event::CtrlAltH or event == f::Event::ArrowLeftCtrl) {
-      std::lock_guard<std::mutex> lock(ui_mutex);
-      left_width = std::max(20, (left_width > 0 ? left_width : 48) - 4);
+    // Ctrl-C / Ctrl-Z: straight to the foreground job, in either mode.
+    if (event == f::Event::CtrlC) {
+      emu.write_raw(std::string(1, '\x03'));
       return true;
     }
-    if (event == f::Event::CtrlAltL or event == f::Event::ArrowRightCtrl) {
-      std::lock_guard<std::mutex> lock(ui_mutex);
-      left_width = (left_width > 0 ? left_width : 48) + 4;
+    if (event == f::Event::CtrlZ) {
+      emu.write_raw(std::string(1, '\x1a'));
       return true;
     }
 
-    Mode current;
-    {
-      std::lock_guard<std::mutex> lock(ui_mutex);
-      current = mode;
-    }
-
-    if (current == Mode::Shell) {
-      if (event == f::Event::CtrlC) {
-        emu.write_raw(std::string(1, '\x03'));
-        return true;
-      }
-      if (event == f::Event::CtrlZ) {
-        emu.write_raw(std::string(1, '\x1a'));
-        return true;
-      }
-      if (event.is_mouse()) {
-        const f::Mouse& mouse = event.mouse();
-        if (mouse.button == f::Mouse::WheelUp) {
-          emu.scroll_view(3);
-          screen.PostEvent(f::Event::Custom);
-          return true;
-        }
-        if (mouse.button == f::Mouse::WheelDown) {
-          emu.scroll_view(-3);
-          screen.PostEvent(f::Event::Custom);
-          return true;
-        }
-        if (emu.mouse_reporting() and not term_box.IsEmpty() and
-            term_box.Contain(mouse.x, mouse.y)) {
-          const int row = mouse.y - term_box.y_min;
-          const int col = mouse.x - term_box.x_min;
-          int button = 0;
-          if (mouse.button == f::Mouse::Left) button = 1;
-          else if (mouse.button == f::Mouse::Middle) button = 2;
-          else if (mouse.button == f::Mouse::Right) button = 3;
-          const bool pressed = mouse.motion == f::Mouse::Pressed;
-          const bool motion = mouse.motion == f::Mouse::Moved;
-          emu.handle_mouse(row, col, button, pressed, motion, 0);
-          return true;
-        }
-        return true;  // swallow other mouse events in shell mode
-      }
-      return emu.handle_key(event);
-    }
-
-    // --- ai mode ---
-    if (event == f::Event::Return) {
-      send_message();
-      return true;
-    }
-    if (event == kAltEnterCR or event == kAltEnterLF or
-        event == kShiftEnterCsiU or event == kShiftEnterLegacy) {
-      input_value.insert(static_cast<size_t>(input_cursor), "\n");
-      input_cursor += 1;
-      return true;
-    }
-    if (event == f::Event::ArrowUp) {
-      if (not cursor_on_first_line()) return false;
-      recall_previous();
-      return true;
-    }
-    if (event == f::Event::ArrowDown) {
-      if (not cursor_on_last_line()) return false;
-      recall_next();
-      return true;
-    }
-    if (event == f::Event::CtrlT) {
-      std::lock_guard<std::mutex> lock(ui_mutex);
-      bool any_expanded = false;
-      for (const TranscriptNode& node : transcript) {
-        if (any_group_expanded(node)) {
-          any_expanded = true;
-          break;
-        }
-      }
-      const bool expand = not any_expanded;
-      for (TranscriptNode& node : transcript) set_all_expanded(node, expand);
-      return true;
-    }
+    // The mouse drives the transcript pane when it is over it, the terminal
+    // otherwise - in both modes.
     if (event.is_mouse()) {
       const f::Mouse& mouse = event.mouse();
-      if (mouse.button == f::Mouse::Left and mouse.motion == f::Mouse::Pressed) {
+      {
         std::lock_guard<std::mutex> lock(ui_mutex);
         if (not left_viewport_box.IsEmpty() and
             left_viewport_box.Contain(mouse.x, mouse.y)) {
-          for (TranscriptNode& node : transcript) {
-            if (hit_test(node, mouse.x, mouse.y)) return true;
+          if (mouse.button == f::Mouse::Left and
+              mouse.motion == f::Mouse::Pressed) {
+            for (TranscriptNode& node : transcript) {
+              if (hit_test(node, mouse.x, mouse.y)) return true;
+            }
+          }
+          if (mouse.button == f::Mouse::WheelUp) {
+            left_scroll = std::clamp(left_scroll - 0.1f, 0.f, 1.f);
+            return true;
+          }
+          if (mouse.button == f::Mouse::WheelDown) {
+            left_scroll = std::clamp(left_scroll + 0.1f, 0.f, 1.f);
+            return true;
           }
         }
       }
       if (mouse.button == f::Mouse::WheelUp) {
-        std::lock_guard<std::mutex> lock(ui_mutex);
-        left_scroll = std::clamp(left_scroll - 0.1f, 0.f, 1.f);
+        emu.scroll_view(3);
+        screen.PostEvent(f::Event::Custom);
         return true;
       }
       if (mouse.button == f::Mouse::WheelDown) {
+        emu.scroll_view(-3);
+        screen.PostEvent(f::Event::Custom);
+        return true;
+      }
+      if (emu.mouse_reporting() and not term_box.IsEmpty() and
+          term_box.Contain(mouse.x, mouse.y)) {
+        const int row = mouse.y - term_box.y_min;
+        const int col = mouse.x - term_box.x_min;
+        int button = 0;
+        if (mouse.button == f::Mouse::Left) button = 1;
+        else if (mouse.button == f::Mouse::Middle) button = 2;
+        else if (mouse.button == f::Mouse::Right) button = 3;
+        const bool pressed = mouse.motion == f::Mouse::Pressed;
+        const bool motion = mouse.motion == f::Mouse::Moved;
+        emu.handle_mouse(row, col, button, pressed, motion, 0);
+        return true;
+      }
+      return true;  // swallow the rest
+    }
+
+    // A few keys drive the transcript pane, but only in ai mode - in shell
+    // mode every key (PageUp, Ctrl+Alt+*, Tab, ...) belongs to the shell.
+    bool in_ai_mode;
+    {
+      std::lock_guard<std::mutex> lock(ui_mutex);
+      in_ai_mode = mode == Mode::Ai;
+    }
+    if (in_ai_mode) {
+      if (event == f::Event::PageUp) {
         std::lock_guard<std::mutex> lock(ui_mutex);
-        left_scroll = std::clamp(left_scroll + 0.1f, 0.f, 1.f);
+        left_scroll = std::clamp(left_scroll - 0.3f, 0.f, 1.f);
+        return true;
+      }
+      if (event == f::Event::PageDown) {
+        std::lock_guard<std::mutex> lock(ui_mutex);
+        left_scroll = std::clamp(left_scroll + 0.3f, 0.f, 1.f);
+        return true;
+      }
+      if (event == f::Event::CtrlAltH) {
+        std::lock_guard<std::mutex> lock(ui_mutex);
+        left_width = std::max(20, (left_width > 0 ? left_width : 48) - 4);
+        return true;
+      }
+      if (event == f::Event::CtrlAltL) {
+        std::lock_guard<std::mutex> lock(ui_mutex);
+        left_width = (left_width > 0 ? left_width : 48) + 4;
+        return true;
+      }
+      if (event == f::Event::CtrlAltF) {
+        std::lock_guard<std::mutex> lock(ui_mutex);
+        bool any_expanded = false;
+        for (const TranscriptNode& node : transcript) {
+          if (any_group_expanded(node)) {
+            any_expanded = true;
+            break;
+          }
+        }
+        const bool expand = not any_expanded;
+        for (TranscriptNode& node : transcript) set_all_expanded(node, expand);
         return true;
       }
     }
-    if (event == f::Event::PageUp) {
-      std::lock_guard<std::mutex> lock(ui_mutex);
-      left_scroll = std::clamp(left_scroll - 0.3f, 0.f, 1.f);
-      return true;
+
+    // Internal / synthetic events are not keystrokes; don't feed them to the
+    // shell (Event::Custom is posted on every pty read).
+    if (event == f::Event::Custom or event.is_cursor_position() or
+        event.is_cursor_shape() or event.IsTerminalNameVersion() or
+        event.IsTerminalEmulator() or event.IsTerminalCapabilities()) {
+      return false;
     }
-    if (event == f::Event::PageDown) {
-      std::lock_guard<std::mutex> lock(ui_mutex);
-      left_scroll = std::clamp(left_scroll + 0.3f, 0.f, 1.f);
-      return true;
-    }
-    return false;
+
+    return emu.handle_key(event);
   });
 
   screen.Loop(root);

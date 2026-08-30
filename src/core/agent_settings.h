@@ -37,6 +37,10 @@ struct StartupSettings {
   // m8trixsh only; the other apps ignore these.
   std::optional<std::string> shell;            // the shell to run in the PTY pane
   std::optional<std::string> mode_switch_key;  // toggles shell/ai mode
+  std::optional<std::string> prompt_format;    // the prompt m8trixsh installs
+  std::optional<std::string> prompt_shell_tag;  // %tag in shell mode
+  std::optional<std::string> prompt_ai_tag;     // %tag in ai mode
+  std::optional<std::string> prompt_ask_tag;    // %tag while the agent is asking
 };
 
 // Reads `path` as a StartupSettings if it exists. A missing file is the

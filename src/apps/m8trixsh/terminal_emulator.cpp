@@ -101,6 +101,33 @@ std::string decode_osc7_path(std::string_view uri) {
   return out;
 }
 
+// Standard base64 -> bytes. Unknown characters (including any '\n' from a
+// wrapping encoder) are skipped; padding is optional.
+std::string decode_base64(std::string_view in) {
+  auto value = [](unsigned char c) -> int {
+    if (c >= 'A' and c <= 'Z') return c - 'A';
+    if (c >= 'a' and c <= 'z') return c - 'a' + 26;
+    if (c >= '0' and c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+  };
+  std::string out;
+  int acc = 0;
+  int bits = 0;
+  for (char ch : in) {
+    const int v = value(static_cast<unsigned char>(ch));
+    if (v < 0) continue;
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<char>((acc >> bits) & 0xFF));
+    }
+  }
+  return out;
+}
+
 f::Screen::Cursor::Shape to_ftxui_shape(int vterm_shape, bool blink) {
   switch (vterm_shape) {
     default:
@@ -457,11 +484,17 @@ int TerminalEmulator::resize_trampoline(int rows, int cols, void* user) {
 int TerminalEmulator::osc_trampoline(int command, VTermStringFragment frag,
                                      void* user) {
   auto* self = static_cast<TerminalEmulator*>(user);
-  if (command != 7) return 0;
+  if (command != 7 and command != 5171) return 0;
   if (frag.initial) self->mOscAccum.clear();
   self->mOscAccum.append(frag.str, frag.len);
   if (frag.final) {
-    if (self->on_osc_cwd) self->on_osc_cwd(decode_osc7_path(self->mOscAccum));
+    if (command == 7) {
+      if (self->on_osc_cwd) self->on_osc_cwd(decode_osc7_path(self->mOscAccum));
+    } else {
+      if (self->on_line_submit) {
+        self->on_line_submit(decode_base64(self->mOscAccum));
+      }
+    }
     self->mOscAccum.clear();
   }
   return 1;

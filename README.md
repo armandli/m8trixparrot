@@ -74,26 +74,36 @@ Type a message and press Enter to send it; type `/quit` to exit.
 
 ## Running m8trixsh
 
-`m8trixsh` is an intelligent shell. It runs your real `$SHELL` in a VT100/xterm
-pane (colours, `vim`, `htop`, `ssh`, job control) and adds an **AI mode** on the
-side. **Tab** toggles between the two:
+`m8trixsh` is an intelligent shell. It runs zsh in a VT100/xterm pane (colours,
+`vim`, `htop`, `ssh`, job control) and adds an **AI mode** on the side. You
+always type at the one shell prompt; a `[shell]` / `[m8trx]` tag on that prompt
+shows where **Enter** goes, and **Ctrl+]** toggles it:
 
-- **shell mode** (default): keystrokes go to the shell, exactly like a terminal.
-- **ai mode**: your line goes to an Ollama agent that can `read`/`write`/`edit`
-  files and run `bash`. For anything that changes files it researches first,
-  proposes a plan (answered in a small input box), writes a script into
-  `~/bin`, asks you to approve it, then runs it. Press Tab back to the shell any
-  time — the agent keeps working, and pings you when it needs an answer.
+- **shell mode** (default): the line runs in the shell, exactly like a terminal.
+- **ai mode**: the line goes to an Ollama agent that can `read`/`write`/`edit`
+  files and run `bash`, and does not run in the shell. For anything that
+  changes files the agent researches first, proposes a plan (which you answer
+  at the prompt — the tag turns to `[m8trx?]`), writes a script into `~/bin`,
+  asks you to approve it, then runs it. Toggle back to `[shell]` any time — the
+  agent keeps working, and the AI pane pops open when it needs an answer.
 
 ```sh
 brew install libvterm          # one-time prerequisite for this app
 make run APP=m8trixsh           # or: build/m8trixsh --model qwen3.8:27b-mlx
 ```
 
-The left (AI) pane collapses to a thin strip when there is no AI activity. The
-permission policy defaults to `yolo` — your approval of each script before it
-runs is the safety gate; `--policy sane` confines writes to the working
-directory and `/tmp`.
+The agent's replies and tool calls show in the left pane, which collapses to a
+thin strip when there is no AI activity. `Ctrl+Alt+J`/`K` scroll it,
+`Ctrl+Alt+H`/`L` resize it, `Ctrl+Alt+F` folds every tool call (all in ai
+mode). The permission policy defaults to `yolo` — your approval of each script
+before it runs is the safety gate; `--policy sane` confines writes to the
+working directory and `/tmp`.
+
+m8trixsh installs its own prompt and Enter-capture into a throwaway `ZDOTDIR`
+that sources your real `~/.zshrc` first, so your aliases, `PATH`, and functions
+still work. **The mode tag and ai-mode capture need zsh**; with a non-zsh
+`$SHELL` the pane still works but stays in shell mode. AI-mode lines are never
+added to your shell history.
 
 Unlike `m8trixparrot`, `m8trixsh` reads its defaults from **`~/.m8shrc`** — a
 shell-env-style file, one `KEY=VALUE` per line (`#` comments, optional `export`
@@ -105,13 +115,19 @@ MODEL=qwen3.8:27b-mlx
 POLICY=sane
 ENABLE_WEB_SEARCH=1
 SHELL=/bin/zsh
-MODE_SWITCH_KEY=ctrl-o        # tab | ctrl-] | ctrl-o | ctrl-\ | f12
+MODE_SWITCH_KEY=ctrl-o        # ctrl-] (default) | tab | ctrl-o | ctrl-\ | f12
+PROMPT_FORMAT='%tag %F{green}➜%f  %F{cyan}%~%f %F{yellow}%git%f '
+PROMPT_AI_TAG='%F{magenta}[m8trx]%f'
 ```
 
 Recognized keys: `MODEL`, `POLICY`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`,
 `SKILLS_DIR`, `ENABLE_SKILLS`, `ENABLE_SUBAGENTS`, `ENABLE_PACKAGE_INSTALL`,
-`ENABLE_WEB_SEARCH`, `SHELL`, `MODE_SWITCH_KEY`. `MODE_SWITCH_KEY` rebinds the
-shell/ai toggle if you want Tab-completion in the shell.
+`ENABLE_WEB_SEARCH`, `SHELL`, `MODE_SWITCH_KEY`, `PROMPT_FORMAT`,
+`PROMPT_SHELL_TAG`, `PROMPT_AI_TAG`, `PROMPT_ASK_TAG`. `MODE_SWITCH_KEY` rebinds
+the shell/ai toggle. `PROMPT_FORMAT` is the prompt m8trixsh installs — ordinary
+zsh prompt syntax, with `%tag` (the `[shell]`/`[m8trx]`/`[m8trx?]` indicator)
+and `%git` (a branch segment) added; the `PROMPT_*_TAG` keys set what `%tag`
+expands to in each mode.
 
 ## Skills
 

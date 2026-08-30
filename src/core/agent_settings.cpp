@@ -112,6 +112,14 @@ bool apply_shellrc_pair(StartupSettings& settings, std::string_view key,
     settings.shell = std::string(value);
   else if (key == "MODE_SWITCH_KEY")
     settings.mode_switch_key = std::string(value);
+  else if (key == "PROMPT_FORMAT")
+    settings.prompt_format = std::string(value);
+  else if (key == "PROMPT_SHELL_TAG")
+    settings.prompt_shell_tag = std::string(value);
+  else if (key == "PROMPT_AI_TAG")
+    settings.prompt_ai_tag = std::string(value);
+  else if (key == "PROMPT_ASK_TAG")
+    settings.prompt_ask_tag = std::string(value);
   else if (key == "MAX_STEPS")
     settings.max_steps = parse_int(value);
   else if (key == "NUM_CTX")

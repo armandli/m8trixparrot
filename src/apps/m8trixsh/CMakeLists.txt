@@ -1,6 +1,7 @@
 add_executable(m8trixsh
   main.cpp
   terminal_emulator.cpp
+  shell_integration.cpp
 )
 
 target_include_directories(m8trixsh PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -19,6 +20,8 @@ include(GoogleTest)
 add_executable(m8trixsh_terminal_test
   terminal_emulator_test.cpp
   terminal_emulator.cpp
+  shell_integration_test.cpp
+  shell_integration.cpp
 )
 
 target_include_directories(m8trixsh_terminal_test

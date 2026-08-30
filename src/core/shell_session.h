@@ -8,8 +8,14 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace agent {
+
+// The shell start() will exec: `shell_override` when non-empty, otherwise
+// $SHELL, then the first of /bin/zsh, /bin/bash, /bin/sh that is executable.
+std::string resolve_shell(const std::string& shell_override);
 
 // A single interactive `$SHELL` running on its own pseudo-terminal, plus a
 // background thread that drains the pty. It does no terminal emulation — bytes
@@ -34,11 +40,14 @@ struct ShellSession {
   std::function<void(int status)> on_exit;
 
   // Forks the shell on a pty sized cols x rows. `shell_override` wins when
-  // non-empty; otherwise $SHELL, then /bin/zsh, /bin/bash, /bin/sh. Returns
-  // false and fills `error` (when non-null) if the fork or exec setup fails.
-  // Call once.
+  // non-empty; otherwise $SHELL, then /bin/zsh, /bin/bash, /bin/sh. `extra_env`
+  // is `setenv`'d in the child right before exec (so it reaches the shell but
+  // not this process or its other subprocesses). Returns false and fills
+  // `error` (when non-null) if the fork or exec setup fails. Call once.
   bool start(int cols, int rows, const std::string& shell_override,
-             std::string* error);
+             std::string* error,
+             const std::vector<std::pair<std::string, std::string>>& extra_env =
+                 {});
 
   // Writes to the shell's stdin (the pty master). Handles partial writes and
   // EINTR; large inputs are chunked.

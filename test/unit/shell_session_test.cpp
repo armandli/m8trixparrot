@@ -101,6 +101,20 @@ TEST(ShellSessionTest, StaysResponsiveAfterCtrlC) {
   EXPECT_TRUE(wait_for_output(c, "BACK", sc::seconds(5))) << c.snapshot();
 }
 
+TEST(ShellSessionTest, ExtraEnvReachesTheShell) {
+  Collector c;
+  ShellSession sh;
+  sh.on_bytes = [&c](std::string_view b) { c.bytes(b); };
+
+  std::string error;
+  ASSERT_TRUE(sh.start(80, 24, "", &error, {{"M8_TEST_VAR", "hello-42"}}))
+      << error;
+
+  sh.write_bytes("printf 'GOT=[%s]\\n' \"$M8_TEST_VAR\"\n");
+  EXPECT_TRUE(wait_for_output(c, "GOT=[hello-42]", sc::seconds(5)))
+      << c.snapshot();
+}
+
 TEST(ShellSessionTest, ResizePropagatesToTheChild) {
   Collector c;
   ShellSession sh;

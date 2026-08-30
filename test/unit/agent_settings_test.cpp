@@ -202,6 +202,23 @@ TEST_F(ShellRcTest, LinesWithoutAnEqualsAreIgnored) {
   EXPECT_EQ(settings.model, "ok");
 }
 
+TEST_F(ShellRcTest, PromptKeysAreParsed) {
+  write_file(".m8shrc",
+             "PROMPT_FORMAT=%tag %F{cyan}%~%f %git\n"
+             "PROMPT_SHELL_TAG=[sh]\n"
+             "PROMPT_AI_TAG=[ai]\n"
+             "PROMPT_ASK_TAG=[ai?]\n");
+
+  std::string warning;
+  const StartupSettings settings = load_shellrc_settings(".m8shrc", warning);
+
+  EXPECT_TRUE(warning.empty());
+  EXPECT_EQ(settings.prompt_format, "%tag %F{cyan}%~%f %git");
+  EXPECT_EQ(settings.prompt_shell_tag, "[sh]");
+  EXPECT_EQ(settings.prompt_ai_tag, "[ai]");
+  EXPECT_EQ(settings.prompt_ask_tag, "[ai?]");
+}
+
 TEST_F(ShellRcTest, AnUnknownKeyIsIgnoredButNamedInTheWarning) {
   write_file(".m8shrc", "ENABLE_WEBSERCH=1\nMODEL=ok\n");
 

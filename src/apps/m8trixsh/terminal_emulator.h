@@ -32,6 +32,9 @@ struct TerminalEmulator {
   std::function<void(std::string_view)> on_pty_write;
   // OSC 7: the child announced a working directory (already percent-decoded).
   std::function<void(std::string)> on_osc_cwd;
+  // OSC 5171 (private): m8trixsh's shell integration submitted a line in ai
+  // mode. The payload is base64-decoded; the line never reached the shell.
+  std::function<void(std::string)> on_line_submit;
   // OSC 0/2: the child set the window title.
   std::function<void(std::string)> on_title;
   // The child rang the bell.
