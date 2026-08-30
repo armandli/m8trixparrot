@@ -1,3 +1,4 @@
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -5,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <list>
@@ -79,7 +81,8 @@ const char* kHelpText =
     "You always type at the shell prompt. The [shell] / [m8trx] tag on the\n"
     "prompt shows where Enter goes: the shell, or the agent on the left.\n"
     "\n"
-    "Ctrl+]              switch between shell mode and ai mode (rebind:\n"
+    "Shift+Tab           switch between shell mode and ai mode (also Ctrl or\n"
+    "                   Opt + Shift+Tab where the terminal forwards it; rebind:\n"
     "                   MODE_SWITCH_KEY)\n"
     "\n"
     "ai mode, typed at the prompt:\n"
@@ -95,15 +98,34 @@ const char* kHelpText =
     "Ctrl+Alt+J / K     scroll the ai pane\n"
     "Ctrl+Alt+H / L     resize the ai pane";
 
-// Turns a mode_switch_key setting string into the FTXUI event it names.
-f::Event parse_switch_key(const std::string& name) {
-  if (name == "ctrl-]" or name.empty())
-    return f::Event::Special(std::string(1, '\x1d'));
-  if (name == "tab") return f::Event::Tab;
-  if (name == "ctrl-o") return f::Event::CtrlO;
-  if (name == "ctrl-\\") return f::Event::Special(std::string(1, '\x1c'));
-  if (name == "f12") return f::Event::F12;
-  return f::Event::Special(std::string(1, '\x1d'));
+// A MODE_SWITCH_KEY setting name becomes a predicate over FTXUI events. The
+// default, "shift-tab", matches the whole backtab family: plain Shift+Tab is
+// `\e[Z`; a terminal in modifyOtherKeys / CSI-u mode sends `\e[1;<mod>Z`, so
+// Ctrl+Shift+Tab (`\e[1;6Z`), Opt+Shift+Tab (`\e[1;4Z`), ... count too.
+std::function<bool(const f::Event&)> parse_switch_key(const std::string& name) {
+  const auto is_backtab = [](const f::Event& event) {
+    const std::string& s = event.input();
+    if (s.size() < 3 or s.front() != '\x1b' or s[1] != '[' or s.back() != 'Z') {
+      return false;
+    }
+    for (size_t i = 2; i + 1 < s.size(); ++i) {
+      const unsigned char c = static_cast<unsigned char>(s[i]);
+      if (std::isdigit(c) == 0 and c != ';') return false;
+    }
+    return true;
+  };
+  const auto exact = [](std::string bytes) {
+    return [b = std::move(bytes)](const f::Event& event) {
+      return event.input() == b;
+    };
+  };
+
+  if (name == "tab") return exact("\t");
+  if (name == "ctrl-]") return exact(std::string(1, '\x1d'));
+  if (name == "ctrl-o") return exact(std::string(1, '\x0f'));
+  if (name == "ctrl-\\") return exact(std::string(1, '\x1c'));
+  if (name == "f12") return exact("\x1b[24~");
+  return is_backtab;  // "shift-tab", "backtab", unset, or unrecognized
 }
 
 std::string workflow_prompt() {
@@ -167,7 +189,7 @@ int main(int argc, char** argv) {
   std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
   bool no_skills = not settings.enable_skills.value_or(true);
   std::string shell_override = settings.shell.value_or("");
-  std::string switch_key_name = settings.mode_switch_key.value_or("ctrl-]");
+  std::string switch_key_name = settings.mode_switch_key.value_or("shift-tab");
 
   app.add_option("model,-m,--model", model, "Ollama model for ai mode")
       ->capture_default_str();
@@ -193,8 +215,8 @@ int main(int argc, char** argv) {
   app.add_option("--shell", shell_override,
                  "Shell to run in the terminal pane (default: $SHELL)");
   app.add_option("--mode-switch-key", switch_key_name,
-                 "Key that toggles shell/ai mode (ctrl-], tab, ctrl-o, "
-                 "ctrl-\\, f12)")
+                 "Key that toggles shell/ai mode (shift-tab, tab, ctrl-], "
+                 "ctrl-o, ctrl-\\, f12)")
       ->capture_default_str();
 
   CLI11_PARSE(app, argc, argv);
@@ -682,7 +704,7 @@ int main(int argc, char** argv) {
     start_turn(entered, entered);
   };
 
-  const f::Event switch_key = parse_switch_key(switch_key_name);
+  const auto is_switch_key = parse_switch_key(switch_key_name);
 
   auto on_resize = [&](int cols, int rows) {
     emu.set_size(cols, rows);
@@ -773,7 +795,7 @@ int main(int argc, char** argv) {
 
   root = f::CatchEvent(root, [&](f::Event event) {
     // The mode toggle: flip, tell the shell, repaint the prompt in place.
-    if (mode_toggle_enabled and event == switch_key) {
+    if (mode_toggle_enabled and is_switch_key(event)) {
       std::lock_guard<std::mutex> lock(ui_mutex);
       mode = (mode == Mode::Shell) ? Mode::Ai : Mode::Shell;
       if (mode == Mode::Ai) {
