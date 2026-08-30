@@ -72,6 +72,69 @@ build/chat_tui --help                         # list all options
 
 Type a message and press Enter to send it; type `/quit` to exit.
 
+## m8trixparrot
+
+`m8trixparrot` is the coding agent this repo is named after: a single-pane
+FTXUI chat TUI in front of a multi-step Ollama agent that can call tools
+(`bash`, `python`, `read`/`write`/`edit`, `find`/`grep`, `webfetch`,
+`websearch`, `package_install`, `skill`, `ask_user`) and spawn subagents for
+independent subtasks. A line starting with `!` bypasses the agent entirely and
+runs as a shell command (e.g. `!ls -al`).
+
+### Architecture
+
+```mermaid
+flowchart TD
+    subgraph UI["main.cpp — FTXUI single-pane TUI"]
+        Input[Keyboard input]
+        Bang{starts with !}
+        Transcript[TranscriptView\ntranscript + subagent grid]
+    end
+
+    subgraph Core["agentcore"]
+        Agent[Agent::run_turn]
+        Pool[AgentPool\nregistry, spawn, event observer]
+        Ollama[OllamaClient\nFIFO HTTP worker]
+        Policy[PolicyInterface\nYoloPolicy / SanePolicy]
+        Tools[Tools\nbash python read write edit\nfind grep webfetch websearch\npackage_install skill ask_user]
+        Skills[SkillCatalog\n.m8trix/skills/*/SKILL.md]
+        Store[SessionStore\n.m8trix/sessions/*.json]
+        SubAgent[Subagent\nAgent::run_turn on its own thread]
+    end
+
+    Input --> Bang
+    Bang -- yes --> BashDirect[BashTool.execute\nno policy check, no model call]
+    BashDirect --> Transcript
+
+    Bang -- no --> Agent
+    Agent -- messages + tool schemas --> Ollama
+    Ollama -- ChatResult: text + tool calls --> Agent
+    Agent -- tool call --> Policy
+    Policy -- deny reason --> Agent
+    Policy -- allow --> Tools
+    Tools -- load/unload --> Skills
+    Tools -- result --> Agent
+    Agent -- subagent_create --> Pool
+    Pool -- spawns --> SubAgent
+    SubAgent -- shares FIFO queue --> Ollama
+    SubAgent -- events --> Pool
+    Agent -- AgentEvent stream --> Pool
+    Pool -- routed events --> Transcript
+    Agent -- save after each root turn --> Store
+```
+
+A turn starts when the user submits a line that doesn't start with `!`:
+`Agent::run_turn` loops model calls against `OllamaClient`'s FIFO queue,
+gates each returned tool call through `PolicyInterface` before dispatching
+it, and stops once the model replies with no more tool calls. Every step
+emits an `AgentEvent` through the shared `AgentPool`, which stamps
+agent/parent/depth and routes it to `TranscriptView`. Calling the
+`subagent_create` tool spawns another `Agent` on its own thread — sharing the
+same `OllamaClient` queue so concurrent model calls still serialize — whose
+events nest under the parent in the transcript until `subagent_wait` joins it.
+The root agent's result tree (not the full transcript) is saved to
+`SessionStore` after each turn.
+
 ## Running m8trixsh
 
 `m8trixsh` is an intelligent shell. It runs zsh in a VT100/xterm pane (colours,
