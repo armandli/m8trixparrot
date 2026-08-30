@@ -77,7 +77,7 @@ Type a message and press Enter to send it; type `/quit` to exit.
 `m8trixsh` is an intelligent shell. It runs zsh in a VT100/xterm pane (colours,
 `vim`, `htop`, `ssh`, job control) and adds an **AI mode** on the side. You
 always type at the one shell prompt; a `[shell]` / `[m8trx]` tag on that prompt
-shows where **Enter** goes, and **Ctrl+]** toggles it:
+shows where **Enter** goes, and **Shift+Tab** toggles it:
 
 - **shell mode** (default): the line runs in the shell, exactly like a terminal.
 - **ai mode**: the line goes to an Ollama agent that can `read`/`write`/`edit`
@@ -115,7 +115,7 @@ MODEL=qwen3.8:27b-mlx
 POLICY=sane
 ENABLE_WEB_SEARCH=1
 SHELL=/bin/zsh
-MODE_SWITCH_KEY=ctrl-o        # ctrl-] (default) | tab | ctrl-o | ctrl-\ | f12
+MODE_SWITCH_KEY=ctrl-o        # shift-tab (default) | tab | ctrl-] | ctrl-o | ctrl-\ | f12
 PROMPT_FORMAT='%tag %F{green}➜%f  %F{cyan}%~%f %F{yellow}%git%f '
 PROMPT_AI_TAG='%F{magenta}[m8trx]%f'
 ```
@@ -124,10 +124,12 @@ Recognized keys: `MODEL`, `POLICY`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`,
 `SKILLS_DIR`, `ENABLE_SKILLS`, `ENABLE_SUBAGENTS`, `ENABLE_PACKAGE_INSTALL`,
 `ENABLE_WEB_SEARCH`, `SHELL`, `MODE_SWITCH_KEY`, `PROMPT_FORMAT`,
 `PROMPT_SHELL_TAG`, `PROMPT_AI_TAG`, `PROMPT_ASK_TAG`. `MODE_SWITCH_KEY` rebinds
-the shell/ai toggle. `PROMPT_FORMAT` is the prompt m8trixsh installs — ordinary
-zsh prompt syntax, with `%tag` (the `[shell]`/`[m8trx]`/`[m8trx?]` indicator)
-and `%git` (a branch segment) added; the `PROMPT_*_TAG` keys set what `%tag`
-expands to in each mode.
+the shell/ai toggle; the default `shift-tab` matches any backtab (Shift+Tab, and
+Ctrl/Opt+Shift+Tab where the terminal forwards one), which shadows zsh's
+reverse-menu-complete while the toggle is live. `PROMPT_FORMAT` is the prompt
+m8trixsh installs — ordinary zsh prompt syntax, with `%tag` (the
+`[shell]`/`[m8trx]`/`[m8trx?]` indicator) and `%git` (a branch segment) added;
+the `PROMPT_*_TAG` keys set what `%tag` expands to in each mode.
 
 ## Skills
 
