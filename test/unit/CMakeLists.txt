@@ -49,3 +49,30 @@ target_link_libraries(core_tests
 )
 
 gtest_discover_tests(core_tests)
+
+# m8trixsh's terminal emulator and shell integration have no core dependency,
+# so they get their own binary rather than joining unit_tests. Only built when
+# libvterm is available, matching the guard around m8trixsh itself in
+# src/apps/CMakeLists.txt.
+if(TARGET PkgConfig::LIBVTERM)
+  add_executable(m8trixsh_terminal_test
+    terminal_emulator_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/apps/m8trixsh/terminal_emulator.cpp
+    shell_integration_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/apps/m8trixsh/shell_integration.cpp
+  )
+
+  target_include_directories(m8trixsh_terminal_test
+    PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8trixsh
+  )
+
+  target_link_libraries(m8trixsh_terminal_test
+    PRIVATE ftxui::component
+    PRIVATE ftxui::dom
+    PRIVATE ftxui::screen
+    PRIVATE PkgConfig::LIBVTERM
+    PRIVATE GTest::gtest_main
+  )
+
+  gtest_discover_tests(m8trixsh_terminal_test)
+endif()

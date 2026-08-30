@@ -14,26 +14,3 @@ target_link_libraries(m8trixsh
   PRIVATE CLI11::CLI11
   PRIVATE PkgConfig::LIBVTERM
 )
-
-include(GoogleTest)
-
-add_executable(m8trixsh_terminal_test
-  terminal_emulator_test.cpp
-  terminal_emulator.cpp
-  shell_integration_test.cpp
-  shell_integration.cpp
-)
-
-target_include_directories(m8trixsh_terminal_test
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(m8trixsh_terminal_test
-  PRIVATE ftxui::component
-  PRIVATE ftxui::dom
-  PRIVATE ftxui::screen
-  PRIVATE PkgConfig::LIBVTERM
-  PRIVATE GTest::gtest_main
-)
-
-gtest_discover_tests(m8trixsh_terminal_test)
