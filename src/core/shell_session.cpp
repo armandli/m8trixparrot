@@ -32,6 +32,15 @@ std::string basename_of(const std::string& path) {
   return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
+winsize make_winsize(int cols, int rows) {
+  winsize ws{};
+  ws.ws_col = static_cast<unsigned short>(cols > 0 ? cols : 80);
+  ws.ws_row = static_cast<unsigned short>(rows > 0 ? rows : 24);
+  return ws;
+}
+
+}  // namespace
+
 std::string resolve_shell(const std::string& shell_override) {
   if (not shell_override.empty()) return shell_override;
   if (const char* env = std::getenv("SHELL"); env != nullptr and *env != '\0') {
@@ -42,15 +51,6 @@ std::string resolve_shell(const std::string& shell_override) {
   }
   return "/bin/sh";
 }
-
-winsize make_winsize(int cols, int rows) {
-  winsize ws{};
-  ws.ws_col = static_cast<unsigned short>(cols > 0 ? cols : 80);
-  ws.ws_row = static_cast<unsigned short>(rows > 0 ? rows : 24);
-  return ws;
-}
-
-}  // namespace
 
 ShellSession::ShellSession() = default;
 
@@ -64,8 +64,9 @@ ShellSession::~ShellSession() {
   }
 }
 
-bool ShellSession::start(int cols, int rows, const std::string& shell_override,
-                         std::string* error) {
+bool ShellSession::start(
+    int cols, int rows, const std::string& shell_override, std::string* error,
+    const std::vector<std::pair<std::string, std::string>>& extra_env) {
   const std::string shell = resolve_shell(shell_override);
   winsize ws = make_winsize(cols, rows);
 
@@ -86,6 +87,9 @@ bool ShellSession::start(int cols, int rows, const std::string& shell_override,
     ::setenv("COLORTERM", "truecolor", 1);
     ::unsetenv("LINES");
     ::unsetenv("COLUMNS");
+    for (const auto& [name, value] : extra_env) {
+      ::setenv(name.c_str(), value.c_str(), 1);
+    }
     // "-" prefix => login shell (full rc chain); -i forces interactive mode so
     // job control and the interactive rc files are on even if the child's tty
     // detection is fooled.

@@ -60,6 +60,26 @@ TEST(TerminalEmulatorTest, Osc7ReportsTheDecodedPath) {
   EXPECT_EQ("/tmp/a b", got);
 }
 
+TEST(TerminalEmulatorTest, Osc5171DeliversTheBase64DecodedSubmittedLine) {
+  TerminalEmulator emu(20, 5);
+  std::string got;
+  bool line_fired = false;
+  bool cwd_fired = false;
+  emu.on_line_submit = [&](std::string s) {
+    got = std::move(s);
+    line_fired = true;
+  };
+  emu.on_osc_cwd = [&](std::string) { cwd_fired = true; };
+
+  // base64("git log --oneline -5") with an embedded newline the shell's
+  // `base64 | tr -d '\n'` would normally strip - the decoder skips it anyway.
+  emu.feed("\x1b]5171;Z2l0IGxvZyAt\nLW9uZWxpbmUgLTU=\x07");
+
+  EXPECT_TRUE(line_fired);
+  EXPECT_FALSE(cwd_fired);
+  EXPECT_EQ("git log --oneline -5", got);
+}
+
 TEST(TerminalEmulatorTest, ArrowKeyEncodesToTheChild) {
   TerminalEmulator emu(20, 5);
   std::string sent;
