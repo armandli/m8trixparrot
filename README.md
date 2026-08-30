@@ -131,6 +131,60 @@ m8trixsh installs — ordinary zsh prompt syntax, with `%tag` (the
 `[shell]`/`[m8trx]`/`[m8trx?]` indicator) and `%git` (a branch segment) added;
 the `PROMPT_*_TAG` keys set what `%tag` expands to in each mode.
 
+### Architecture
+
+```mermaid
+flowchart TD
+    subgraph UI["main.cpp — FTXUI event loop, two-pane layout"]
+        Input[Keyboard input]
+        Mode{shell mode or ai mode}
+        Transcript[Left pane\nTranscriptView renders agent turn]
+        Right[Right pane\nterminal grid]
+    end
+
+    subgraph Shell["Shell integration"]
+        SI[ShellIntegration\nZDOTDIR zsh snippet: prompt tag,\nEnter capture, OSC 5171]
+        SS[ShellSession\nPTY + reader thread]
+        TE[TerminalEmulator\nlibvterm parser and grid]
+        Zsh[(zsh / bash child process)]
+    end
+
+    subgraph Core["agentcore"]
+        Agent[Agent::run_turn]
+        Ollama[OllamaClient\nFIFO HTTP worker]
+        Policy[PolicyInterface\nYoloPolicy / SanePolicy]
+        Tools[Tools\nread write edit bash python\nskill websearch ask_user]
+    end
+
+    Input --> Mode
+    Mode -- shell mode: keys --> TE
+    TE -- on_pty_write --> SS
+    SS -- write_bytes --> Zsh
+    Zsh -- pty output --> SS
+    SS -- on_bytes --> TE
+    TE --> Right
+
+    Mode -- ai mode: line --> SI
+    SI -- base64 line via OSC 5171 --> TE
+    TE -- on_line_submit --> Agent
+    Agent <--> Ollama
+    Agent -- tool call --> Policy
+    Policy -- allow --> Tools
+    Tools -- result --> Agent
+    Agent -- AgentEvent stream --> Transcript
+    Tools -- ask_user prompt --> Transcript
+    Transcript -. operator answer via prompt .-> Agent
+```
+
+Shell-mode keystrokes go straight from `TerminalEmulator` to the `zsh` child
+through `ShellSession`'s PTY, with `TerminalEmulator` parsing the output back
+into a renderable grid. Ai-mode lines are instead captured by the zsh snippet
+`ShellIntegration` installs (via a custom Enter binding that emits an OSC 5171
+escape sequence), decoded by `TerminalEmulator`, and handed to the `Agent`,
+which loops against `OllamaClient` and dispatches tool calls through
+`PolicyInterface` before they run. The `ask_user` tool reuses the same prompt
+to park the agent thread until the operator answers.
+
 ## Skills
 
 `m8trixparrot` loads **skills** — reusable procedures for specific tasks — from
