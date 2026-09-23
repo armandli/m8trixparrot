@@ -4,7 +4,10 @@
 add_subdirectory(chat_tui)
 add_subdirectory(m8trixparrot)
 add_subdirectory(tool_edit)
+add_subdirectory(tool_find)
+add_subdirectory(tool_grep)
 add_subdirectory(tool_read)
+add_subdirectory(tool_webfetch)
 add_subdirectory(tool_write)
 add_subdirectory(toolcall)
 

@@ -207,7 +207,10 @@ const std::map<std::string, std::vector<std::string>, std::less<>> kNameTags{
     {"python",       {"development", "math", "shell"}},
     {"python3",      {"development", "math", "shell"}},
     // m8trixparrot file tools exposed as standalone CLI utilities.
+    {"tool_find",    {"file", "search"}},
+    {"tool_grep",    {"file", "text", "search", "filter"}},
     {"tool_read",    {"file", "text"}},
+    {"tool_webfetch",{"network", "text"}},
     {"tool_write",   {"file"}},
     {"tool_edit",    {"file", "text"}},
 };
