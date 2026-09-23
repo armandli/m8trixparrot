@@ -41,6 +41,19 @@ std::string run_shell_capture(const std::string& command) {
 
 namespace {
 
+// Name of the timeout(1)-alike this system has, or empty when it has none.
+// Probed once: the answer cannot change while the process runs.
+const std::string& timeout_program() {
+  static const std::string program = [] {
+    for (const std::string candidate : {"timeout", "gtimeout"}) {
+      if (!run_shell_capture("command -v " + candidate + " 2>/dev/null").empty())
+        return candidate;
+    }
+    return std::string();
+  }();
+  return program;
+}
+
 // git_libgit2_init() is refcounted, so calling it from more than one
 // translation unit is fine; the function-local static keeps it to once here.
 void ensure_git2_initialized() {
@@ -163,6 +176,41 @@ std::optional<ToolArgValue> scalar_arg(simdjson::ondemand::value value,
 }
 
 }  // namespace
+
+std::string run_shell_capture(const std::string& command, int timeout_seconds) {
+  if (timeout_seconds <= 0) return run_shell_capture(command);
+
+  const std::string& program = timeout_program();
+  if (!program.empty()) {
+    return run_shell_capture(program + " " + std::to_string(timeout_seconds) +
+                             " /bin/sh -c " + shell_quote(command));
+  }
+
+  // No timeout(1) on this system (macOS ships neither): run `command` as its
+  // own job so it gets its own process group, and start a watchdog that kills
+  // that whole group once the deadline passes. `set -m` is what puts the job
+  // in its own group, making the negative pid in `kill` reach the command's
+  // children too; a shell that does not honour it leaves no such group, so the
+  // group kill fails and the fallback kills the shell on its own. The wrapper's
+  // stderr goes to /dev/null so job-control notices ("Killed: 9") stay off the
+  // terminal, with the real stderr saved on fd 3 and handed back to `command`
+  // so its own diagnostics still work.
+  //
+  // The watchdog gets none of those descriptors — fd 3 is closed along with
+  // stdin and stdout — and is killed by process group, because killing the
+  // subshell alone would orphan its `sleep` still holding whatever it
+  // inherited. Either mistake keeps the caller's stdout open for the length of
+  // the timeout after the command has already finished.
+  const std::string quoted = shell_quote(command);
+  const std::string script =
+      "exec 3>&2 2>/dev/null; set -m; "
+      "/bin/sh -c " + quoted + " 2>&3 & cmd=$!; "
+      "{ sleep " + std::to_string(timeout_seconds) +
+      "; kill -9 -$cmd || kill -9 $cmd; } "
+      "</dev/null >/dev/null 2>&1 3>&- & watchdog=$!; "
+      "wait $cmd; kill -9 -$watchdog || kill -9 $watchdog; exit 0";
+  return run_shell_capture(script);
+}
 
 // ---------------------------------------------------------------------------
 

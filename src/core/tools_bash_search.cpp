@@ -269,29 +269,130 @@ const std::vector<std::pair<std::string, std::vector<std::string>>> kKeywordTags
     {"build",             {"development"}},
 };
 
-// ───────────────────────── whatis line parser ─────────────────────────────────
+// ──────────────────── manual page description source ─────────────────────────
 
-// Parses one whatis output line such as:
-//   ls (1)               - list directory contents
-//   grep (1)             -- print lines matching a pattern
-// Returns {name, description}; both empty if the line is not in that form.
-std::pair<std::string, std::string> parse_whatis_line(std::string_view line) {
-  // Find " - " or " -- " separator.
-  auto sep = line.find(" -- ");
-  size_t desc_offset = 4;
-  if (sep == std::string_view::npos) {
-    sep = line.find(" - ");
-    desc_offset = 3;
+// One parsed line of an apropos(1)/whatis(1) dump.
+struct ManPageLine {
+  std::vector<std::string> names;  // Empty when the line is not in that form.
+  int section = 0;                 // 0 when the line names no section.
+  std::string description;
+};
+
+// Splits a line such as
+//   ls(1)                     - list directory contents
+//   grep(1), egrep(1)         - file pattern searcher
+//   bzegrep, bzfgrep (1)      -- search compressed files for a pattern
+// into its names, section and description. Both spellings of the name list are
+// accepted — mandoc's "name(1)" and man-db's "name (1)" — as is a list that
+// carries the section only once, after its last name.
+ManPageLine parse_man_page_line(std::string_view line) {
+  ManPageLine parsed;
+
+  // The separator is whichever of " - " / " -- " comes first: a description
+  // may itself contain a "--", so searching for the long form across the whole
+  // line would cut in the wrong place.
+  const auto dash  = line.find(" - ");
+  const auto ddash = line.find(" -- ");
+  size_t sep = dash;
+  size_t sep_width = 3;
+  if (ddash < sep) {
+    sep = ddash;
+    sep_width = 4;
   }
-  if (sep == std::string_view::npos) return {"", ""};
+  if (sep == std::string_view::npos) return parsed;
 
-  const std::string desc(line.substr(sep + desc_offset));
-  std::string_view name_part = line.substr(0, sep);
-  // Strip trailing whitespace and the section "(1)" suffix.
-  const auto sp = name_part.find(' ');
-  const auto lp = name_part.find('(');
-  const size_t end = std::min({sp, lp, name_part.size()});
-  return {std::string(name_part.substr(0, end)), desc};
+  parsed.description = std::string(line.substr(sep + sep_width));
+
+  std::string_view names = line.substr(0, sep);
+  while (!names.empty()) {
+    const auto comma = names.find(',');
+    std::string_view piece = names.substr(0, comma);
+    names = comma == std::string_view::npos ? std::string_view()
+                                            : names.substr(comma + 1);
+
+    // Trim, then peel a trailing "(section)" off the name it belongs to.
+    while (!piece.empty() && std::isspace(static_cast<unsigned char>(piece.front())))
+      piece.remove_prefix(1);
+    while (!piece.empty() && std::isspace(static_cast<unsigned char>(piece.back())))
+      piece.remove_suffix(1);
+    if (!piece.empty() && piece.back() == ')') {
+      const auto open = piece.rfind('(');
+      if (open != std::string_view::npos) {
+        if (parsed.section == 0) {
+          const std::string_view sec = piece.substr(open + 1, piece.size() - open - 2);
+          if (!sec.empty() && std::isdigit(static_cast<unsigned char>(sec.front())))
+            parsed.section = sec.front() - '0';
+        }
+        piece = piece.substr(0, open);
+        while (!piece.empty() && std::isspace(static_cast<unsigned char>(piece.back())))
+          piece.remove_suffix(1);
+      }
+    }
+    if (!piece.empty()) parsed.names.emplace_back(piece);
+  }
+
+  return parsed;
+}
+
+// How much a manual section is worth as the description of a *command*: user
+// commands first, then admin commands and games, with library calls and file
+// formats last. Lower is better.
+int section_rank(int section) {
+  switch (section) {
+    case 1:  return 0;
+    case 8:  return 1;
+    case 6:  return 2;
+    case 0:  return 3;
+    default: return 4 + section;
+  }
+}
+
+// Every manual page description the system knows, keyed by command name.
+//
+// The obvious spelling — one whatis(1) query per command name — is what made a
+// scan unusable on macOS: mandoc has no prebuilt index there, so each query
+// re-reads the whole manual tree (~0.9s), and a 2000-entry PATH turned that
+// into half an hour of scanning. Both man-db and mandoc will instead dump
+// every entry they know in a single call, which costs about a second on either
+// platform, so the scan asks once and indexes the answer itself.
+//
+// Returns an empty map when the system has no usable manual index at all; that
+// is not an error, it just leaves descriptions blank and tagging to kNameTags.
+std::map<std::string, std::string, std::less<>> load_man_descriptions() {
+  // A bound, not a budget: even the fallbacks below finish in about a second,
+  // so this only exists to keep a pathological `man` from wedging the scan.
+  constexpr int kDumpTimeoutSeconds = 30;
+
+  // apropos(1) treats its argument as a regular expression by default on both
+  // man-db and mandoc, so "." selects every page. `man -k` is the same search
+  // under another name, kept for systems that install only man(1).
+  static const char* const kDumpCommands[] = {
+      "apropos . 2>/dev/null",
+      "man -k . 2>/dev/null",
+  };
+
+  std::map<std::string, std::string, std::less<>> descriptions;
+  std::map<std::string, int, std::less<>> best_rank;
+
+  for (const char* command : kDumpCommands) {
+    const std::string out = run_shell_capture(command, kDumpTimeoutSeconds);
+    std::istringstream lines(out);
+    std::string line;
+    while (std::getline(lines, line)) {
+      const ManPageLine parsed = parse_man_page_line(line);
+      if (parsed.names.empty() || parsed.description.empty()) continue;
+      const int rank = section_rank(parsed.section);
+      for (const auto& name : parsed.names) {
+        const auto it = best_rank.find(name);
+        if (it != best_rank.end() && it->second <= rank) continue;
+        best_rank[name]    = rank;
+        descriptions[name] = parsed.description;
+      }
+    }
+    if (!descriptions.empty()) break;
+  }
+
+  return descriptions;
 }
 
 // ─────────────────────────── tag assignment ───────────────────────────────────
@@ -328,13 +429,39 @@ std::vector<std::string> assign_tags(const std::string& name,
 //   atom     := TAG | '(' query ')'
 //
 // Tokens are whitespace-separated words; '(' and ')' are split off word edges.
+// Parsing yields a tree that is then evaluated once per index entry — the
+// parser used to run again for every entry, which made each search re-tokenize
+// the query a couple of thousand times for no gain.
 
-struct TagQuery {
+struct TagExpr {
+  enum class Kind { Tag, And, Or };
+
+  Kind kind = Kind::Tag;
+  std::string tag;                // Kind::Tag only.
+  std::vector<TagExpr> children;  // Kind::And / Kind::Or only.
+
+  // `tags` must be sorted, which is how CommandEntry stores them.
+  bool eval(const std::vector<std::string>& tags) const {
+    switch (kind) {
+      case Kind::Tag:
+        return std::binary_search(tags.begin(), tags.end(), tag);
+      case Kind::And:
+        return std::all_of(children.begin(), children.end(),
+                           [&](const TagExpr& c) { return c.eval(tags); });
+      case Kind::Or:
+        return std::any_of(children.begin(), children.end(),
+                           [&](const TagExpr& c) { return c.eval(tags); });
+    }
+    return false;
+  }
+};
+
+struct TagQueryParser {
   std::vector<std::string> tokens;
   size_t pos = 0;
   std::string error;
 
-  explicit TagQuery(const std::string& query) {
+  explicit TagQueryParser(const std::string& query) {
     std::istringstream ss(query);
     std::string tok;
     while (ss >> tok) {
@@ -353,57 +480,75 @@ struct TagQuery {
     }
   }
 
+  std::optional<TagExpr> parse() {
+    auto expr = parse_or();
+    if (!expr) return {};
+    if (!at_end()) { error = "unexpected token '" + peek() + "'"; return {}; }
+    return expr;
+  }
+
+private:
   bool at_end() const { return pos >= tokens.size(); }
   const std::string& peek() const { return tokens[pos]; }
   std::string consume() { return tokens[pos++]; }
 
-  std::optional<bool> eval(const std::set<std::string>& tags) {
-    auto v = parse_or(tags);
-    if (!error.empty()) return {};
-    if (!at_end()) { error = "unexpected token '" + peek() + "'"; return {}; }
-    return v;
-  }
-
-private:
-  std::optional<bool> parse_or(const std::set<std::string>& tags) {
-    auto left = parse_and(tags);
+  // Folds a run of same-precedence operands into one n-ary node, so
+  // "a OR b OR c" is a single Or over three children rather than a chain.
+  std::optional<TagExpr> parse_run(TagExpr::Kind kind, const std::string& op,
+                                   std::optional<TagExpr> (TagQueryParser::*next)()) {
+    auto left = (this->*next)();
     if (!left) return {};
-    while (!at_end() && peek() == "OR") {
+    if (at_end() || peek() != op) return left;
+
+    TagExpr node;
+    node.kind = kind;
+    node.children.push_back(std::move(*left));
+    while (!at_end() && peek() == op) {
       consume();
-      auto right = parse_and(tags);
+      auto right = (this->*next)();
       if (!right) return {};
-      *left = *left || *right;
+      node.children.push_back(std::move(*right));
     }
-    return left;
+    return node;
   }
 
-  std::optional<bool> parse_and(const std::set<std::string>& tags) {
-    auto left = parse_atom(tags);
-    if (!left) return {};
-    while (!at_end() && peek() == "AND") {
-      consume();
-      auto right = parse_atom(tags);
-      if (!right) return {};
-      *left = *left && *right;
-    }
-    return left;
+  std::optional<TagExpr> parse_or() {
+    return parse_run(TagExpr::Kind::Or, "OR", &TagQueryParser::parse_and);
   }
 
-  std::optional<bool> parse_atom(const std::set<std::string>& tags) {
+  std::optional<TagExpr> parse_and() {
+    return parse_run(TagExpr::Kind::And, "AND", &TagQueryParser::parse_atom);
+  }
+
+  std::optional<TagExpr> parse_atom() {
     if (at_end()) { error = "unexpected end of query"; return {}; }
     if (peek() == "(") {
       consume();
-      auto inner = parse_or(tags);
+      auto inner = parse_or();
       if (!inner) return {};
       if (at_end() || peek() != ")") { error = "missing closing ')'"; return {}; }
       consume();
       return inner;
     }
     if (peek() == ")") { error = "unexpected ')'"; return {}; }
-    const std::string tag = consume();
-    return std::optional<bool>(tags.count(tag) > 0);
+    TagExpr node;
+    node.kind = TagExpr::Kind::Tag;
+    node.tag  = consume();
+    return node;
   }
 };
+
+// Parses `query` into an evaluable tree. On a malformed query returns nullopt
+// and sets `error` to a message naming what went wrong.
+std::optional<TagExpr> parse_tag_query(const std::string& query,
+                                       std::string& error) {
+  TagQueryParser parser(query);
+  auto expr = parser.parse();
+  if (!expr) {
+    error = parser.error.empty() ? "malformed query" : parser.error;
+  }
+  return expr;
+}
 
 // ─────────────────────────── index singleton ──────────────────────────────────
 
@@ -447,14 +592,13 @@ public:
   // On parse error, returns empty and sets `error`.
   std::vector<CommandEntry> search(const std::string& query,
                                    std::string& error) const {
+    const std::optional<TagExpr> expr = parse_tag_query(query, error);
+    if (!expr) return {};
+
     std::lock_guard<std::mutex> lock(mMutex);
     std::vector<CommandEntry> results;
     for (const auto& [_, entry] : mIndex) {
-      const std::set<std::string> tag_set(entry.tags.begin(), entry.tags.end());
-      TagQuery tq(query);
-      const auto match = tq.eval(tag_set);
-      if (!tq.error.empty()) { error = tq.error; return {}; }
-      if (match && *match) results.push_back(entry);
+      if (expr->eval(entry.tags)) results.push_back(entry);
     }
     return results;
   }
@@ -498,6 +642,9 @@ private:
       e.description = string_field(obj, "description");
       e.usage       = string_field(obj, "usage");
       e.tags        = string_array_field(obj, "tags");
+      // TagExpr::eval binary-searches the tags; assign_tags emits them sorted,
+      // but an index file edited by hand need not be.
+      std::sort(e.tags.begin(), e.tags.end());
       if (!e.name.empty()) mIndex[e.name] = std::move(e);
     }
   }
@@ -536,43 +683,37 @@ private:
     std::string dir;
     while (std::getline(ss, dir, ':')) {
       if (dir.empty()) continue;
+      // A missing or unreadable PATH entry leaves the iterator at end(), so
+      // the loop simply contributes nothing.
       std::error_code ec;
       for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
-        if (ec) break;
-        std::error_code ec2;
-        if (!std::filesystem::is_regular_file(e.path(), ec2)) continue;
-        const auto perms = e.status(ec2).permissions();
-        if (ec2) continue;
-        const bool exec =
-            (perms & std::filesystem::perms::owner_exec)  != std::filesystem::perms::none ||
-            (perms & std::filesystem::perms::group_exec)  != std::filesystem::perms::none ||
-            (perms & std::filesystem::perms::others_exec) != std::filesystem::perms::none;
-        if (!exec) continue;
+        // One status() for both questions: asking is_regular_file separately
+        // doubles the stat calls over a PATH with thousands of entries.
+        std::error_code entry_ec;
+        const auto status = e.status(entry_ec);  // Follows symlinks, as exec does.
+        if (entry_ec || !std::filesystem::is_regular_file(status)) continue;
+        constexpr auto kAnyExec = std::filesystem::perms::owner_exec |
+                                  std::filesystem::perms::group_exec |
+                                  std::filesystem::perms::others_exec;
+        if ((status.permissions() & kAnyExec) == std::filesystem::perms::none)
+          continue;
         const std::string name = e.path().filename().string();
         if (seen.insert(name).second) names.push_back(name);
       }
     }
 
-    // 2. Batch-query whatis for all names at once.
-    std::map<std::string, std::string> whatis_desc;
-    if (!names.empty()) {
-      std::string cmd = "whatis";
-      for (const auto& n : names) cmd += " " + shell_quote(n);
-      cmd += " 2>/dev/null";
-      const std::string out = run_shell_capture(cmd);
-      std::istringstream oss(out);
-      std::string line;
-      while (std::getline(oss, line)) {
-        auto [name, desc] = parse_whatis_line(line);
-        if (!name.empty() && !whatis_desc.count(name)) whatis_desc[name] = desc;
-      }
-    }
+    // 2. Pull every manual page description the system knows, in one command.
+    //    Cost here is independent of how many executables PATH holds.
+    const auto descriptions =
+        names.empty() ? std::map<std::string, std::string, std::less<>>()
+                      : load_man_descriptions();
 
     // 3. Build index entries.
     for (const auto& name : names) {
+      const auto desc = descriptions.find(name);
       CommandEntry entry;
       entry.name        = name;
-      entry.description = whatis_desc.count(name) ? whatis_desc.at(name) : "";
+      entry.description = desc == descriptions.end() ? std::string() : desc->second;
       entry.usage       = "";
       entry.tags        = assign_tags(name, entry.description);
       mIndex[name]      = std::move(entry);

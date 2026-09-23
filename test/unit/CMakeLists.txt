@@ -11,6 +11,7 @@ add_executable(unit_tests
   tools_file_test.cpp
   tools_python_test.cpp
   tools_shell_test.cpp
+  tools_util_test.cpp
   tools_websearch_test.cpp
 )
 

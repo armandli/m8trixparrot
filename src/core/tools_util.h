@@ -74,6 +74,14 @@ std::string shell_quote(std::string_view text);
 // stderr into it with 2>&1). Empty string if the command couldn't even start.
 std::string run_shell_capture(const std::string& command);
 
+// Same, but gives up on `command` after `timeout_seconds` and returns whatever
+// it had written by then; a timeout of zero or less means no limit. The whole
+// process group is killed, not just the shell, so a command blocked in a child
+// (the usual way a scan wedges) cannot hold the capture pipe open past the
+// deadline. Uses timeout(1)/gtimeout(1) where installed and a /bin/sh watchdog
+// otherwise, which is what macOS needs since it ships neither.
+std::string run_shell_capture(const std::string& command, int timeout_seconds);
+
 // ---------------------------------------------------------------------------
 // Output truncation.
 // ---------------------------------------------------------------------------

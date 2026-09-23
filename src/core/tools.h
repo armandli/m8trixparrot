@@ -188,7 +188,7 @@ struct AskUserTool {
 };
 
 // Searches for shell commands by category tag. Maintains a persistent index at
-// ~/.m8trix/bash_search_index.json built from PATH executables and whatis(1).
+// ~/.m8trix/bash_search_index.json built from PATH executables and apropos(1).
 // Three actions: list_tags, search (boolean tag query), scan (rebuild index).
 struct BashSearchTool {
   std::string description() const;

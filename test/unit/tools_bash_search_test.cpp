@@ -3,6 +3,7 @@
 // The singleton index persists in memory across cases, so SetUpTestSuite does a
 // single scan before any case runs.  Individual cases then query that data.
 
+#include <chrono>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -29,6 +30,26 @@ TEST_F(BashSearchTest, ScanReturnsOkAndReportsCommandCount) {
   EXPECT_TRUE(result.error.empty());
   EXPECT_NE(result.output.find("Scanned"), std::string::npos);
   EXPECT_NE(result.output.find("commands"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, ScanFinishesInSecondsNotMinutes) {
+  // The scan used to run one whatis(1) query per command name. On a system
+  // whose manual index is built lazily — macOS, where mandoc re-reads the whole
+  // manual tree per query at roughly a second a go — that turned a 2000-entry
+  // PATH into half an hour and left the tool wedged at its first use. The scan
+  // now asks apropos(1) for every description in one call, so its cost no
+  // longer scales with PATH at all.
+  const auto start = std::chrono::steady_clock::now();
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("scan")}}));
+  const double seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+          .count();
+
+  EXPECT_TRUE(result.ok);
+  // Generous enough for a cold manual tree on a loaded machine, and still two
+  // orders of magnitude under the per-name behavior it replaced.
+  EXPECT_LT(seconds, 60.0);
 }
 
 // ── list_tags ────────────────────────────────────────────────────────────────
