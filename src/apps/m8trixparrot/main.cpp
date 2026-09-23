@@ -24,6 +24,7 @@
 #include <common/transcript_view.h>
 #include <core/agent.h>
 #include <core/agent_pool.h>
+#include <core/memory_store.h>
 #include <core/agent_settings.h>
 #include <core/policy.h>
 #include <core/sane_policy.h>
@@ -226,6 +227,18 @@ int main(int argc, char** argv) {
     std::cerr << "warning: enable_web_search is set but no Parallel API key was "
                  "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
                  "websearch calls will fail\n";
+  }
+  options.enable_memory = settings.enable_memory.value_or(options.enable_memory);
+  options.memory_path = settings.memory_path.value_or(options.memory_path);
+  options.memory_embed_model =
+      settings.memory_embed_model.value_or(options.memory_embed_model);
+  if (options.enable_memory and
+      not agent::memory_available(options.memory_embed_model,
+                                  "http://localhost:11434")) {
+    std::cerr << "warning: enable_memory is set but '"
+              << options.memory_embed_model
+              << "' is not a pulled embedding model (try `ollama pull "
+                 "nomic-embed-text`); memory calls will fail\n";
   }
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");

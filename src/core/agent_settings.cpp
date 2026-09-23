@@ -134,6 +134,12 @@ bool apply_shellrc_pair(StartupSettings& settings, std::string_view key,
     settings.enable_package_install = parse_bool(value);
   else if (key == "ENABLE_WEB_SEARCH")
     settings.enable_web_search = parse_bool(value);
+  else if (key == "ENABLE_MEMORY")
+    settings.enable_memory = parse_bool(value);
+  else if (key == "MEMORY_PATH")
+    settings.memory_path = value;
+  else if (key == "MEMORY_EMBED_MODEL")
+    settings.memory_embed_model = value;
   else
     return false;
   return true;
@@ -176,6 +182,10 @@ StartupSettings load_startup_settings(const std::string& path,
   settings.enable_package_install =
       optional_bool_field(obj, "enable_package_install");
   settings.enable_web_search = optional_bool_field(obj, "enable_web_search");
+  settings.enable_memory = optional_bool_field(obj, "enable_memory");
+  settings.memory_path = optional_string_field(obj, "memory_path");
+  settings.memory_embed_model =
+      optional_string_field(obj, "memory_embed_model");
   settings.shell = optional_string_field(obj, "shell");
   settings.mode_switch_key = optional_string_field(obj, "mode_switch_key");
 

@@ -38,6 +38,16 @@ std::optional<int64_t> int_arg(const ToolArgs& args, std::string_view name);
 
 std::optional<bool> bool_arg(const ToolArgs& args, std::string_view name);
 
+// Accepts either the int64_t or the double alternative, since a model may
+// spell a weight as `1` or `1.0`.
+std::optional<double> double_arg(const ToolArgs& args, std::string_view name);
+
+// Null when absent or not the string-array alternative. args_from_json() has
+// always produced that alternative for a JSON array of strings; this is the
+// accessor for it. The pointer borrows from `args`.
+const std::vector<std::string>* strings_arg(const ToolArgs& args,
+                                            std::string_view name);
+
 // Null when absent or not the pair-array alternative. The pointer borrows from
 // `args` and stays valid as long as it does.
 const std::vector<std::pair<std::string, std::string>>* pairs_arg(

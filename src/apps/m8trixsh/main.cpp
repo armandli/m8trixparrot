@@ -32,6 +32,7 @@
 #include <common/transcript_view.h>
 #include <core/agent.h>
 #include <core/agent_pool.h>
+#include <core/memory_store.h>
 #include <core/agent_settings.h>
 #include <core/policy.h>
 #include <core/sane_policy.h>
@@ -165,7 +166,8 @@ int main(int argc, char** argv) {
       "Defaults for model, policy, and the flags below may also be set in "
       "~/.m8shrc, one KEY=VALUE per line (keys: MODEL, POLICY, MAX_STEPS, "
       "NUM_CTX, SUMMARIZE_AT, SKILLS_DIR, ENABLE_SKILLS, ENABLE_SUBAGENTS, "
-      "ENABLE_PACKAGE_INSTALL, ENABLE_WEB_SEARCH, SHELL, MODE_SWITCH_KEY, "
+      "ENABLE_PACKAGE_INSTALL, ENABLE_WEB_SEARCH, ENABLE_MEMORY, "
+      "MEMORY_PATH, MEMORY_EMBED_MODEL, SHELL, MODE_SWITCH_KEY, "
       "PROMPT_FORMAT, PROMPT_SHELL_TAG, PROMPT_AI_TAG, PROMPT_ASK_TAG); an "
       "explicit flag here always overrides it.");
 
@@ -373,6 +375,18 @@ int main(int argc, char** argv) {
     std::cerr << "warning: ENABLE_WEB_SEARCH is set but no Parallel API key was "
                  "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
                  "websearch calls will fail\n";
+  }
+  options.enable_memory = settings.enable_memory.value_or(false);
+  options.memory_path = settings.memory_path.value_or(options.memory_path);
+  options.memory_embed_model =
+      settings.memory_embed_model.value_or(options.memory_embed_model);
+  if (options.enable_memory and
+      not agent::memory_available(options.memory_embed_model,
+                                  "http://localhost:11434")) {
+    std::cerr << "warning: ENABLE_MEMORY is set but '"
+              << options.memory_embed_model
+              << "' is not a pulled embedding model (try `ollama pull "
+                 "nomic-embed-text`); memory calls will fail\n";
   }
   options.extra_system_prompt = workflow_prompt();
   options.ask_user_handler = [&](const std::string& prompt) -> std::string {

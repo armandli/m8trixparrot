@@ -77,7 +77,7 @@ Type a message and press Enter to send it; type `/quit` to exit.
 `m8trixparrot` is the coding agent this repo is named after: a single-pane
 FTXUI chat TUI in front of a multi-step Ollama agent that can call tools
 (`bash`, `python`, `read`/`write`/`edit`, `find`/`grep`, `webfetch`,
-`websearch`, `package_install`, `skill`, `ask_user`) and spawn subagents for
+`websearch`, `memory`, `package_install`, `skill`, `ask_user`) and spawn subagents for
 independent subtasks. A line starting with `!` bypasses the agent entirely and
 runs as a shell command (e.g. `!ls -al`).
 
@@ -96,9 +96,10 @@ flowchart TD
         Pool[AgentPool\nregistry, spawn, event observer]
         Ollama[OllamaClient\nFIFO HTTP worker]
         Policy[PolicyInterface\nYoloPolicy / SanePolicy]
-        Tools[Tools\nbash python read write edit\nfind grep webfetch websearch\npackage_install skill ask_user]
+        Tools[Tools\nbash python read write edit\nfind grep webfetch websearch\nmemory package_install skill ask_user]
         Skills[SkillCatalog\n.m8trix/skills/*/SKILL.md]
         Store[SessionStore\n.m8trix/sessions/*.json]
+        Memory[MemoryStore\n.m8trix/memory.m8db\nHNSW + single-file log]
         SubAgent[Subagent\nAgent::run_turn on its own thread]
     end
 
@@ -113,6 +114,7 @@ flowchart TD
     Policy -- deny reason --> Agent
     Policy -- allow --> Tools
     Tools -- load/unload --> Skills
+    Tools -- remember/recall --> Memory
     Tools -- result --> Agent
     Agent -- subagent_create --> Pool
     Pool -- spawns --> SubAgent
@@ -269,6 +271,89 @@ conversation; read the skill's other files with `python`), and drops it with
 
 `.m8trix/skills/` is tracked by git (unlike the rest of `.m8trix/`); the bundled
 `todo-scan` skill is a working example.
+
+## Memory
+
+The `memory` tool gives an agent long-term memory that survives turns and
+sessions: `remember` stores a piece of text with its embedding, `recall` finds
+the most relevant stored memories for a query, and `forget` deletes one by id.
+Recall ranks by semantic similarity blended with how recent a memory is (and,
+optionally, how important), and it can be narrowed by memory type, conversation
+id, importance floor, tags, or a JSON filter over the metadata.
+
+Everything lives in **one file**, by default `<workdir>/.m8trix/memory.m8db`
+(gitignored). The format is a duplicated header followed by an append-only log
+of checksummed records, with the search index written out as a snapshot on
+flush:
+
+```
+0      header page 0      magic, version, generation, vector width, metric,
+4096   header page 1      HNSW parameters, schema, embedding model, CRC-32C
+8192   records            [len | type | payload | CRC-32C] ...
+                          PutDoc | SetMeta | DelDoc | Snapshot
+```
+
+The two header pages are written alternately, so a torn header write always
+leaves a whole copy of the previous one. Replay runs to end of file rather than
+to a recorded offset, and stops at the first record whose checksum fails — a
+crash-torn tail is discarded and everything before it survives. Deletes are
+tombstones; `compact()` rewrites the file without them, through a sibling temp
+file and a `rename(2)`, so the database is never in a half-written state. It
+runs automatically on open once dead bytes outweigh live ones.
+
+Search is an HNSW graph (`src/core/vector_index.{h,cpp}`) with NEON distance
+kernels and a scalar fallback. Below a few thousand documents an exact scan is
+both faster and exact, so small stores never touch the graph; above that the
+graph is used, with an exact scan as the backstop whenever a selective filter
+starves it of hits. The whole working set is held in memory — there is no
+buffer pool — which is the deliberate trade that keeps the implementation
+small.
+
+The vector store itself (`src/core/vector_store.{h,cpp}`) takes caller-supplied
+`std::vector<float>` and has no network dependency at all; embeddings are the
+layer above it (`src/core/memory_store.{h,cpp}`), through an `Embedder`
+callback that defaults to Ollama's `/api/embed`. The API shape follows
+[caliby](https://github.com/zxjcarrot/caliby) — `Schema`, typed metadata, and
+a `{"field":{"$gte":0.5}}` filter DSL — but none of its code: caliby's kernels
+are x86-only and its index is built on a Linux buffer pool.
+
+`memory` is **off by default**, because it needs an embedding model pulled and
+because turning it on would change the tool set every existing caller sees:
+
+- **m8trixparrot** — `"enable_memory": true` in `<workdir>/.m8trix/settings.json`,
+  with optional `"memory_path"` and `"memory_embed_model"`
+- **m8trixsh** — `ENABLE_MEMORY=1` in `~/.m8shrc`, with optional `MEMORY_PATH`
+  and `MEMORY_EMBED_MODEL`
+
+```sh
+ollama pull nomic-embed-text    # the default embedding model
+```
+
+With no embedding model pulled the app prints a warning at startup and `memory`
+calls return an error (the agent adapts). The database file is created on the
+first thing the agent remembers, not at startup — an embedding model does not
+advertise its vector width, so there is nothing to write a header with until
+something has been embedded.
+
+`memdemo` is the worked example, a port of caliby's
+[`agentic_memory_store.py`](https://github.com/zxjcarrot/caliby/blob/main/examples/agentic_memory_store.py):
+it stores a conversation and some facts, recalls them by meaning, filters by
+type and tag, then reopens the file to show the memories survived. It runs
+offline against a built-in deterministic hash embedder, so it needs no model:
+
+```sh
+build/memdemo                            # offline, no Ollama needed
+build/memdemo --model nomic-embed-text   # real embeddings
+build/memdemo --db /tmp/mem.m8db --keep  # keep the file to poke at
+```
+
+`toolcall` drives the tool itself, the same way it does `websearch`:
+
+```sh
+build/toolcall '{"name":"memory","arguments":{"action":"remember","content":"the user prefers tabs","importance":0.8}}'
+build/toolcall '{"name":"memory","arguments":{"action":"recall","query":"indentation","k":3}}'
+build/toolcall --memory-path /tmp/mem.m8db --memory-model mxbai-embed-large '{"name":"memory","arguments":{"action":"recall","query":"x"}}'
+```
 
 ## Web search
 

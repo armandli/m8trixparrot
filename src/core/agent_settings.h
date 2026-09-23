@@ -33,6 +33,9 @@ struct StartupSettings {
   std::optional<bool> enable_subagents;
   std::optional<bool> enable_package_install;
   std::optional<bool> enable_web_search;
+  std::optional<bool> enable_memory;
+  std::optional<std::string> memory_path;
+  std::optional<std::string> memory_embed_model;
 
   // m8trixsh only; the other apps ignore these.
   std::optional<std::string> shell;            // the shell to run in the PTY pane
@@ -57,7 +60,8 @@ StartupSettings load_startup_settings(const std::string& path,
 // Reads `path` as a shell-env-style config: one `KEY=VALUE` per line, `#`
 // comments, an optional leading `export `, optional surrounding quotes on the
 // value. Keys are the upper-case field names (MODEL, POLICY, MAX_STEPS,
-// ENABLE_WEB_SEARCH, ...); unknown keys and lines without `=` are ignored.
+// ENABLE_WEB_SEARCH, ENABLE_MEMORY, ...); unknown keys and lines without `=`
+// are ignored.
 // Same fallback philosophy as load_startup_settings: a missing file returns an
 // all-unset StartupSettings and leaves `warning` untouched; a file that exists
 // but can't be read is reported through `warning`.

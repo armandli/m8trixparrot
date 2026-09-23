@@ -4,7 +4,9 @@ add_library(agentcore STATIC
   agent_settings.cpp
   sane_policy.cpp
   json_util.cpp
+  memory_store.cpp
   basic_ollama_client.cpp
+  byte_io.cpp
   ollama_client.cpp
   package_installer.cpp
   policy.cpp
@@ -14,6 +16,7 @@ add_library(agentcore STATIC
   tools_ask_user.cpp
   tools_bash_search.cpp
   tools_file.cpp
+  tools_memory.cpp
   tools_package_install.cpp
   tools_search.cpp
   tools_shell.cpp
@@ -22,6 +25,8 @@ add_library(agentcore STATIC
   tools_util.cpp
   tools_web.cpp
   tools_websearch.cpp
+  vector_index.cpp
+  vector_store.cpp
   workspace_context.cpp
 )
 

@@ -185,5 +185,23 @@ TEST(AgentToolsTest, SubagentCallIsRefusedWhenDisabled) {
   EXPECT_TRUE(refused);
 }
 
+TEST(AgentToolsTest, MemoryIsAdvertisedOnlyWhenEnabled) {
+  const YoloPolicy policy;
+  const std::string id = AgentPool::instance().register_root("memory-gate");
+
+  AgentOptions off;
+  off.enable_skills = false;
+  const Agent without(off, policy, id, "", 0);
+  const std::vector<std::string> names = without.tool_names();
+  EXPECT_EQ(std::find(names.begin(), names.end(), "memory"), names.end());
+
+  AgentOptions on = off;
+  on.enable_memory = true;
+  const Agent with(on, policy, id, "", 0);
+  const std::vector<std::string> enabled = with.tool_names();
+  EXPECT_NE(std::find(enabled.begin(), enabled.end(), "memory"), enabled.end());
+  EXPECT_EQ(with.tool_schemas().size(), names.size() + 1);
+}
+
 }  // namespace
 }  // namespace agent

@@ -39,6 +39,9 @@ add_executable(core_tests
   ollama_client_test.cpp
   package_installer_test.cpp
   session_store_test.cpp
+  vector_index_test.cpp
+  vector_store_test.cpp
+  memory_store_test.cpp
   tools_package_install_test.cpp
 )
 

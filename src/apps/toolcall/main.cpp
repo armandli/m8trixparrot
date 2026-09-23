@@ -8,16 +8,21 @@
 #include <simdjson.h>
 
 #include <core/json_util.h>
+#include <core/memory_store.h>
 #include <core/tools.h>
 #include <core/tools_util.h>
 
 namespace {
+
+// The memory tool's configuration, filled in from the CLI before dispatch.
+agent::MemoryOptions memory_options;
 
 std::vector<std::string> tool_schemas() {
   return {
       agent::PythonTool().description(),
       agent::PackageInstallTool().description(),
       agent::WebSearchTool().description(),
+      agent::MemoryTool::description(),
   };
 }
 
@@ -42,6 +47,7 @@ agent::ToolResult dispatch(const std::string& name,
   if (name == "python") return agent::PythonTool().execute(args);
   if (name == "package_install") return agent::PackageInstallTool().execute(args);
   if (name == "websearch") return agent::WebSearchTool().execute(args);
+  if (name == "memory") return agent::MemoryTool{memory_options}.execute(args);
 
   agent::ToolResult unknown;
   unknown.error = "no tool named '" + name +
@@ -117,6 +123,12 @@ int main(int argc, char** argv) {
   app.set_help_flag();
   app.add_flag("-h,--help", show_schemas,
                "Print the enabled tool schemas as a JSON array");
+
+  app.add_option("--memory-path", memory_options.path,
+                 "Memory database file (default: .m8trix/memory.m8db)");
+  app.add_option("--memory-model", memory_options.embed_model,
+                 "Ollama embedding model for the memory tool "
+                 "(default: nomic-embed-text)");
 
   std::string call_json;
   app.add_option("call", call_json,

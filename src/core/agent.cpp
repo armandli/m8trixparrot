@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <core/agent_pool.h>
+#include <core/memory_store.h>
 #include <core/tools_util.h>
 #include <core/workspace_context.h>
 
@@ -141,6 +142,7 @@ std::vector<std::string> Agent::tool_schemas() const {
   if (mOptions.enable_bash_search) {
     schemas.push_back(BashSearchTool().description());
   }
+  if (mOptions.enable_memory) schemas.push_back(MemoryTool::description());
   if (skills_offered()) schemas.push_back(SkillTool::description());
   if (mOptions.enable_subagents) {
     schemas.push_back(SubagentCreateTool::description());
@@ -164,6 +166,7 @@ std::vector<std::string> Agent::tool_names() const {
   if (mOptions.enable_package_install) names.push_back("package_install");
   if (mOptions.enable_web_search) names.push_back("websearch");
   if (mOptions.enable_bash_search) names.push_back("bash_search");
+  if (mOptions.enable_memory) names.push_back("memory");
   if (skills_offered()) names.push_back("skill");
   if (mOptions.enable_subagents) {
     names.push_back("subagent_create");
@@ -415,6 +418,12 @@ ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
     return WebSearchTool().execute(args);
   if (mOptions.enable_bash_search and tool_name == "bash_search")
     return BashSearchTool().execute(args);
+  if (mOptions.enable_memory and tool_name == "memory") {
+    MemoryOptions memory;
+    memory.path = mOptions.memory_path;
+    memory.embed_model = mOptions.memory_embed_model;
+    return MemoryTool{std::move(memory)}.execute(args);
+  }
   if (ask_user_offered() and tool_name == "ask_user")
     return AskUserTool{mOptions.ask_user_handler}.execute(args);
   if (mOptions.enable_skills and tool_name == "skill")

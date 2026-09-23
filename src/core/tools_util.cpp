@@ -191,6 +191,23 @@ std::optional<bool> bool_arg(const ToolArgs& args, std::string_view name) {
   return std::nullopt;
 }
 
+std::optional<double> double_arg(const ToolArgs& args, std::string_view name) {
+  const auto it = args.find(name);
+  if (it == args.end()) return std::nullopt;
+  if (const auto* value = std::get_if<double>(&it->second)) return *value;
+  if (const auto* value = std::get_if<int64_t>(&it->second)) {
+    return static_cast<double>(*value);
+  }
+  return std::nullopt;
+}
+
+const std::vector<std::string>* strings_arg(const ToolArgs& args,
+                                            std::string_view name) {
+  const auto it = args.find(name);
+  if (it == args.end()) return nullptr;
+  return std::get_if<std::vector<std::string>>(&it->second);
+}
+
 const std::vector<std::pair<std::string, std::string>>* pairs_arg(
     const ToolArgs& args, std::string_view name) {
   const auto it = args.find(name);
