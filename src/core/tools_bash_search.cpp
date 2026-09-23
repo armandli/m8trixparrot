@@ -206,6 +206,10 @@ const std::map<std::string, std::vector<std::string>, std::less<>> kNameTags{
     {"expr",         {"math", "shell"}},
     {"python",       {"development", "math", "shell"}},
     {"python3",      {"development", "math", "shell"}},
+    // m8trixparrot file tools exposed as standalone CLI utilities.
+    {"tool_read",    {"file", "text"}},
+    {"tool_write",   {"file"}},
+    {"tool_edit",    {"file", "text"}},
 };
 
 // Keywords in a whatis description that imply certain tags.

@@ -3,6 +3,9 @@
 # it below. Shared UI code lives in ../common (agentui).
 add_subdirectory(chat_tui)
 add_subdirectory(m8trixparrot)
+add_subdirectory(tool_edit)
+add_subdirectory(tool_read)
+add_subdirectory(tool_write)
 add_subdirectory(toolcall)
 
 # m8trixsh needs a terminal emulator (libvterm, via pkg-config). Only build it
