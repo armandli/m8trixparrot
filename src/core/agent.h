@@ -113,6 +113,10 @@ struct AgentOptions {
   // opts in from its own config.
   bool enable_web_search = false;
 
+  // When true, `bash_search` is advertised and dispatchable. It scans PATH and
+  // builds a tag index of available shell commands at ~/.m8trix/bash_search_index.json.
+  bool enable_bash_search = false;
+
   // Appended verbatim to the end of every system_prompt() when non-empty. The
   // hook for an app to give the agent task-specific standing instructions
   // without forking the prompt builder.

@@ -12,6 +12,7 @@ add_library(agentcore STATIC
   shell_session.cpp
   skills.cpp
   tools_ask_user.cpp
+  tools_bash_search.cpp
   tools_file.cpp
   tools_package_install.cpp
   tools_shell.cpp

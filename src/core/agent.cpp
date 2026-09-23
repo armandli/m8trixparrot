@@ -137,6 +137,9 @@ std::vector<std::string> Agent::tool_schemas() const {
   if (mOptions.enable_web_search) {
     schemas.push_back(WebSearchTool().description());
   }
+  if (mOptions.enable_bash_search) {
+    schemas.push_back(BashSearchTool().description());
+  }
   if (skills_offered()) schemas.push_back(SkillTool::description());
   if (mOptions.enable_subagents) {
     schemas.push_back(SubagentCreateTool::description());
@@ -157,6 +160,7 @@ std::vector<std::string> Agent::tool_names() const {
   }
   if (mOptions.enable_package_install) names.push_back("package_install");
   if (mOptions.enable_web_search) names.push_back("websearch");
+  if (mOptions.enable_bash_search) names.push_back("bash_search");
   if (skills_offered()) names.push_back("skill");
   if (mOptions.enable_subagents) {
     names.push_back("subagent_create");
@@ -402,6 +406,8 @@ ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
     return PackageInstallTool().execute(args);
   if (mOptions.enable_web_search and tool_name == "websearch")
     return WebSearchTool().execute(args);
+  if (mOptions.enable_bash_search and tool_name == "bash_search")
+    return BashSearchTool().execute(args);
   if (ask_user_offered() and tool_name == "ask_user")
     return AskUserTool{mOptions.ask_user_handler}.execute(args);
   if (mOptions.enable_skills and tool_name == "skill")

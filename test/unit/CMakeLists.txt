@@ -7,6 +7,7 @@ add_executable(unit_tests
   loopback_server.cpp
   shell_session_test.cpp
   skills_test.cpp
+  tools_bash_search_test.cpp
   tools_file_test.cpp
   tools_python_test.cpp
   tools_shell_test.cpp

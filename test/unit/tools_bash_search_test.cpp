@@ -1,0 +1,146 @@
+// Tests for BashSearchTool: PATH scan, tag listing, boolean tag search.
+//
+// The singleton index persists in memory across cases, so SetUpTestSuite does a
+// single scan before any case runs.  Individual cases then query that data.
+
+#include <string>
+
+#include <gtest/gtest.h>
+
+#include <core/tools.h>
+#include <tool_test_env.h>
+
+namespace agent::test {
+namespace {
+
+struct BashSearchTest : ToolTest {
+  static void SetUpTestSuite() {
+    BashSearchTool().execute(args({{"action", str("scan")}}));
+  }
+};
+
+// ── scan ─────────────────────────────────────────────────────────────────────
+
+TEST_F(BashSearchTest, ScanReturnsOkAndReportsCommandCount) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("scan")}}));
+
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.error.empty());
+  EXPECT_NE(result.output.find("Scanned"), std::string::npos);
+  EXPECT_NE(result.output.find("commands"), std::string::npos);
+}
+
+// ── list_tags ────────────────────────────────────────────────────────────────
+
+TEST_F(BashSearchTest, ListTagsReturnsNonEmptyList) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("list_tags")}}));
+
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.error.empty());
+  EXPECT_FALSE(result.output.empty());
+}
+
+TEST_F(BashSearchTest, ListTagsContainsKnownCategories) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("list_tags")}}));
+
+  EXPECT_TRUE(result.ok);
+  // file, text, and network are on any POSIX system.
+  EXPECT_NE(result.output.find("file"),    std::string::npos);
+  EXPECT_NE(result.output.find("text"),    std::string::npos);
+  EXPECT_NE(result.output.find("network"), std::string::npos);
+}
+
+// ── search ───────────────────────────────────────────────────────────────────
+
+TEST_F(BashSearchTest, SearchSingleTagFindsExpectedCommands) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("search")},
+                                     {"query",  str("file")}}));
+
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.error.empty());
+  // ls and cp are always in PATH and both tagged "file".
+  EXPECT_NE(result.output.find("ls"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, SearchAndExpressionReturnsOnlyCommandsMatchingBothTags) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("search")},
+                                     {"query",  str("file AND text")}}));
+
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.error.empty());
+  // cat, head, tail are tagged both "file" and "text" in kNameTags.
+  EXPECT_NE(result.output.find("cat"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, SearchOrExpressionReturnsCommandsFromEitherTag) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("search")},
+                                     {"query",  str("file OR text")}}));
+
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.error.empty());
+  // ls is "file"-only, grep is "text"-only; both should appear.
+  EXPECT_NE(result.output.find("ls"),   std::string::npos);
+  EXPECT_NE(result.output.find("grep"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, SearchUnknownTagReturnsEmptyButOk) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("search")},
+                                     {"query",  str("nonexistent_tag_xyz")}}));
+
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.error.empty());
+  EXPECT_NE(result.output.find("No commands found"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, SearchWithParenthesisGroupingWorks) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("search")},
+                                     {"query",  str("(file AND text) OR editor")}}));
+
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.error.empty());
+}
+
+// ── error cases ───────────────────────────────────────────────────────────────
+
+TEST_F(BashSearchTest, MissingActionArgumentIsAnError) {
+  const ToolResult result = BashSearchTool().execute(args({}));
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.error.find("missing"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, UnknownActionIsAnError) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("fly")}}));
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.error.find("unknown action"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, SearchWithoutQueryIsAnError) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("search")}}));
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.error.find("query"), std::string::npos);
+}
+
+TEST_F(BashSearchTest, SearchWithMalformedQueryIsAnError) {
+  const ToolResult result =
+      BashSearchTool().execute(args({{"action", str("search")},
+                                     {"query",  str("(file AND")}}));
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_TRUE(result.output.empty());
+}
+
+}  // namespace
+}  // namespace agent::test

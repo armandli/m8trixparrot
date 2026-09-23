@@ -187,6 +187,16 @@ struct AskUserTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
+// Searches for shell commands by category tag. Maintains a persistent index at
+// ~/.m8trix/bash_search_index.json built from PATH executables and whatis(1).
+// Three actions: list_tags, search (boolean tag query), scan (rebuild index).
+struct BashSearchTool {
+  std::string description() const;
+  // action (string, required): "list_tags" | "search" | "scan"
+  // query  (string, required for "search"): e.g. "file AND text" or "network OR http"
+  ToolResult execute(const ToolArgs& args) const;
+};
+
 }  // namespace agent
 
 #endif  // TOOLS_H
