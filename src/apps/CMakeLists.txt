@@ -8,6 +8,7 @@ add_subdirectory(tool_find)
 add_subdirectory(tool_grep)
 add_subdirectory(tool_read)
 add_subdirectory(tool_webfetch)
+add_subdirectory(tool_websearch)
 add_subdirectory(tool_write)
 add_subdirectory(toolcall)
 

@@ -210,7 +210,8 @@ const std::map<std::string, std::vector<std::string>, std::less<>> kNameTags{
     {"tool_find",    {"file", "search"}},
     {"tool_grep",    {"file", "text", "search", "filter"}},
     {"tool_read",    {"file", "text"}},
-    {"tool_webfetch",{"network", "text"}},
+    {"tool_webfetch",  {"network", "text"}},
+    {"tool_websearch", {"network", "search"}},
     {"tool_write",   {"file"}},
     {"tool_edit",    {"file", "text"}},
 };
