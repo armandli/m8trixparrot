@@ -206,6 +206,9 @@ const std::map<std::string, std::vector<std::string>, std::less<>> kNameTags{
     {"expr",         {"math", "shell"}},
     {"python",       {"development", "math", "shell"}},
     {"python3",      {"development", "math", "shell"}},
+    // shell-parrot (sp): natural-language shell assistant.
+    {"sp",           {"shell", "development"}},
+    {"shell-parrot", {"shell", "development"}},
     // m8trixparrot file tools exposed as standalone CLI utilities.
     {"tool_find",    {"file", "search"}},
     {"tool_grep",    {"file", "text", "search", "filter"}},

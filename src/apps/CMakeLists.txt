@@ -3,6 +3,7 @@
 # it below. Shared UI code lives in ../common (agentui).
 add_subdirectory(chat_tui)
 add_subdirectory(m8trixparrot)
+add_subdirectory(sp)
 add_subdirectory(tool_edit)
 add_subdirectory(tool_find)
 add_subdirectory(tool_grep)

@@ -124,8 +124,9 @@ bool Agent::ask_user_offered() const {
 }
 
 std::vector<std::string> Agent::tool_schemas() const {
-  std::vector<std::string> schemas{PythonTool().description(),
-                                   BashTool().description()};
+  std::vector<std::string> schemas;
+  if (mOptions.enable_python) schemas.push_back(PythonTool().description());
+  schemas.push_back(BashTool().description());
   if (mOptions.enable_file_tools) {
     schemas.push_back(ReadTool().description());
     schemas.push_back(WriteTool().description());
@@ -152,7 +153,9 @@ std::vector<std::string> Agent::tool_schemas() const {
 }
 
 std::vector<std::string> Agent::tool_names() const {
-  std::vector<std::string> names{"python", "bash"};
+  std::vector<std::string> names;
+  if (mOptions.enable_python) names.push_back("python");
+  names.push_back("bash");
   if (mOptions.enable_file_tools) {
     names.push_back("read");
     names.push_back("write");
@@ -308,19 +311,23 @@ std::string Agent::system_prompt() const {
   prompt << free_slots << " of " << mOptions.max_agents
          << " agent slots are free.\n\n";
 
-  prompt << "Working rules:\n"
-            "- Use `python` for computation, file I/O, and data transformation. "
-            "Use `bash` for shell commands: running programs, git, and anything "
-            "the shell does more directly than Python would. Prefer one of them "
-            "over describing what you would do.\n";
-  if (mOptions.enable_package_install) {
-    prompt << "- If a script needs a package that isn't installed, call "
-              "`package_install` with just its name first, then run the "
-              "script. Don't call it again for a package you already "
-              "installed or that already imported successfully.\n";
+  prompt << "Working rules:\n";
+  if (mOptions.enable_python) {
+    prompt << "- Use `python` for computation, file I/O, and data transformation. "
+              "Use `bash` for shell commands: running programs, git, and anything "
+              "the shell does more directly than Python would. Prefer one of them "
+              "over describing what you would do.\n";
+    if (mOptions.enable_package_install) {
+      prompt << "- If a script needs a package that isn't installed, call "
+                "`package_install` with just its name first, then run the "
+                "script. Don't call it again for a package you already "
+                "installed or that already imported successfully.\n";
+    } else {
+      prompt << "- Only the Python standard library and already-installed "
+                "packages are importable; you cannot install new ones.\n";
+    }
   } else {
-    prompt << "- Only the Python standard library and already-installed "
-              "packages are importable; you cannot install new ones.\n";
+    prompt << "- Use `bash` for all shell operations.\n";
   }
   if (not mOptions.enable_subagents) {
     prompt << "- You have no subagent tools; do all the work yourself.\n";
@@ -392,7 +399,7 @@ std::string Agent::system_prompt() const {
 }
 
 ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
-  if (tool_name == "python")
+  if (mOptions.enable_python and tool_name == "python")
     return PythonTool().execute(args);
   if (tool_name == "bash")
     return BashTool().execute(args);

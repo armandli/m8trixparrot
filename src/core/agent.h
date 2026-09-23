@@ -117,6 +117,11 @@ struct AgentOptions {
   // builds a tag index of available shell commands at ~/.m8trix/bash_search_index.json.
   bool enable_bash_search = false;
 
+  // When false, the `python` tool is neither advertised nor dispatchable.
+  // Default true for backward compatibility. Shell-only agents (e.g. sp) set
+  // this to false so the model's entire tool set is bash + bash_search.
+  bool enable_python = true;
+
   // Appended verbatim to the end of every system_prompt() when non-empty. The
   // hook for an app to give the agent task-specific standing instructions
   // without forking the prompt builder.
