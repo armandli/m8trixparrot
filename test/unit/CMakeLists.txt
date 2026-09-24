@@ -55,6 +55,23 @@ target_link_libraries(core_tests
 
 gtest_discover_tests(core_tests)
 
+# sp's prompt, slash-command grammar and hand-driven memory operations. Its own
+# binary rather than part of unit_tests for the same reason core_tests is: these
+# drive a MemoryStore over a temp file and run alongside the vector-store tests.
+add_executable(sp_tests
+  sp_memory_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/sp/sp_memory.cpp
+)
+
+target_include_directories(sp_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/sp)
+
+target_link_libraries(sp_tests
+  PRIVATE agentcore
+  PRIVATE GTest::gtest_main
+)
+
+gtest_discover_tests(sp_tests)
+
 # m8trixsh's terminal emulator and shell integration have no core dependency,
 # so they get their own binary rather than joining unit_tests. Only built when
 # libvterm is available, matching the guard around m8trixsh itself in

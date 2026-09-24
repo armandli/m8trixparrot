@@ -6,6 +6,7 @@
 #include <iostream>
 #include <list>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -23,8 +24,11 @@
 #include <core/agent.h>
 #include <core/agent_pool.h>
 #include <core/agent_settings.h>
+#include <core/memory_store.h>
 #include <core/policy.h>
 #include <core/tools.h>
+
+#include <sp_memory.h>
 
 namespace f = ftxui;
 
@@ -65,43 +69,59 @@ std::string get_home() {
   return "/tmp";
 }
 
-std::string make_extra_prompt(const std::string& username,
-                              const std::string& home) {
-  const std::string scripts = home + "/.local/share/sp/scripts";
-  const std::string trash   = home + "/.local/share/Trash/files";
-  std::ostringstream p;
-  p << "You are shell-parrot (sp), a natural-language shell assistant. "
-       "Your job is to carry out the user's task using shell commands.\n\n"
-       "Shell environment:\n"
-       "- User: " << username << "\n"
-       "- Home: " << home << "\n"
-       "- Scripts directory: " << scripts
-    << " (create it first if it does not exist; write any helper scripts here)\n"
-       "- Trash: " << trash
-    << " — NEVER delete files; move them with 'mv <path> " << trash
-    << "/' instead\n\n"
-       "Rules:\n"
-       "1. NEVER use rm, rmdir, unlink, or any deletion command. "
-          "Move to trash instead.\n"
-       "2. Use bash_search before complex tasks if you are unsure which "
-          "commands are available.\n"
-       "3. Write any helper scripts to the scripts directory, not to the "
-          "working directory.\n"
-       "4. When done, give a clear English summary of what you did and "
-          "whether it succeeded.\n"
-       "5. If a task is risky or irreversible, state what you are about "
-          "to do before acting.\n";
-  return p.str();
+// sp's own home-directory config, in the shell-env format m8trixsh already
+// uses for ~/.m8shrc (KEY=VALUE, `#` comments). sp reads
+// .m8trix/settings.json too, but that path is relative to the working
+// directory and sp is run from wherever the user happens to be standing — so
+// the workspace file is almost never there, and this is the one that actually
+// persists a setting.
+inline constexpr const char* kSpRcFilename = ".sprc";
+
+template <typename T>
+void prefer(std::optional<T>& into, const std::optional<T>& over) {
+  if (over.has_value()) into = over;
+}
+
+// The workspace file wins over the home file, being the more specific of the
+// two. Only the fields sp reads are merged.
+void merge_settings(agent::StartupSettings& into,
+                    const agent::StartupSettings& over) {
+  prefer(into.model, over.model);
+  prefer(into.max_steps, over.max_steps);
+  prefer(into.num_ctx, over.num_ctx);
+  prefer(into.summarize_at, over.summarize_at);
+  prefer(into.enable_memory, over.enable_memory);
+  prefer(into.memory_path, over.memory_path);
+  prefer(into.memory_embed_model, over.memory_embed_model);
 }
 
 const char* kHelpText =
-    "/help   — show this message\n"
-    "/reset  — clear context and start a new conversation\n"
-    "/quit   — exit shell-parrot\n"
+    "/help             — show this message\n"
+    "/reset            — clear context and start a new conversation\n"
+    "/remember <text>  — store something about you or how you like things "
+    "done\n"
+    "/memories [query] — show what sp remembers, or search it\n"
+    "/forget <id>      — delete one memory by id\n"
+    "/quit             — exit shell-parrot\n"
     "\n"
     "Type a task in plain English and press Enter to run it.\n"
     "Shift+Enter or Alt+Enter inserts a newline.\n"
     "Up/Down arrows browse input history.";
+
+// What memory is turned on, where it lives, and what embeds it — resolved once
+// in main() and handed to whichever mode runs. `enabled` false means the agent
+// has no `memory` tool, so the slash commands have nothing to talk to either.
+struct MemoryConfig {
+  bool enabled = false;
+  agent::MemoryOptions options;
+};
+
+// The agent reaches its store through Agent::dispatch; the slash commands
+// reach the same one through the registry, which keys on the canonical path —
+// so both share a single open file rather than two stale views of it.
+agent::MemoryStore* open_store(const MemoryConfig& memory, std::string& error) {
+  return agent::MemoryStoreRegistry::instance().get(memory.options, error);
+}
 
 }  // namespace
 
@@ -137,12 +157,17 @@ int run_single_shot(const std::string& prompt, agent::Agent& root_agent) {
 
 // ── interactive TUI mode ───────────────────────────────────────────────────
 
-int run_interactive(agent::Agent& root_agent, const std::string& model) {
+int run_interactive(agent::Agent& root_agent, const std::string& model,
+                    const MemoryConfig& memory) {
   using namespace agentui;
 
   std::mutex mutex;
   std::list<TranscriptNode> transcript;
   bool waiting_for_reply = false;
+  // A memory command holds a pointer into `transcript` until its embedding
+  // call returns, so the transcript must not be cleared while one is in
+  // flight. Guarded by `mutex`, like the transcript itself.
+  int pending_memory_ops = 0;
   float scroll_y = 1.0f;
 
   std::string input_value;
@@ -198,27 +223,41 @@ int run_interactive(agent::Agent& root_agent, const std::string& model) {
         screen.PostEvent(f::Event::Custom);
       });
 
+  // A one-off line in the transcript, plus the input reset every command path
+  // would otherwise repeat. Returns the node so a command that answers
+  // asynchronously can fill it in later; std::list keeps the pointer valid.
+  auto notice = [&](const std::string& text) -> TranscriptNode* {
+    std::lock_guard<std::mutex> lock(mutex);
+    TranscriptNode& node =
+        add_node(transcript, TranscriptNode::Kind::Notice, text);
+    input_value.clear();
+    input_cursor = 0;
+    scroll_y = 1.0f;
+    return &node;
+  };
+
   auto send_message = [&] {
     if (input_value.empty()) return;
 
-    if (input_value == "/quit") {
+    const sp::Command command = sp::parse_command(input_value);
+
+    if (command.kind == sp::Command::Kind::Quit) {
       screen.ExitLoopClosure()();
       return;
     }
 
-    if (input_value == "/help") {
-      std::lock_guard<std::mutex> lock(mutex);
-      add_node(transcript, TranscriptNode::Kind::Notice, kHelpText);
-      input_value.clear();
-      input_cursor = 0;
+    if (command.kind == sp::Command::Kind::Help) {
+      notice(kHelpText);
       return;
     }
 
-    if (input_value == "/reset") {
+    if (command.kind == sp::Command::Kind::Reset) {
       std::lock_guard<std::mutex> lock(mutex);
-      if (waiting_for_reply) {
+      if (waiting_for_reply or pending_memory_ops > 0) {
         add_node(transcript, TranscriptNode::Kind::Notice,
-                 "Cannot reset while a task is running.");
+                 waiting_for_reply
+                     ? "Cannot reset while a task is running."
+                     : "Cannot reset while a memory command is running.");
         input_value.clear();
         input_cursor = 0;
         return;
@@ -230,6 +269,51 @@ int run_interactive(agent::Agent& root_agent, const std::string& model) {
       input_value.clear();
       input_cursor = 0;
       scroll_y = 1.0f;
+      return;
+    }
+
+    if (command.kind == sp::Command::Kind::BadForget) {
+      notice("usage: /forget <id>   (ids come from /memories <query>)");
+      return;
+    }
+
+    if (command.kind == sp::Command::Kind::Remember or
+        command.kind == sp::Command::Kind::Memories or
+        command.kind == sp::Command::Kind::Forget) {
+      if (not memory.enabled) {
+        notice("Memory is off. Pull an embedding model (ollama pull "
+               "nomic-embed-text) or start sp with --memory.");
+        return;
+      }
+      // remember and recall both block on an embedding round trip, so they
+      // run off the UI thread for the same reason a turn does. The node goes
+      // in now and is filled in when the answer arrives.
+      TranscriptNode* node = notice("working...");
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++pending_memory_ops;
+      }
+      std::thread([&, command, node] {
+        std::string error;
+        agent::MemoryStore* store = open_store(memory, error);
+        std::string text;
+        if (store == nullptr) {
+          text = "could not open the memory database: " + error;
+        } else if (command.kind == sp::Command::Kind::Remember) {
+          text = sp::do_remember(*store, command.args);
+        } else if (command.kind == sp::Command::Kind::Memories) {
+          text = sp::do_search(*store, command.args);
+        } else {
+          text = sp::do_forget(*store, command.id);
+        }
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          node->text = text;
+          --pending_memory_ops;
+          scroll_y = 1.0f;
+        }
+        screen.PostEvent(f::Event::Custom);
+      }).detach();
       return;
     }
 
@@ -404,9 +488,24 @@ int main(int argc, char** argv) {
       "  sp -i                   # interactive mode\n"
       "  sp                      # same — no prompt = interactive"};
 
+  app.footer(
+      "Defaults can be set in ~/.sprc (one KEY=VALUE per line; keys: MODEL, "
+      "MAX_STEPS,\nNUM_CTX, SUMMARIZE_AT, ENABLE_MEMORY, MEMORY_PATH, "
+      "MEMORY_EMBED_MODEL) and, per\ndirectory, in ./.m8trix/settings.json, "
+      "which wins over ~/.sprc. A flag wins over both.");
+
+  const std::string username = get_username();
+  const std::string home     = get_home();
+
   std::string settings_warning;
-  const agent::StartupSettings settings =
-      agent::load_startup_settings(agent::kAgentSettingsPath, settings_warning);
+  agent::StartupSettings settings = agent::load_shellrc_settings(
+      home + "/" + kSpRcFilename, settings_warning);
+  if (not settings_warning.empty()) {
+    std::cerr << "warning: " << settings_warning << "\n";
+    settings_warning.clear();
+  }
+  merge_settings(settings, agent::load_startup_settings(
+                               agent::kAgentSettingsPath, settings_warning));
   if (not settings_warning.empty()) {
     std::cerr << "warning: " << settings_warning << "\n";
   }
@@ -417,6 +516,16 @@ int main(int argc, char** argv) {
   int max_steps = settings.max_steps.value_or(30);
   int num_ctx = settings.num_ctx.value_or(0);
 
+  std::string memory_path =
+      settings.memory_path.value_or(sp::default_memory_path(home));
+  std::string memory_model =
+      settings.memory_embed_model.value_or("nomic-embed-text");
+  // Unset means "decide from whether an embedding model is pulled"; a flag or
+  // a config key makes it a decision the user made, which is honoured either
+  // way.
+  std::optional<bool> memory_wanted = settings.enable_memory;
+  bool memory_flag = true;
+
   app.add_option("prompt", prompt_words, "Task description in plain English");
   app.add_flag("-i,--interactive", interactive,
                "Run in interactive TUI mode (default when no prompt is given)");
@@ -425,8 +534,18 @@ int main(int argc, char** argv) {
   app.add_option("--max-steps", max_steps,
                  "Max model calls per turn (default: 30)")
       ->capture_default_str();
+  const CLI::Option* memory_opt = app.add_flag(
+      "--memory,!--no-memory", memory_flag,
+      "Force long-term memory on or off (default: on when an embedding model "
+      "is pulled)");
+  app.add_option("--memory-path", memory_path, "Memory database file")
+      ->capture_default_str();
+  app.add_option("--memory-model", memory_model, "Ollama embedding model")
+      ->capture_default_str();
 
   CLI11_PARSE(app, argc, argv);
+
+  if (memory_opt->count() > 0) memory_wanted = memory_flag;
 
   std::string prompt;
   for (size_t i = 0; i < prompt_words.size(); ++i) {
@@ -475,8 +594,30 @@ int main(int argc, char** argv) {
   }
   if (window > 0) agent::OllamaClient::set_num_ctx(window);
 
-  const std::string username = get_username();
-  const std::string home     = get_home();
+  // Resolve memory last, because the probe is a call to the same Ollama the
+  // model validation above has already shown to be up.
+  MemoryConfig memory;
+  memory.options.path = memory_path;
+  memory.options.embed_model = memory_model;
+  if (memory_wanted.value_or(true)) {
+    const bool usable =
+        agent::memory_available(memory_model, memory.options.ollama_host);
+    if (usable) {
+      memory.enabled = true;
+    } else if (memory_wanted.has_value()) {
+      // Asked for outright: honour it and say why the calls will fail, rather
+      // than silently overruling the user. Same wording as m8trixparrot.
+      memory.enabled = true;
+      std::cerr << "warning: memory is enabled but '" << memory_model
+                << "' is not a pulled embedding model (try `ollama pull "
+                   "nomic-embed-text`); memory calls will fail\n";
+    } else {
+      // Nobody asked either way, so off is the safe read — one line to stderr
+      // so a script's stdout stays clean.
+      std::cerr << "note: long-term memory is off — `ollama pull "
+                << memory_model << "` turns it on\n";
+    }
+  }
 
   agent::AgentOptions options;
   options.enable_python          = false;
@@ -493,7 +634,11 @@ int main(int argc, char** argv) {
       static_cast<int>(std::max<int64_t>(0, window));
   options.context_summarize_at_tokens =
       settings.summarize_at.value_or(200000);
-  options.extra_system_prompt    = make_extra_prompt(username, home);
+  options.enable_memory          = memory.enabled;
+  options.memory_path            = memory.options.path;
+  options.memory_embed_model     = memory.options.embed_model;
+  options.extra_system_prompt    =
+      sp::make_extra_prompt(username, home, memory.enabled);
 
   agent::AgentPool::configure(options.max_agents, options.max_depth);
 
@@ -502,9 +647,16 @@ int main(int argc, char** argv) {
       agent::AgentPool::instance().register_root("sp");
   agent::Agent root_agent(options, policy, root_id, "", 0);
 
-  if (interactive) {
-    return run_interactive(root_agent, model);
-  } else {
-    return run_single_shot(prompt, root_agent);
+  const int status = interactive ? run_interactive(root_agent, model, memory)
+                                 : run_single_shot(prompt, root_agent);
+
+  // Records reach the file as they are written, so nothing is lost without
+  // this; flushing rewrites the header and search snapshot so the next process
+  // opens without replaying the whole log. A store nothing ever touched
+  // flushes to a no-op.
+  if (memory.enabled) {
+    std::string error;
+    if (agent::MemoryStore* store = open_store(memory, error)) store->flush();
   }
+  return status;
 }

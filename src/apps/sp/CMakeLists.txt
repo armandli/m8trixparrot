@@ -1,4 +1,9 @@
-add_executable(sp main.cpp)
+add_executable(sp
+  main.cpp
+  sp_memory.cpp
+)
+
+target_include_directories(sp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(sp
   PRIVATE agentui   # PUBLIC-links agentcore

@@ -250,6 +250,70 @@ which loops against `OllamaClient` and dispatches tool calls through
 `PolicyInterface` before they run. The `ask_user` tool reuses the same prompt
 to park the agent thread until the operator answers.
 
+## Running shell-parrot (sp)
+
+`sp` is a natural-language shell assistant: describe a task in plain English
+and it runs the shell commands to carry it out. Its whole tool set is `bash`
+plus `bash_search` — no python, no subagents, no skills — and it **never
+deletes anything**: unwanted files are moved to `~/.local/share/Trash/files`,
+and helper scripts it writes go to `~/.local/share/sp/scripts`.
+
+```sh
+build/sp 'move all .log files in /tmp to ~/Downloads'
+build/sp 'find the five largest files under ~/Documents'
+build/sp -i                  # interactive TUI
+build/sp                     # same — no prompt means interactive
+```
+
+Single-shot mode prints the agent's text to stdout and one `[tool: summary]`
+progress line per call to stderr, so a script can pipe it. Interactive mode is
+the same transcript view the other TUIs use, with `/help`, `/reset` and
+`/quit`.
+
+Defaults come from `~/.sprc` (the shell-env format `~/.m8shrc` uses: one
+`KEY=VALUE` per line, `#` comments; keys `MODEL`, `MAX_STEPS`, `NUM_CTX`,
+`SUMMARIZE_AT`, `ENABLE_MEMORY`, `MEMORY_PATH`, `MEMORY_EMBED_MODEL`), then
+`./.m8trix/settings.json` where one exists, then the command line — each
+winning over the one before it. `sp` is run from wherever the user happens to
+be standing, so `~/.sprc` is the file that actually persists a setting.
+
+### What sp remembers
+
+`sp` is the one app with memory **on by default**, whenever an embedding model
+is pulled (see [Memory](#memory)). It has to be: `sp 'do the thing'` is one
+process and one turn, so without a database on disk every invocation starts
+knowing nothing about the user.
+
+Its system prompt asks the agent to recall before its first command and to
+store exactly two kinds of thing:
+
+```
+PREFERENCE (tar): the user always wants tar archives gzipped.
+Do: pass -z to every tar create.
+
+LESSON (find): used -name where the user meant a case-insensitive match.
+Detect: the user says "but there are more than that" after a find.
+Instead: find . -iname '<pattern>'
+Avoid: ask whether case matters before running find with -name.
+```
+
+A preference is stored as a `semantic` memory tagged `preference`, a lesson as
+a `procedural` one tagged `lesson`, both tagged with a one-or-two-word subject
+so there is exactly one memory per subject — the agent recalls that subject
+before storing, and `forget`s the old id rather than leaving two memories
+saying different things. `episodic` is off limits, which is what keeps command
+output and facts about one directory out of the database.
+
+The three slash commands drive the same store by hand, without going through
+the model:
+
+```
+/remember <text>    store something about you or how you like things done
+/memories           how many memories there are, and where they live
+/memories <query>   search them; each row starts with the id
+/forget <id>        delete one
+```
+
 ## Skills
 
 `m8trixparrot` loads **skills** — reusable procedures for specific tasks — from
@@ -317,13 +381,21 @@ callback that defaults to Ollama's `/api/embed`. The API shape follows
 a `{"field":{"$gte":0.5}}` filter DSL — but none of its code: caliby's kernels
 are x86-only and its index is built on a Linux buffer pool.
 
-`memory` is **off by default**, because it needs an embedding model pulled and
-because turning it on would change the tool set every existing caller sees:
+`memory` is **off by default everywhere but `sp`**, because it needs an
+embedding model pulled and because turning it on would change the tool set
+every existing caller sees:
 
 - **m8trixparrot** — `"enable_memory": true` in `<workdir>/.m8trix/settings.json`,
   with optional `"memory_path"` and `"memory_embed_model"`
 - **m8trixsh** — `ENABLE_MEMORY=1` in `~/.m8shrc`, with optional `MEMORY_PATH`
   and `MEMORY_EMBED_MODEL`
+- **sp** — **on whenever an embedding model is pulled**, which it probes for at
+  startup. `--no-memory` (or `ENABLE_MEMORY=0` in `~/.sprc`) turns it off;
+  `--memory` forces it on and warns if the model is missing rather than
+  overruling you. Its database is **user-global**, at
+  `~/.local/share/sp/memory.m8db` rather than under a workspace, because sp is
+  run from arbitrary directories and its memories are about the user, not the
+  directory. `--memory-path` and `--memory-model` override both.
 
 ```sh
 ollama pull nomic-embed-text    # the default embedding model
