@@ -11,6 +11,13 @@
 
 namespace agent {
 
+// The embedding model every app starts with unless told otherwise. Small
+// enough to stay resident alongside a much larger chat model, which is what
+// lets an embed and a chat run at the same time without Ollama evicting one to
+// load the other.
+inline constexpr const char* kDefaultEmbedModel =
+    "nomic-embed-text-v2-moe:latest";
+
 struct ToolCall {
   std::string name;
   std::string arguments;

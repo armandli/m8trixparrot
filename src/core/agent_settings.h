@@ -28,6 +28,7 @@ struct StartupSettings {
   std::optional<int> max_agents;
   std::optional<int> num_ctx;
   std::optional<int> summarize_at;
+  std::optional<int> ollama_jobs;
   std::optional<std::string> skills_dir;
   std::optional<bool> enable_skills;
   std::optional<bool> enable_subagents;

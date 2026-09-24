@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+#include <core/basic_ollama_client.h>
 #include <core/tools.h>
 #include <core/vector_store.h>
 
@@ -49,12 +50,16 @@ Schema memory_schema();
 using Embedder =
     std::function<std::vector<float>(std::string_view text, std::string& error)>;
 
-// Embeds through BasicOllamaClient::embed(). Note the narrowing: that call
-// hands back std::vector<std::vector<double>> and the conversion to float
-// happens here, at the boundary, before the store normalizes — normalizing in
-// double and narrowing afterwards would leave stored vectors slightly off unit
-// length, which is the one invariant the cosine fast path relies on.
-Embedder ollama_embedder(std::string model, std::string host);
+// Embeds through the OllamaClient work pool, so an embedding counts against
+// the same concurrency cap as a chat — see ollama_client.h. The host is the one
+// OllamaClient::configure() was given; only the model is chosen here.
+//
+// Note the narrowing: the embed call hands back std::vector<std::vector<double>>
+// and the conversion to float happens here, at the boundary, before the store
+// normalizes — normalizing in double and narrowing afterwards would leave
+// stored vectors slightly off unit length, which is the one invariant the
+// cosine fast path relies on.
+Embedder ollama_embedder(std::string model);
 
 // Deterministic, network-free, and deliberately crude: tokens are hashed into
 // a fixed-width unit vector, so texts that share words land near each other.
@@ -95,9 +100,8 @@ struct ScoredMemory {
 
 struct MemoryOptions {
   std::string path = kMemoryPath;
-  std::string embed_model = "nomic-embed-text";
-  std::string ollama_host = "http://localhost:11434";
-  // Empty: ollama_embedder(embed_model, ollama_host) is built on open.
+  std::string embed_model = kDefaultEmbedModel;
+  // Empty: ollama_embedder(embed_model) is built on open.
   Embedder embedder;
   // 0 means "discover it from the first embedding" — see MemoryStore::open.
   uint32_t embedding_dim = 0;
@@ -227,8 +231,21 @@ struct MemoryTool {
 
 // True when the memory tool has an embedding model it can reach. Mirrors
 // web_search_available(), for an app that wants to warn at startup rather than
-// let the agent discover it one failed tool call at a time.
-bool memory_available(const std::string& model, const std::string& host);
+// let the agent discover it one failed tool call at a time. Probes the host
+// OllamaClient::configure() was given, so call it after that.
+bool memory_available(const std::string& model);
+
+// Non-empty when `path` already exists and was built with a different embedding
+// model than `model`; the text names the file, both models and the stored
+// width, and says what to do about it.
+//
+// This compares the model name, not the vector width, because the width is the
+// case that already fails loudly: two 768-dimensional models open fine, accept
+// writes and rank against each other, and the only sign anything is wrong is
+// that recall quietly stops working. A file written before the model name was
+// stamped into the header has none to compare, and is left alone.
+std::string memory_model_mismatch(const std::string& path,
+                                  const std::string& model);
 
 }  // namespace agent
 

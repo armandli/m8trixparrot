@@ -117,6 +117,7 @@ int main(int argc, char** argv) {
   int max_agents = settings.max_agents.value_or(16);
   int num_ctx = settings.num_ctx.value_or(0);
   int summarize_at = settings.summarize_at.value_or(200000);
+  int ollama_jobs = settings.ollama_jobs.value_or(agent::kDefaultOllamaJobs);
   std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
   bool no_skills = not settings.enable_skills.value_or(true);
 
@@ -136,6 +137,10 @@ int main(int argc, char** argv) {
       ->capture_default_str();
   app.add_option("--num-ctx", num_ctx,
                  "Context window to request from Ollama (0 = detect from the model)")
+      ->capture_default_str();
+  app.add_option("--ollama-jobs", ollama_jobs,
+                 "Max concurrent requests against ollama, chat and embed "
+                 "together")
       ->capture_default_str();
   app.add_option("--summarize-at", summarize_at,
                  "Auto-summarize the transcript at this many tokens "
@@ -180,6 +185,7 @@ int main(int argc, char** argv) {
           ? static_cast<const agent::PolicyInterface&>(sane_policy)
           : static_cast<const agent::PolicyInterface&>(yolo_policy);
 
+  agent::OllamaClient::set_concurrency(ollama_jobs);
   agent::OllamaClient::configure(model);
   agent::AgentPool::configure(max_agents, max_depth);
 
@@ -234,13 +240,21 @@ int main(int argc, char** argv) {
   options.memory_path = settings.memory_path.value_or(options.memory_path);
   options.memory_embed_model =
       settings.memory_embed_model.value_or(options.memory_embed_model);
-  if (options.enable_memory and
-      not agent::memory_available(options.memory_embed_model,
-                                  "http://localhost:11434")) {
-    std::cerr << "warning: enable_memory is set but '"
-              << options.memory_embed_model
-              << "' is not a pulled embedding model (try `ollama pull "
-                 "nomic-embed-text`); memory calls will fail\n";
+  agent::OllamaClient::configure_embed(options.memory_embed_model);
+  if (options.enable_memory) {
+    // Two models of the same width would otherwise open, write and rank
+    // against each other with nothing to show for it but worse recall.
+    const std::string mismatch = agent::memory_model_mismatch(
+        options.memory_path, options.memory_embed_model);
+    if (not mismatch.empty()) {
+      options.enable_memory = false;
+      std::cerr << "warning: " << mismatch << " Memory is off for this run.\n";
+    } else if (not agent::memory_available(options.memory_embed_model)) {
+      std::cerr << "warning: enable_memory is set but '"
+                << options.memory_embed_model
+                << "' is not a pulled embedding model (try `ollama pull "
+                << options.memory_embed_model << "`); memory calls will fail\n";
+    }
   }
 
   // m8trixparrot's prompt is its own, like every other application's; core

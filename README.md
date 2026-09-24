@@ -94,7 +94,7 @@ flowchart TD
     subgraph Core["agentcore"]
         Agent[Agent::run_turn]
         Pool[AgentPool\nregistry, spawn, event observer]
-        Ollama[OllamaClient\nFIFO HTTP worker]
+        Ollama[OllamaClient\nchat+embed work pool, k in flight]
         Policy[PolicyInterface\nYoloPolicy / SanePolicy]
         Tools[Tools\nbash python read write edit\nfind grep webfetch websearch\nmemory package_install skill ask_user]
         Skills[SkillCatalog\n.m8trix/skills/*/SKILL.md]
@@ -118,7 +118,7 @@ flowchart TD
     Tools -- result --> Agent
     Agent -- subagent_create --> Pool
     Pool -- spawns --> SubAgent
-    SubAgent -- shares FIFO queue --> Ollama
+    SubAgent -- shares work pool --> Ollama
     SubAgent -- events --> Pool
     Agent -- AgentEvent stream --> Pool
     Pool -- routed events --> Transcript
@@ -126,14 +126,15 @@ flowchart TD
 ```
 
 A turn starts when the user submits a line that doesn't start with `!`:
-`Agent::run_turn` loops model calls against `OllamaClient`'s FIFO queue,
+`Agent::run_turn` loops model calls against `OllamaClient`'s work pool,
 gates each returned tool call through `PolicyInterface` before dispatching
 it, and stops once the model replies with no more tool calls. Every step
 emits an `AgentEvent` through the shared `AgentPool`, which stamps
 agent/parent/depth and routes it to `TranscriptView`. Calling the
 `subagent_create` tool spawns another `Agent` on its own thread — sharing the
-same `OllamaClient` queue so concurrent model calls still serialize — whose
-events nest under the parent in the transcript until `subagent_wait` joins it.
+same `OllamaClient` pool, so however many agents are live, no more than `k`
+requests are ever in flight against Ollama — whose events nest under the parent
+in the transcript until `subagent_wait` joins it.
 The root agent's result tree (not the full transcript) is saved to
 `SessionStore` after each turn — to `.m8trix/sessions/` under the working
 directory, except for `sp`, which points `AgentOptions::session_dir` at
@@ -189,8 +190,9 @@ PROMPT_AI_TAG='%F{magenta}[m8trx]%f'
 ```
 
 Recognized keys: `MODEL`, `POLICY`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`,
-`SKILLS_DIR`, `ENABLE_SKILLS`, `ENABLE_SUBAGENTS`, `ENABLE_PACKAGE_INSTALL`,
-`ENABLE_WEB_SEARCH`, `SHELL`, `MODE_SWITCH_KEY`, `PROMPT_FORMAT`,
+`OLLAMA_JOBS`, `SKILLS_DIR`, `ENABLE_SKILLS`, `ENABLE_SUBAGENTS`,
+`ENABLE_PACKAGE_INSTALL`, `ENABLE_WEB_SEARCH`, `SHELL`, `MODE_SWITCH_KEY`,
+`PROMPT_FORMAT`,
 `PROMPT_SHELL_TAG`, `PROMPT_AI_TAG`, `PROMPT_ASK_TAG`. `MODE_SWITCH_KEY` rebinds
 the shell/ai toggle; the default `shift-tab` matches any backtab (Shift+Tab, and
 Ctrl/Opt+Shift+Tab where the terminal forwards one), which shadows zsh's
@@ -219,7 +221,7 @@ flowchart TD
 
     subgraph Core["agentcore"]
         Agent[Agent::run_turn]
-        Ollama[OllamaClient\nFIFO HTTP worker]
+        Ollama[OllamaClient\nchat+embed work pool, k in flight]
         Policy[PolicyInterface\nYoloPolicy / SanePolicy]
         Tools[Tools\nread write edit bash python\nskill websearch ask_user]
     end
@@ -280,6 +282,13 @@ backed up or deleted as a unit:
 | `$XDG_STATE_HOME/sp/sessions/` | one JSON result tree per turn |
 | `$XDG_CACHE_HOME/sp/bash_search_index.json` | the `bash_search` command index |
 
+`bash_search` serves that index from the cache immediately — a few
+milliseconds — and refreshes it on a background thread, so a command you
+installed since the last run shows up without anyone paying for the rebuild.
+Only the very first use on a machine, when there is no cache to serve, waits
+for the scan (about a second, nearly all of it one `apropos` call). Deleting
+the file is always safe; it is rebuilt on next use.
+
 The defaults are `~/.local/share`, `~/.config`, `~/.local/state` and `~/.cache`;
 each `$XDG_*_HOME` is honoured when set to an absolute path. Add the bin
 directory once:
@@ -306,8 +315,8 @@ the same transcript view the other TUIs use, with `/help`, `/reset` and
 
 Defaults come from `$XDG_CONFIG_HOME/sp/config` — `~/.config/sp/config` — in
 the shell-env format `~/.m8shrc` uses: one `KEY=VALUE` per line, `#` comments;
-keys `MODEL`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`, `ENABLE_MEMORY`,
-`MEMORY_PATH`, `MEMORY_EMBED_MODEL`. Then `./.m8trix/settings.json` where one
+keys `MODEL`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`, `OLLAMA_JOBS`,
+`ENABLE_MEMORY`, `MEMORY_PATH`, `MEMORY_EMBED_MODEL`. Then `./.m8trix/settings.json` where one
 exists, then the command line — each winning over the one before it. `sp` is
 run from wherever the user happens to be standing, so the config file is what
 actually persists a setting. An older `~/.sprc` is moved here on first run.
@@ -416,6 +425,30 @@ callback that defaults to Ollama's `/api/embed`. The API shape follows
 a `{"field":{"$gte":0.5}}` filter DSL — but none of its code: caliby's kernels
 are x86-only and its index is built on a Linux buffer pool.
 
+### How hard Ollama gets pushed
+
+Ollama is one server on one machine, and a chat and an embedding compete for the
+same GPU. So every model call in the process — every agent's chat, every
+subagent's chat, and every embedding the `memory` tool makes — goes through one
+`OllamaClient` work pool, and `k` is the only thing that decides how many are in
+flight at once. It defaults to **2**, and is set by `--ollama-jobs`,
+`OLLAMA_JOBS` in the shell-env config, or `"ollama_jobs"` in `settings.json`.
+It is read at startup: the pool starts on the first model call and keeps its
+size for the run.
+
+The pool drains two queues, and **embeddings go first**. An embedding is three
+orders of magnitude shorter than a chat, so a recall that costs 50ms of model
+time should not sit behind a multi-minute chat that happened to be enqueued
+before it. Chat cannot starve in return, because every embedding is enqueued by
+a caller already blocked waiting for it — the number outstanding is bounded by
+how many agents are live, and each clears in milliseconds.
+
+Two queues served by dedicated threads would also keep embeddings moving, but it
+would pin chat at one concurrent call even with nothing to embed, and "how hard
+Ollama is being pushed" would stop being a single number. `/api/show` is the one
+call that skips the pool: it reads a manifest rather than loading a model, so it
+costs no inference capacity.
+
 `memory` is **off by default everywhere but `sp`**, because it needs an
 embedding model pulled and because turning it on would change the tool set
 every existing caller sees:
@@ -433,8 +466,17 @@ every existing caller sees:
   directory. `--memory-path` and `--memory-model` override both.
 
 ```sh
-ollama pull nomic-embed-text    # the default embedding model
+ollama pull nomic-embed-text-v2-moe    # the default embedding model
 ```
+
+Switching embedding models **invalidates an existing database**, and not only
+when the width changes: two 768-dimensional models produce vectors that are not
+comparable, so the file would open, accept writes and rank against them with
+nothing to show for it but worse recall. The model name is stamped into the file
+header, and each app checks it at startup — on a disagreement it says which
+model built the file and turns memory off for the run rather than letting a tool
+call discover it later. Delete the file to rebuild it, or point the embed model
+back at what it was built with.
 
 With no embedding model pulled the app prints a warning at startup and `memory`
 calls return an error (the agent adapts). The database file is created on the
@@ -450,7 +492,7 @@ offline against a built-in deterministic hash embedder, so it needs no model:
 
 ```sh
 build/memdemo                            # offline, no Ollama needed
-build/memdemo --model nomic-embed-text   # real embeddings
+build/memdemo --model nomic-embed-text-v2-moe  # real embeddings
 build/memdemo --db /tmp/mem.m8db --keep  # keep the file to poke at
 ```
 

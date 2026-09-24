@@ -124,6 +124,8 @@ bool apply_shellrc_pair(StartupSettings& settings, std::string_view key,
     settings.max_steps = parse_int(value);
   else if (key == "NUM_CTX")
     settings.num_ctx = parse_int(value);
+  else if (key == "OLLAMA_JOBS")
+    settings.ollama_jobs = parse_int(value);
   else if (key == "SUMMARIZE_AT")
     settings.summarize_at = parse_int(value);
   else if (key == "ENABLE_SKILLS")
@@ -176,6 +178,7 @@ StartupSettings load_startup_settings(const std::string& path,
   settings.max_agents = optional_int_field(obj, "max_agents");
   settings.num_ctx = optional_int_field(obj, "num_ctx");
   settings.summarize_at = optional_int_field(obj, "summarize_at");
+  settings.ollama_jobs = optional_int_field(obj, "ollama_jobs");
   settings.skills_dir = optional_string_field(obj, "skills_dir");
   settings.enable_skills = optional_bool_field(obj, "enable_skills");
   settings.enable_subagents = optional_bool_field(obj, "enable_subagents");

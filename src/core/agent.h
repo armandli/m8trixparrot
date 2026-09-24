@@ -130,13 +130,13 @@ struct AgentOptions {
   // When true, `memory` is advertised and dispatchable: long-term memory in a
   // single-file vector store at memory_path, searched by embedding. Off by
   // default, like websearch and for the same two reasons — it needs an
-  // embedding model pulled (`ollama pull nomic-embed-text`), and turning it on
-  // would change the tool set every existing caller sees. The database is
+  // embedding model pulled (`ollama pull` the model named below), and turning
+  // it on would change the tool set every existing caller sees. The database is
   // created on the first thing the agent remembers, not at startup, because
   // an embedding model does not advertise its vector width.
   bool enable_memory = false;
   std::string memory_path = ".m8trix/memory.m8db";
-  std::string memory_embed_model = "nomic-embed-text";
+  std::string memory_embed_model = kDefaultEmbedModel;
 
   // When false, the `python` tool is neither advertised nor dispatchable.
   // Default true for backward compatibility. Shell-only agents (e.g. sp) set

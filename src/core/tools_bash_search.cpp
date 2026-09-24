@@ -1,12 +1,14 @@
 #include <core/tools.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <thread>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -30,6 +32,12 @@ std::string& index_path_override() {
   static std::string path;
   return path;
 }
+
+// Whether the index singleton currently exists. Constant-initialised, so it is
+// readable before it is first constructed and after it is destroyed — which
+// lets the free functions below wait on a rescan without *constructing* the
+// singleton merely to discover there is nothing to wait for.
+std::atomic<bool> g_index_live{false};
 
 // ─────────────────────────── data model ──────────────────────────────────────
 
@@ -562,26 +570,60 @@ std::optional<TagExpr> parse_tag_query(const std::string& query,
 
 class BashSearchIndex {
 public:
+  using Index = std::map<std::string, CommandEntry>;
+
   static BashSearchIndex& instance() {
     static BashSearchIndex inst;
     return inst;
   }
 
-  // Loads the index if not already loaded (triggers a scan if no file exists).
+  // Signals the worker to give up on anything it has not started, then joins.
+  // Joining rather than detaching is what makes a background rescan legal at
+  // all: this is a function-local static, so a detached thread would race its
+  // own destruction — and would write through index_path() after a test has
+  // reset the override, clobbering the developer's real index file.
+  ~BashSearchIndex() {
+    mStop.store(true);
+    wait_for_rescan();
+    g_index_live.store(false);
+  }
+
+  // Serves the cached index, then refreshes it in the background.
+  //
+  // The cache is what makes this fast: a warm load is a few milliseconds
+  // against the ~1.4s the scan costs, essentially all of it one `apropos`
+  // subprocess. The old code ran that scan inline, under the lock, whenever
+  // the file was missing. Now it runs on the worker and only a cold start —
+  // no usable cache to serve — still blocks.
   void ensure_loaded() {
     std::lock_guard<std::mutex> lock(mMutex);
-    if (!mLoaded) {
-      load_locked();
+    if (not mLoaded) {
+      if (load_locked()) {
+        // Served from cache. It may be stale — a command installed since the
+        // last scan is missing from it — so refresh it behind the caller.
+        start_rescan_locked();
+      } else {
+        // Nothing usable on disk, so there is nothing to serve and no way to
+        // avoid paying for the scan once.
+        mIndex = build_index(current_path_env());
+        write_index(mIndex, index_path());
+      }
       mLoaded = true;
     }
   }
 
   // Rebuilds the index from PATH + whatis, saves it, and returns a summary.
+  // Deliberately synchronous: `action='scan'` means "rebuild it now", and its
+  // result reports how many commands were found.
   std::string scan() {
+    // Built off-lock, like the worker does, so a scan requested while a search
+    // is running does not block that search for its whole duration.
+    Index fresh = build_index(current_path_env());
+    const std::string path = index_path();
+    write_index(fresh, path);
+
     std::lock_guard<std::mutex> lock(mMutex);
-    mIndex.clear();
-    scan_locked();
-    save_locked();
+    mIndex.swap(fresh);
     mLoaded = true;
     return "Scanned " + std::to_string(mIndex.size()) + " commands.";
   }
@@ -611,15 +653,35 @@ public:
     return results;
   }
 
-  size_t size() const {
+  // Drops what is loaded, so the next ensure_loaded() goes back through the
+  // cache-load path. Test-only; see tools.h.
+  void reset_for_test() {
+    wait_for_rescan();
     std::lock_guard<std::mutex> lock(mMutex);
-    return mIndex.size();
+    mIndex.clear();
+    mLoaded = false;
+  }
+
+  // Blocks until an in-flight rescan has finished. Tests need it to stay
+  // deterministic, and anything about to change the index path needs it so the
+  // worker cannot write through the old one.
+  void wait_for_rescan() {
+    std::thread worker;
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      worker = std::move(mRescan);
+    }
+    if (worker.joinable()) worker.join();
   }
 
 private:
+  BashSearchIndex() { g_index_live.store(true); }
+
   mutable std::mutex mMutex;
-  std::map<std::string, CommandEntry> mIndex;
+  Index mIndex;
   bool mLoaded = false;
+  std::thread mRescan;
+  std::atomic<bool> mStop{false};
 
   std::string index_path() const {
     if (const std::string& override_path = index_path_override();
@@ -630,22 +692,66 @@ private:
     return std::string(home ? home : "/tmp") + "/.m8trix/bash_search_index.json";
   }
 
+  // Snapshotted on the calling thread rather than read inside build_index:
+  // tools_python sets PIP_NO_INDEX and friends process-wide, and getenv
+  // alongside another thread's setenv is not safe.
+  static std::string current_path_env() {
+    const char* path_env = std::getenv("PATH");
+    return path_env != nullptr ? path_env : "";
+  }
+
+  // ── the worker ──
+
+  // Must be called under mMutex. Starts one rescan; a second call while one is
+  // already running is a no-op.
+  void start_rescan_locked() {
+    if (mRescan.joinable()) return;
+
+    // Both the path and the environment are read here, on the caller's thread,
+    // so the worker touches no shared mutable state but mIndex.
+    const std::string path_env = current_path_env();
+    const std::string path = index_path();
+
+    mRescan = std::thread([this, path_env, path] {
+      // Nothing expensive has started yet, so an early exit costs nothing.
+      if (mStop.load()) return;
+
+      // Built and written with no lock held. This is the whole point: the old
+      // scan held mMutex for its entire ~1.4s, which would block every search
+      // and list_tags call for that window.
+      Index fresh = build_index(path_env);
+      if (mStop.load() or fresh.empty()) return;
+      write_index(fresh, path);
+
+      // The only locked step, and it is a pointer swap. Safe because no
+      // reference into mIndex ever escapes the lock — search() pushes copies
+      // and all_tags() returns a fresh vector — so a reader can never hold
+      // something this invalidates.
+      std::lock_guard<std::mutex> lock(mMutex);
+      mIndex.swap(fresh);
+    });
+  }
+
   // ── must be called under mMutex ──
 
-  void load_locked() {
+  // False when the cache is missing OR unparseable. Telling those apart from
+  // success is what stops a torn or truncated file from meaning "empty index,
+  // forever": the caller treats false as cold and rebuilds.
+  bool load_locked() {
     const auto text = read_file(index_path());
-    if (!text) { scan_locked(); save_locked(); return; }
+    if (!text) return false;
 
     simdjson::ondemand::parser parser;
     simdjson::padded_string padded(*text);
     simdjson::ondemand::document doc;
-    if (parser.iterate(padded).get(doc)) return;
+    if (parser.iterate(padded).get(doc)) return false;
     simdjson::ondemand::object root;
-    if (doc.get_object().get(root)) return;
+    if (doc.get_object().get(root)) return false;
 
     simdjson::ondemand::array arr;
-    if (root["commands"].get_array().get(arr)) return;
+    if (root["commands"].get_array().get(arr)) return false;
 
+    Index loaded;
     for (auto item : arr) {
       simdjson::ondemand::object obj;
       if (item.get_object().get(obj)) continue;
@@ -657,12 +763,22 @@ private:
       // TagExpr::eval binary-searches the tags; assign_tags emits them sorted,
       // but an index file edited by hand need not be.
       std::sort(e.tags.begin(), e.tags.end());
-      if (!e.name.empty()) mIndex[e.name] = std::move(e);
+      if (!e.name.empty()) loaded[e.name] = std::move(e);
     }
+    // A file that parses but holds nothing is as useless as a missing one, and
+    // is what a half-written file usually looks like.
+    if (loaded.empty()) return false;
+
+    mIndex = std::move(loaded);
+    return true;
   }
 
-  void save_locked() const {
-    const std::string path = index_path();
+  // ── lock-free: these touch no member ──
+
+  // Written to a temp file and renamed, so a reader — this process next time,
+  // or a second sp — sees either the old index or the new one, never half of
+  // one. With a background writer that is no longer a theoretical concern.
+  static void write_index(const Index& index, const std::string& path) {
     std::error_code ec;
     std::filesystem::create_directories(
         std::filesystem::path(path).parent_path(), ec);
@@ -670,7 +786,7 @@ private:
 
     JsonWriter w;
     w.begin_object().key("commands").begin_array();
-    for (const auto& [_, e] : mIndex) {
+    for (const auto& [_, e] : index) {
       w.begin_object()
           .field("name", e.name)
           .field("description", e.description)
@@ -680,14 +796,27 @@ private:
     }
     w.end_array().end_object();
 
-    std::ofstream out(path);
-    if (out) out << w.str();
+    const std::string temp = path + ".tmp";
+    {
+      std::ofstream out(temp);
+      if (not out) return;
+      out << w.str();
+      if (not out) {
+        std::filesystem::remove(temp, ec);
+        return;
+      }
+    }
+    std::filesystem::rename(temp, path, ec);
+    if (ec) std::filesystem::remove(temp, ec);
   }
 
-  void scan_locked() {
+  // Builds a fresh index from `path_env`. Touches no member, so it runs on the
+  // worker thread with nothing locked.
+  static Index build_index(const std::string& path_env) {
+    Index index;
+
     // 1. Enumerate executables in PATH, deduplicating by name.
-    const char* path_env = std::getenv("PATH");
-    if (!path_env) return;
+    if (path_env.empty()) return index;
 
     std::set<std::string> seen;
     std::vector<std::string> names;
@@ -715,7 +844,8 @@ private:
     }
 
     // 2. Pull every manual page description the system knows, in one command.
-    //    Cost here is independent of how many executables PATH holds.
+    //    Cost here is independent of how many executables PATH holds, and it
+    //    is where essentially all of the scan's time goes.
     const auto descriptions =
         names.empty() ? std::map<std::string, std::string, std::less<>>()
                       : load_man_descriptions();
@@ -728,8 +858,9 @@ private:
       entry.description = desc == descriptions.end() ? std::string() : desc->second;
       entry.usage       = "";
       entry.tags        = assign_tags(name, entry.description);
-      mIndex[name]      = std::move(entry);
+      index[name]       = std::move(entry);
     }
+    return index;
   }
 };
 
@@ -825,7 +956,19 @@ ToolResult BashSearchTool::execute(const ToolArgs& args) const {
 }
 
 void set_bash_search_index_path(std::string path) {
+  // A rescan started under the old path must not land after the switch. The
+  // liveness check keeps this from constructing an index nobody asked for:
+  // sp calls this at startup, long before any bash_search call.
+  wait_for_bash_search_rescan();
   index_path_override() = std::move(path);
+}
+
+void wait_for_bash_search_rescan() {
+  if (g_index_live.load()) BashSearchIndex::instance().wait_for_rescan();
+}
+
+void reset_bash_search_index_for_test() {
+  BashSearchIndex::instance().reset_for_test();
 }
 
 }  // namespace agent

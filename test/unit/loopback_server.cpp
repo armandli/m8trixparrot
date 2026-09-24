@@ -49,8 +49,12 @@ LoopbackServer::LoopbackServer(int status, std::string content_type,
   listen_and_serve();
 }
 
-LoopbackServer::LoopbackServer(std::vector<std::string> json_bodies) {
-  for (const std::string& body : json_bodies) {
+LoopbackServer::LoopbackServer(std::vector<std::string> json_bodies)
+    : LoopbackServer(LoopbackOptions{std::move(json_bodies), {}, false}) {}
+
+LoopbackServer::LoopbackServer(LoopbackOptions options)
+    : mDelay(options.delay), mConcurrent(options.concurrent) {
+  for (const std::string& body : options.json_bodies) {
     mResponses.push_back(http_response(200, "application/json", body));
   }
   if (mResponses.empty()) {
@@ -102,6 +106,11 @@ LoopbackServer::~LoopbackServer() {
     mListenFd = -1;
   }
   if (mThread.joinable()) mThread.join();
+
+  // After the accept loop is done, nothing else can be appended.
+  for (std::thread& handler : mHandlers) {
+    if (handler.joinable()) handler.join();
+  }
 }
 
 std::string LoopbackServer::url(const std::string& path) const {
@@ -113,25 +122,48 @@ void LoopbackServer::serve() {
     const int fd = ::accept(mListenFd, nullptr, nullptr);
     if (fd < 0) return;  // Listening socket closed, or the run is over.
 
-    // Drain the request. It is never parsed — the path is ignored — but curl
-    // won't read the reply until its own write completes.
-    char buffer[4096];
-    const ssize_t got = ::recv(fd, buffer, sizeof(buffer), 0);
-    (void)got;
-
-    const std::string& response =
-        mResponses[std::min(mIndex, mResponses.size() - 1)];
-    ++mIndex;
-
-    size_t sent = 0;
-    while (sent < response.size()) {
-      const ssize_t n = ::send(fd, response.data() + sent,
-                               response.size() - sent, MSG_NOSIGNAL);
-      if (n <= 0) break;
-      sent += static_cast<size_t>(n);
+    // Claimed here rather than in the handler so connections keep getting the
+    // canned bodies in the order they arrived, even when they are served in
+    // parallel.
+    const std::size_t index = mIndex.fetch_add(1);
+    if (not mConcurrent) {
+      handle(fd, index);
+      continue;
     }
-    ::close(fd);
+    std::lock_guard<std::mutex> lock(mHandlersMutex);
+    mHandlers.emplace_back([this, fd, index] { handle(fd, index); });
   }
+}
+
+void LoopbackServer::handle(int fd, std::size_t response_index) {
+  const std::size_t in_flight = mInFlight.fetch_add(1) + 1;
+  std::size_t seen = mMaxConcurrent.load();
+  while (in_flight > seen and
+         not mMaxConcurrent.compare_exchange_weak(seen, in_flight)) {
+    // compare_exchange_weak refreshed `seen`; re-test against it.
+  }
+
+  // Drain the request. It is never parsed — the path is ignored — but curl
+  // won't read the reply until its own write completes.
+  char buffer[4096];
+  const ssize_t got = ::recv(fd, buffer, sizeof(buffer), 0);
+  (void)got;
+
+  // Held open, not slept before accepting, so the overlap is real.
+  if (mDelay.count() > 0) std::this_thread::sleep_for(mDelay);
+
+  const std::string& response =
+      mResponses[std::min(response_index, mResponses.size() - 1)];
+
+  size_t sent = 0;
+  while (sent < response.size()) {
+    const ssize_t n = ::send(fd, response.data() + sent, response.size() - sent,
+                             MSG_NOSIGNAL);
+    if (n <= 0) break;
+    sent += static_cast<size_t>(n);
+  }
+  ::close(fd);
+  mInFlight.fetch_sub(1);
 }
 
 }  // namespace agent::test

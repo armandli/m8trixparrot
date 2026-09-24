@@ -216,6 +216,17 @@ struct AskUserTool {
 // real index.
 void set_bash_search_index_path(std::string path);
 
+// Blocks until any background index rescan has finished. bash_search serves
+// its cached index immediately and refreshes it on a worker thread, so a
+// caller that needs the index settled — a test, or anything about to change
+// the index path — has to be able to wait for it.
+void wait_for_bash_search_rescan();
+
+// Test-only seam: drops the in-memory index so the next bash_search call goes
+// back through the load-from-cache path, which is what starts a background
+// rescan. Production code never calls this — a process only loads once.
+void reset_bash_search_index_for_test();
+
 // Searches for shell commands by category tag. Maintains a persistent index —
 // ~/.m8trix/bash_search_index.json unless set_bash_search_index_path() says
 // otherwise — built from PATH executables and apropos(1).

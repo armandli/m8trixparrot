@@ -5,8 +5,8 @@
 #include <cmath>
 #include <utility>
 
-#include <core/basic_ollama_client.h>
 #include <core/json_util.h>
+#include <core/ollama_client.h>
 
 namespace agent {
 
@@ -76,11 +76,11 @@ Schema memory_schema() {
 
 // ───────────────────────────────── embedders ───────────────────────────────
 
-Embedder ollama_embedder(std::string model, std::string host) {
-  return [model = std::move(model), host = std::move(host)](
-             std::string_view text, std::string& error) {
-    const BasicOllamaClient client(host);
-    const EmbedResult embedded = client.embed(model, {std::string(text)});
+Embedder ollama_embedder(std::string model) {
+  return [model = std::move(model)](std::string_view text, std::string& error) {
+    OllamaClient& client = OllamaClient::instance();
+    const uint64_t ticket = client.enqueue_embed({std::string(text)}, model);
+    const EmbedResult embedded = client.wait_for_embed(ticket);
     if (not embedded.ok) {
       error = embedded.error.empty() ? "the embedding request failed"
                                      : embedded.error;
@@ -157,14 +157,36 @@ Memory MemoryStore::memory_of(const Document& document) {
   return memory;
 }
 
+std::string memory_model_mismatch(const std::string& path,
+                                  const std::string& model) {
+  const StoreProbe probe = probe_vector_store(path);
+  // Nothing there yet, or a file from before the model name was stamped into
+  // the header: there is nothing to disagree with.
+  if (not probe.exists or probe.source.empty() or model.empty()) return {};
+  if (probe.source == model) return {};
+
+  return path + " was built with '" + probe.source + "' (" +
+         std::to_string(probe.dim) +
+         "-dimensional) but the configured embed model is '" + model +
+         "'; their vectors are not comparable even at the same width. Delete "
+         "the file to rebuild it, or set the embed model back to '" +
+         probe.source + "'.";
+}
+
 MemoryOpenResult MemoryStore::open(const MemoryOptions& options) {
   MemoryOpenResult result;
   std::unique_ptr<MemoryStore> store(new MemoryStore());
   store->mOptions = options;
   store->mEmbedder = options.embedder
                          ? options.embedder
-                         : ollama_embedder(options.embed_model,
-                                           options.ollama_host);
+                         : ollama_embedder(options.embed_model);
+
+  const std::string mismatch =
+      memory_model_mismatch(options.path, options.embed_model);
+  if (not mismatch.empty()) {
+    result.error = "memory: " + mismatch;
+    return result;
+  }
 
   const StoreProbe probe = probe_vector_store(options.path);
   uint32_t dim = options.embedding_dim;

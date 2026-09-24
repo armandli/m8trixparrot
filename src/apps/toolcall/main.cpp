@@ -127,8 +127,8 @@ int main(int argc, char** argv) {
   app.add_option("--memory-path", memory_options.path,
                  "Memory database file (default: .m8trix/memory.m8db)");
   app.add_option("--memory-model", memory_options.embed_model,
-                 "Ollama embedding model for the memory tool "
-                 "(default: nomic-embed-text)");
+                 "Ollama embedding model for the memory tool")
+      ->capture_default_str();
 
   std::string call_json;
   app.add_option("call", call_json,

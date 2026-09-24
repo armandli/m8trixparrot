@@ -85,6 +85,7 @@ void merge_settings(agent::StartupSettings& into,
   prefer(into.max_steps, over.max_steps);
   prefer(into.num_ctx, over.num_ctx);
   prefer(into.summarize_at, over.summarize_at);
+  prefer(into.ollama_jobs, over.ollama_jobs);
   prefer(into.enable_memory, over.enable_memory);
   prefer(into.memory_path, over.memory_path);
   prefer(into.memory_embed_model, over.memory_embed_model);
@@ -276,8 +277,9 @@ int run_interactive(agent::Agent& root_agent, const std::string& model,
         command.kind == sp::Command::Kind::Memories or
         command.kind == sp::Command::Kind::Forget) {
       if (not memory.enabled) {
-        notice("Memory is off. Pull an embedding model (ollama pull "
-               "nomic-embed-text) or start sp with --memory.");
+        notice(std::string("Memory is off. Pull an embedding model (ollama "
+                           "pull ") +
+               agent::kDefaultEmbedModel + ") or start sp with --memory.");
         return;
       }
       // remember and recall both block on an embedding round trip, so they
@@ -560,7 +562,8 @@ int main(int argc, char** argv) {
   std::string memory_path =
       settings.memory_path.value_or(paths.memory());
   std::string memory_model =
-      settings.memory_embed_model.value_or("nomic-embed-text");
+      settings.memory_embed_model.value_or(agent::kDefaultEmbedModel);
+  int ollama_jobs = settings.ollama_jobs.value_or(agent::kDefaultOllamaJobs);
   // Unset means "decide from whether an embedding model is pulled"; a flag or
   // a config key makes it a decision the user made, which is honoured either
   // way.
@@ -574,6 +577,10 @@ int main(int argc, char** argv) {
       ->capture_default_str();
   app.add_option("--max-steps", max_steps,
                  "Max model calls per turn (default: 30)")
+      ->capture_default_str();
+  app.add_option("--ollama-jobs", ollama_jobs,
+                 "Max concurrent requests against ollama, chat and embed "
+                 "together")
       ->capture_default_str();
   const CLI::Option* memory_opt = app.add_flag(
       "--memory,!--no-memory", memory_flag,
@@ -623,7 +630,9 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  agent::OllamaClient::set_concurrency(ollama_jobs);
   agent::OllamaClient::configure(model);
+  agent::OllamaClient::configure_embed(memory_model);
 
   int64_t window = num_ctx;
   if (window <= 0) {
@@ -640,9 +649,15 @@ int main(int argc, char** argv) {
   MemoryConfig memory;
   memory.options.path = memory_path;
   memory.options.embed_model = memory_model;
-  if (memory_wanted.value_or(true)) {
-    const bool usable =
-        agent::memory_available(memory_model, memory.options.ollama_host);
+  const std::string memory_mismatch =
+      agent::memory_model_mismatch(memory_path, memory_model);
+  if (not memory_mismatch.empty()) {
+    // Two models of the same width would otherwise open, write and rank
+    // against each other with nothing to show for it but worse recall.
+    std::cerr << "warning: " << memory_mismatch
+              << " Memory is off for this run.\n";
+  } else if (memory_wanted.value_or(true)) {
+    const bool usable = agent::memory_available(memory_model);
     if (usable) {
       memory.enabled = true;
     } else if (memory_wanted.has_value()) {
@@ -651,7 +666,7 @@ int main(int argc, char** argv) {
       memory.enabled = true;
       std::cerr << "warning: memory is enabled but '" << memory_model
                 << "' is not a pulled embedding model (try `ollama pull "
-                   "nomic-embed-text`); memory calls will fail\n";
+                << memory_model << "`); memory calls will fail\n";
     } else {
       // Nobody asked either way, so off is the safe read — one line to stderr
       // so a script's stdout stays clean.

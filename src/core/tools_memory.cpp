@@ -4,8 +4,8 @@
 #include <system_error>
 #include <utility>
 
-#include <core/basic_ollama_client.h>
 #include <core/memory_store.h>
+#include <core/ollama_client.h>
 #include <core/tools_util.h>
 
 namespace agent {
@@ -70,9 +70,8 @@ void MemoryStoreRegistry::reset() {
   mStores.clear();
 }
 
-bool memory_available(const std::string& model, const std::string& host) {
-  const BasicOllamaClient client(host);
-  const ShowResult shown = client.show(model);
+bool memory_available(const std::string& model) {
+  const ShowResult shown = OllamaClient::instance().show(model);
   if (not shown.ok) return false;
   return std::find(shown.capabilities.begin(), shown.capabilities.end(),
                    "embedding") != shown.capabilities.end();

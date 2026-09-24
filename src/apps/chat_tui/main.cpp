@@ -17,7 +17,7 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 
-#include <core/basic_ollama_client.h>
+#include <core/ollama_client.h>
 
 namespace f = ftxui;
 
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  agent::BasicOllamaClient client;
+  agent::OllamaClient::configure(model);
 
   std::mutex mutex;
   std::vector<DisplayMessage> history;
@@ -141,9 +141,11 @@ int main(int argc, char** argv) {
     input_value.clear();
     input_cursor = 0;
 
-    std::thread([&client, &mutex, &history, &waiting_for_reply, &scroll_y,
-                &screen, model, outgoing = std::move(outgoing)] {
-      const agent::ChatResult result = client.chat(model, outgoing);
+    std::thread([&mutex, &history, &waiting_for_reply, &scroll_y, &screen,
+                outgoing = std::move(outgoing)] {
+      agent::OllamaClient& client = agent::OllamaClient::instance();
+      const agent::ChatResult result =
+          client.wait_for(client.enqueue_chat(outgoing));
 
       std::lock_guard<std::mutex> lock(mutex);
       if (result.ok) {

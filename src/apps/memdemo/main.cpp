@@ -12,6 +12,7 @@
 #include <CLI/CLI.hpp>
 
 #include <core/memory_store.h>
+#include <core/ollama_client.h>
 
 namespace {
 
@@ -41,8 +42,8 @@ int main(int argc, char** argv) {
 
   std::string model;
   app.add_option("--model", model,
-                 "Ollama embedding model (e.g. nomic-embed-text). Omit to run "
-                 "offline against the built-in hash embedder.");
+                 "Ollama embedding model (e.g. nomic-embed-text-v2-moe). "
+                 "Omit to run offline against the built-in hash embedder.");
 
   std::string host = "http://localhost:11434";
   app.add_option("--host", host, "Ollama host");
@@ -71,7 +72,9 @@ int main(int argc, char** argv) {
     std::printf("Embedder: built-in hash (%d dimensions, offline)\n", dim);
   } else {
     options.embed_model = model;
-    options.ollama_host = host;
+    // The host lives on the OllamaClient pool now, not on MemoryOptions: every
+    // embedding in the process goes through it.
+    agent::OllamaClient::configure_embed(model, host);
     std::printf("Embedder: ollama %s at %s\n", model.c_str(), host.c_str());
   }
 

@@ -14,6 +14,7 @@
 #include <simdjson.h>
 
 #include <core/memory_store.h>
+#include <core/ollama_client.h>
 #include <core/tools.h>
 #include <core/session_store.h>
 
@@ -502,6 +503,38 @@ TEST_F(MemoryStoreTest, EmptyContentIsRejected) {
   EXPECT_FALSE(opened.store->remember(make("")).ok);
 }
 
+// The case that matters is two models of the same width: nothing downstream
+// fails, so without this check recall just quietly gets worse.
+TEST_F(MemoryStoreTest, AChangeOfEmbeddingModelIsCaughtAtTheSameWidth) {
+  {
+    MemoryOpenResult opened = open_store(options());
+    ASSERT_TRUE(opened.ok) << opened.error;
+    ASSERT_TRUE(opened.store->remember(make("something")).ok);
+    ASSERT_TRUE(opened.store->flush().ok);
+  }
+
+  MemoryOptions other = options();
+  other.embed_model = "a-different-model";  // Same hash embedder, same width.
+
+  const std::string mismatch = memory_model_mismatch(path, other.embed_model);
+  EXPECT_NE(mismatch.find("stub"), std::string::npos) << mismatch;
+  EXPECT_NE(mismatch.find("a-different-model"), std::string::npos) << mismatch;
+
+  // And open() refuses rather than leaving it to a later tool call.
+  MemoryOpenResult reopened = open_store(other);
+  EXPECT_FALSE(reopened.ok);
+  EXPECT_NE(reopened.error.find("a-different-model"), std::string::npos)
+      << reopened.error;
+
+  // The model it was built with still opens.
+  EXPECT_TRUE(memory_model_mismatch(path, "stub").empty());
+  EXPECT_TRUE(open_store(options()).ok);
+}
+
+TEST_F(MemoryStoreTest, AMissingFileHasNoModelToDisagreeWith) {
+  EXPECT_TRUE(memory_model_mismatch(path, "stub").empty());
+}
+
 TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
   const test::LoopbackServer server(
       200, "application/json",
@@ -510,7 +543,8 @@ TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
   MemoryOptions opts;
   opts.path = path;
   opts.embed_model = "stub";
-  opts.embedder = ollama_embedder("stub", server.url());
+  OllamaClient::configure_embed("stub", server.url());
+  opts.embedder = ollama_embedder("stub");
   opts.recency_weight = 0.0;
   MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
@@ -534,7 +568,8 @@ TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnHttpErrorAsAString) {
   const test::LoopbackServer server(500, "text/plain", "upstream is down");
   MemoryOptions opts;
   opts.path = path;
-  opts.embedder = ollama_embedder("stub", server.url());
+  OllamaClient::configure_embed("stub", server.url());
+  opts.embedder = ollama_embedder("stub");
   MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
   const RememberResult stored = opened.store->remember(make("x"));
@@ -548,7 +583,8 @@ TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnEmptyResponseAsAString) {
                                     R"({"model":"stub","embeddings":[]})");
   MemoryOptions opts;
   opts.path = path;
-  opts.embedder = ollama_embedder("stub", server.url());
+  OllamaClient::configure_embed("stub", server.url());
+  opts.embedder = ollama_embedder("stub");
   MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
   const RememberResult stored = opened.store->remember(make("x"));
