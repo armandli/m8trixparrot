@@ -135,7 +135,10 @@ agent/parent/depth and routes it to `TranscriptView`. Calling the
 same `OllamaClient` queue so concurrent model calls still serialize — whose
 events nest under the parent in the transcript until `subagent_wait` joins it.
 The root agent's result tree (not the full transcript) is saved to
-`SessionStore` after each turn.
+`SessionStore` after each turn — to `.m8trix/sessions/` under the working
+directory, except for `sp`, which points `AgentOptions::session_dir` at
+`$XDG_STATE_HOME/sp/sessions/` so that running it from an arbitrary directory
+does not leave files there.
 
 ## Running m8trixsh
 
@@ -253,10 +256,41 @@ to park the agent thread until the operator answers.
 ## Running shell-parrot (sp)
 
 `sp` is a natural-language shell assistant: describe a task in plain English
-and it runs the shell commands to carry it out. Its whole tool set is `bash`
-plus `bash_search` — no python, no subagents, no skills — and it **never
-deletes anything**: unwanted files are moved to `~/.local/share/Trash/files`,
-and helper scripts it writes go to `~/.local/share/sp/scripts`.
+and it runs the shell commands to carry it out. Its whole tool set is
+`bash_repl` — one shell that stays alive across calls, so a variable it sets or
+a directory it `cd`s into is still there on the next one — plus `bash_search`.
+No python, no subagents, no skills. It **never deletes anything**: unwanted
+files are moved to `~/.local/share/Trash/files`.
+
+When a task produces something worth keeping, sp installs it as a real command:
+executable, named without an extension, with a `--help` and arguments instead
+of this run's values hardcoded. sp's closing message tells you the path and how
+to run it, plus the `PATH` line to add if you have not already.
+
+Everything sp owns lives in the XDG base directories, so it can be found,
+backed up or deleted as a unit:
+
+| Path | Holds |
+|---|---|
+| `$XDG_DATA_HOME/sp/bin/` | commands sp installs — **add this to your `PATH`** |
+| `$XDG_DATA_HOME/sp/src/` | C++ and script sources it keeps |
+| `$XDG_DATA_HOME/sp/trash/` | files it was asked to delete |
+| `$XDG_DATA_HOME/sp/memory.m8db` | long-term memory |
+| `$XDG_CONFIG_HOME/sp/config` | settings (see below) |
+| `$XDG_STATE_HOME/sp/sessions/` | one JSON result tree per turn |
+| `$XDG_CACHE_HOME/sp/bash_search_index.json` | the `bash_search` command index |
+
+The defaults are `~/.local/share`, `~/.config`, `~/.local/state` and `~/.cache`;
+each `$XDG_*_HOME` is honoured when set to an absolute path. Add the bin
+directory once:
+
+```sh
+export PATH="$HOME/.local/share/sp/bin:$PATH"
+```
+
+Upgrading from an earlier version moves `~/.local/sp_development` and `~/.sprc`
+into the new layout automatically, printing what it moved. Commands already
+installed in `~/.local/bin` or `~/bin` are left alone and keep working.
 
 ```sh
 build/sp 'move all .log files in /tmp to ~/Downloads'
@@ -270,12 +304,13 @@ progress line per call to stderr, so a script can pipe it. Interactive mode is
 the same transcript view the other TUIs use, with `/help`, `/reset` and
 `/quit`.
 
-Defaults come from `~/.sprc` (the shell-env format `~/.m8shrc` uses: one
-`KEY=VALUE` per line, `#` comments; keys `MODEL`, `MAX_STEPS`, `NUM_CTX`,
-`SUMMARIZE_AT`, `ENABLE_MEMORY`, `MEMORY_PATH`, `MEMORY_EMBED_MODEL`), then
-`./.m8trix/settings.json` where one exists, then the command line — each
-winning over the one before it. `sp` is run from wherever the user happens to
-be standing, so `~/.sprc` is the file that actually persists a setting.
+Defaults come from `$XDG_CONFIG_HOME/sp/config` — `~/.config/sp/config` — in
+the shell-env format `~/.m8shrc` uses: one `KEY=VALUE` per line, `#` comments;
+keys `MODEL`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`, `ENABLE_MEMORY`,
+`MEMORY_PATH`, `MEMORY_EMBED_MODEL`. Then `./.m8trix/settings.json` where one
+exists, then the command line — each winning over the one before it. `sp` is
+run from wherever the user happens to be standing, so the config file is what
+actually persists a setting. An older `~/.sprc` is moved here on first run.
 
 ### What sp remembers
 
@@ -390,10 +425,10 @@ every existing caller sees:
 - **m8trixsh** — `ENABLE_MEMORY=1` in `~/.m8shrc`, with optional `MEMORY_PATH`
   and `MEMORY_EMBED_MODEL`
 - **sp** — **on whenever an embedding model is pulled**, which it probes for at
-  startup. `--no-memory` (or `ENABLE_MEMORY=0` in `~/.sprc`) turns it off;
+  startup. `--no-memory` (or `ENABLE_MEMORY=0` in the config file) turns it off;
   `--memory` forces it on and warns if the model is missing rather than
   overruling you. Its database is **user-global**, at
-  `~/.local/share/sp/memory.m8db` rather than under a workspace, because sp is
+  `$XDG_DATA_HOME/sp/memory.m8db` rather than under a workspace, because sp is
   run from arbitrary directories and its memories are about the user, not the
   directory. `--memory-path` and `--memory-model` override both.
 

@@ -30,6 +30,8 @@
 #include <core/sane_policy.h>
 #include <core/tools.h>
 
+#include <parrot_prompt.h>
+
 namespace f = ftxui;
 
 namespace {
@@ -240,6 +242,11 @@ int main(int argc, char** argv) {
               << "' is not a pulled embedding model (try `ollama pull "
                  "nomic-embed-text`); memory calls will fail\n";
   }
+
+  // m8trixparrot's prompt is its own, like every other application's; core
+  // supplies only the facts it is built from. Subagents inherit this builder
+  // with the rest of AgentOptions.
+  options.system_prompt_builder = parrot::make_system_prompt;
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
   agent::Agent root_agent(options, policy, root_id, "", 0);

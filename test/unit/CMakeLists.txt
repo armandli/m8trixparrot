@@ -7,6 +7,7 @@ add_executable(unit_tests
   loopback_server.cpp
   shell_session_test.cpp
   skills_test.cpp
+  tools_bash_repl_test.cpp
   tools_bash_search_test.cpp
   tools_file_test.cpp
   tools_python_test.cpp
@@ -37,6 +38,7 @@ add_executable(core_tests
   agent_context_test.cpp
   agent_skills_test.cpp
   agent_tools_test.cpp
+  system_prompt_test.cpp
   ollama_client_test.cpp
   package_installer_test.cpp
   session_store_test.cpp
@@ -55,12 +57,17 @@ target_link_libraries(core_tests
 
 gtest_discover_tests(core_tests)
 
-# sp's prompt, slash-command grammar and hand-driven memory operations. Its own
-# binary rather than part of unit_tests for the same reason core_tests is: these
-# drive a MemoryStore over a temp file and run alongside the vector-store tests.
+# sp's system prompt, slash-command grammar and hand-driven memory operations.
+# Its own binary rather than part of unit_tests for the same reason core_tests
+# is: these drive a MemoryStore over a temp file and run alongside the
+# vector-store tests.
 add_executable(sp_tests
   sp_memory_test.cpp
+  sp_prompt_test.cpp
+  sp_paths_test.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/sp/sp_memory.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/sp/sp_prompt.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/sp/sp_paths.cpp
 )
 
 target_include_directories(sp_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/sp)
@@ -71,6 +78,29 @@ target_link_libraries(sp_tests
 )
 
 gtest_discover_tests(sp_tests)
+
+# m8trixparrot's and m8trixsh's system prompts. Each prompt is a free function
+# over PromptFacts with no FTXUI, libvterm or network dependency, so they build
+# here regardless of whether their applications do — which is the point of
+# giving each application its own prompt translation unit.
+add_executable(prompt_tests
+  parrot_prompt_test.cpp
+  sh_prompt_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8trixparrot/parrot_prompt.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8trixsh/sh_prompt.cpp
+)
+
+target_include_directories(prompt_tests
+  PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8trixparrot
+  PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8trixsh
+)
+
+target_link_libraries(prompt_tests
+  PRIVATE agentcore
+  PRIVATE GTest::gtest_main
+)
+
+gtest_discover_tests(prompt_tests)
 
 # m8trixsh's terminal emulator and shell integration have no core dependency,
 # so they get their own binary rather than joining unit_tests. Only built when

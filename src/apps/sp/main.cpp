@@ -29,6 +29,8 @@
 #include <core/tools.h>
 
 #include <sp_memory.h>
+#include <sp_prompt.h>
+#include <sp_paths.h>
 
 namespace f = ftxui;
 
@@ -69,13 +71,6 @@ std::string get_home() {
   return "/tmp";
 }
 
-// sp's own home-directory config, in the shell-env format m8trixsh already
-// uses for ~/.m8shrc (KEY=VALUE, `#` comments). sp reads
-// .m8trix/settings.json too, but that path is relative to the working
-// directory and sp is run from wherever the user happens to be standing — so
-// the workspace file is almost never there, and this is the one that actually
-// persists a setting.
-inline constexpr const char* kSpRcFilename = ".sprc";
 
 template <typename T>
 void prefer(std::optional<T>& into, const std::optional<T>& over) {
@@ -489,17 +484,63 @@ int main(int argc, char** argv) {
       "  sp                      # same — no prompt = interactive"};
 
   app.footer(
-      "Defaults can be set in ~/.sprc (one KEY=VALUE per line; keys: MODEL, "
-      "MAX_STEPS,\nNUM_CTX, SUMMARIZE_AT, ENABLE_MEMORY, MEMORY_PATH, "
-      "MEMORY_EMBED_MODEL) and, per\ndirectory, in ./.m8trix/settings.json, "
-      "which wins over ~/.sprc. A flag wins over both.");
+      "Defaults can be set in $XDG_CONFIG_HOME/sp/config (~/.config/sp/config;\n"
+      "one KEY=VALUE per line; keys: MODEL, MAX_STEPS, NUM_CTX, SUMMARIZE_AT,\n"
+      "ENABLE_MEMORY, MEMORY_PATH, MEMORY_EMBED_MODEL) and, per directory, in\n"
+      "./.m8trix/settings.json, which wins over it. A flag wins over both.\n"
+      "\nsp keeps its files under $XDG_DATA_HOME/sp (~/.local/share/sp):\n"
+      "  bin/  commands it installs   src/  sources it keeps   trash/\n"
+      "  memory.m8db\n"
+      "Sessions go to $XDG_STATE_HOME/sp/sessions, caches to $XDG_CACHE_HOME/sp.");
 
   const std::string username = get_username();
   const std::string home     = get_home();
 
+  // Resolved once, here, rather than left to the model: where a script
+  // belongs, where sources are kept, and whether the bin directory is on the
+  // user's PATH are facts about this machine. XDG rather than a pile of
+  // $HOME dotfiles, so sp's files sit where a shell tool's files are expected
+  // to be and can be found, backed up or deleted as a unit.
+  const auto env_or_empty = [](const char* name) -> std::string {
+    const char* value = std::getenv(name);
+    return value != nullptr ? value : std::string();
+  };
+  sp::XdgEnv xdg;
+  xdg.data_home   = env_or_empty("XDG_DATA_HOME");
+  xdg.config_home = env_or_empty("XDG_CONFIG_HOME");
+  xdg.state_home  = env_or_empty("XDG_STATE_HOME");
+  xdg.cache_home  = env_or_empty("XDG_CACHE_HOME");
+
+  const sp::SpPaths paths =
+      sp::resolve_sp_paths(home, xdg, env_or_empty("PATH"));
+
+  std::string paths_error;
+  if (not sp::ensure_sp_dirs(paths, paths_error)) {
+    // Not fatal: sp still runs, it just cannot install anything. Saying so
+    // beats refusing to start over a directory most tasks never touch.
+    std::cerr << "warning: " << paths_error
+              << "; scripts cannot be installed this run\n";
+  }
+
+  // Anything sp left in its old locations follows it across, once, and the
+  // user is told rather than left to discover their files moved.
+  std::string migration_notes;
+  sp::migrate_legacy_paths(home, paths, migration_notes);
+  if (not migration_notes.empty()) std::cerr << migration_notes;
+
+  if (not paths.bin_on_path) {
+    std::cerr << "note: " << paths.bin()
+              << " is not on your PATH — add `export PATH=\"" << paths.bin()
+              << ":$PATH\"` to your shell rc file to run commands sp installs "
+                 "by name\n";
+  }
+
+  // sp's own cache, not the shared ~/.m8trix one.
+  agent::set_bash_search_index_path(paths.search_index());
+
   std::string settings_warning;
-  agent::StartupSettings settings = agent::load_shellrc_settings(
-      home + "/" + kSpRcFilename, settings_warning);
+  agent::StartupSettings settings =
+      agent::load_shellrc_settings(paths.config_file(), settings_warning);
   if (not settings_warning.empty()) {
     std::cerr << "warning: " << settings_warning << "\n";
     settings_warning.clear();
@@ -517,7 +558,7 @@ int main(int argc, char** argv) {
   int num_ctx = settings.num_ctx.value_or(0);
 
   std::string memory_path =
-      settings.memory_path.value_or(sp::default_memory_path(home));
+      settings.memory_path.value_or(paths.memory());
   std::string memory_model =
       settings.memory_embed_model.value_or("nomic-embed-text");
   // Unset means "decide from whether an embedding model is pulled"; a flag or
@@ -627,6 +668,12 @@ int main(int argc, char** argv) {
   options.enable_file_tools      = false;
   options.enable_web_search      = false;
   options.enable_bash_search     = true;
+  // One shell for the whole run: sp's tasks are shell work, and a shell that
+  // forgets everything between calls makes the model redo its setup each time.
+  options.enable_bash_repl       = true;
+  // Otherwise every turn drops a .m8trix/sessions directory into whatever
+  // directory the user happened to be standing in.
+  options.session_dir            = paths.sessions();
   options.max_steps              = max_steps;
   options.max_depth              = 1;
   options.max_agents             = 1;
@@ -637,8 +684,13 @@ int main(int argc, char** argv) {
   options.enable_memory          = memory.enabled;
   options.memory_path            = memory.options.path;
   options.memory_embed_model     = memory.options.embed_model;
-  options.extra_system_prompt    =
-      sp::make_extra_prompt(username, home, memory.enabled);
+  // sp's prompt is entirely its own — no coding-agent preamble, no agent-tree
+  // sentence, no git workspace block. What the model is told about memory
+  // follows facts.enable_memory, which mirrors options.enable_memory above.
+  options.system_prompt_builder   =
+      [username, home, paths](const agent::PromptFacts& facts) {
+        return sp::make_system_prompt(facts, username, home, paths);
+      };
 
   agent::AgentPool::configure(options.max_agents, options.max_depth);
 

@@ -4,7 +4,9 @@
 // single scan before any case runs.  Individual cases then query that data.
 
 #include <chrono>
+#include <filesystem>
 #include <string>
+#include <system_error>
 
 #include <gtest/gtest.h>
 
@@ -15,8 +17,23 @@ namespace agent::test {
 namespace {
 
 struct BashSearchTest : ToolTest {
+  // The index defaults to ~/.m8trix/bash_search_index.json, and ToolTest only
+  // chdirs — it never overrides $HOME. Without this, running the suite
+  // rewrites the developer's own index file.
+  static std::filesystem::path index_file() {
+    return std::filesystem::temp_directory_path() /
+           "m8trixparrot-test-bash-search-index.json";
+  }
+
   static void SetUpTestSuite() {
+    set_bash_search_index_path(index_file().string());
     BashSearchTool().execute(args({{"action", str("scan")}}));
+  }
+
+  static void TearDownTestSuite() {
+    std::error_code ec;
+    std::filesystem::remove(index_file(), ec);
+    set_bash_search_index_path("");
   }
 };
 

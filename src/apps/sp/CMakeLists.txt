@@ -1,5 +1,7 @@
 add_executable(sp
   main.cpp
+  sp_prompt.cpp
+  sp_paths.cpp
   sp_memory.cpp
 )
 

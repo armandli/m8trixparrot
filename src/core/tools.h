@@ -11,6 +11,9 @@
 
 namespace agent {
 
+// Owned by the Agent and borrowed by BashReplTool; see bash_repl.h.
+struct BashReplSession;
+
 // One tool-call argument value. The alternatives cover every parameter type
 // that appears in config/basic_tools.json: strings, numbers, booleans, and
 // edit's array of {oldText, newText} objects.
@@ -69,10 +72,12 @@ struct ToolResult {
 // ---------------------------------------------------------------------------
 // The tools.
 //
-// Every tool is stateless — no members, nothing to construct — and exposes the
-// same two methods, so a caller dispatches on the tool name from a model's
-// tool_call and hands over the same ToolArgs map regardless of which tool it
-// picked. Tools never parse JSON: use args_from_json() in tools_util.h to
+// A tool is stateless unless it names what it borrows: most have no members
+// and nothing to construct, while the few that need context (BashReplTool's
+// shell, MemoryTool's store, SkillTool's transcript) take it as an aggregate
+// member filled in at the dispatch site. Either way they expose the same two
+// methods, so a caller dispatches on the tool name from a model's tool_call
+// and hands over the same ToolArgs map regardless of which tool it picked. Tools never parse JSON: use args_from_json() in tools_util.h to
 // turn a tool_call's argument object into a ToolArgs first.
 //
 // description() returns the tool's schema as a JSON object, in the shape
@@ -86,6 +91,23 @@ struct ToolResult {
 struct BashTool {
   std::string description() const;
   // command (string, required), timeout (number, seconds, optional).
+  ToolResult execute(const ToolArgs& args) const;
+};
+
+// `bash`'s stateful counterpart: every call lands in the same long-lived shell,
+// so a variable set in one call is still set in the next, a `cd` sticks, and
+// work can be built up in the shell instead of re-derived each time. The
+// session is borrowed — the Agent owns it, so each agent gets its own shell
+// rather than sharing one with its subagents.
+//
+// Reports ok == true for any command it managed to start, exactly like
+// BashTool: a non-zero exit, a timeout, or a lost session are content in the
+// output rather than tool failures.
+struct BashReplTool {
+  BashReplSession& session;
+
+  static std::string description();
+  // command (string), timeout (number, seconds), restart (bool).
   ToolResult execute(const ToolArgs& args) const;
 };
 
@@ -187,8 +209,16 @@ struct AskUserTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
-// Searches for shell commands by category tag. Maintains a persistent index at
-// ~/.m8trix/bash_search_index.json built from PATH executables and apropos(1).
+// Overrides where the bash_search index file lives. Call once at startup,
+// before any agent runs; an empty string restores the default of
+// ~/.m8trix/bash_search_index.json. For an app that keeps its files somewhere
+// of its own, and for tests, which would otherwise rewrite the developer's
+// real index.
+void set_bash_search_index_path(std::string path);
+
+// Searches for shell commands by category tag. Maintains a persistent index —
+// ~/.m8trix/bash_search_index.json unless set_bash_search_index_path() says
+// otherwise — built from PATH executables and apropos(1).
 // Three actions: list_tags, search (boolean tag query), scan (rebuild index).
 struct BashSearchTool {
   std::string description() const;

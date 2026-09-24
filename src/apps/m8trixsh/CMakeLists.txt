@@ -1,6 +1,7 @@
 add_executable(m8trixsh
   main.cpp
   terminal_emulator.cpp
+  sh_prompt.cpp
   shell_integration.cpp
 )
 

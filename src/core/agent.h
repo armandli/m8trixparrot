@@ -2,6 +2,7 @@
 #define AGENT_H
 
 #include <atomic>
+#include <memory>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -9,10 +10,12 @@
 #include <vector>
 
 #include <core/agent_result.h>
+#include <core/bash_repl.h>
 #include <core/ollama_client.h>
 #include <core/policy.h>
 #include <core/session_store.h>
 #include <core/skills.h>
+#include <core/system_prompt.h>
 #include <core/tools.h>
 
 namespace agent {
@@ -90,6 +93,13 @@ struct AgentOptions {
   // model nor dispatchable — the agent runs python-only, as a single agent.
   bool enable_subagents = true;
 
+  // Where the root agent's result tree is written. Relative to the working
+  // directory by default, which is right for an agent run inside a project —
+  // but wrong for one run from wherever the user is standing, since it drops
+  // a .m8trix directory there. Such an app points this at its own state
+  // directory instead.
+  std::string session_dir = kAgentSessionDir;
+
   // Skills are discovered from <skills_dir>/<name>/SKILL.md (relative to cwd, or
   // absolute). enable_skills gates the system-prompt catalog, the `skill` tool,
   // and the TUI's /<name> command triggers.
@@ -133,10 +143,28 @@ struct AgentOptions {
   // this to false so the model's entire tool set is bash + bash_search.
   bool enable_python = true;
 
-  // Appended verbatim to the end of every system_prompt() when non-empty. The
-  // hook for an app to give the agent task-specific standing instructions
-  // without forking the prompt builder.
-  std::string extra_system_prompt;
+  // When true, `bash_repl` REPLACES `bash`: one long-lived shell per agent, so
+  // a variable set in one call is still set in the next and a `cd` sticks.
+  // Replaces rather than adds, because an agent handed two shells has to guess
+  // which one holds its state. Off by default — it costs a shell process per
+  // agent, and it changes the tool set every existing caller sees.
+  bool enable_bash_repl = false;
+
+  // When set, its return value IS the entire system prompt — core contributes
+  // no text of its own. This is how each application gets a prompt written for
+  // it alone, rather than a shared one with an app-specific tail bolted on:
+  // core hands over the facts (PromptFacts) and the application decides what
+  // to say about them, including saying nothing.
+  //
+  // Copied by value into subagents along with the rest of AgentOptions, so a
+  // builder must handle facts.depth > 0 as well as the root.
+  //
+  // Unset means default_system_prompt(), which is deliberately minimal.
+  std::function<std::string(const PromptFacts&)> system_prompt_builder;
+
+  // Overrides the prompt used to compact the transcript when non-empty.
+  // Empty means default_summary_prompt().
+  std::string summary_system_prompt;
 
   // When set, the `ask_user` tool is advertised and dispatchable: the agent
   // calls it with a question, this runs (on the agent's own thread, so it may
@@ -229,15 +257,23 @@ struct Agent {
   // Just the names, for the system prompt.
   std::vector<std::string> tool_names() const;
 
+  // The system message, rebuilt for every model call and deliberately not
+  // stored in the transcript. Either mOptions.system_prompt_builder's output
+  // or default_system_prompt(). Public because it is a pure const function and
+  // it is the only way a test can assert what an application's builder
+  // produces — the loopback server drains requests without parsing them.
+  std::string system_prompt() const;
+
+  // The facts handed to the prompt builder. Exposed alongside system_prompt()
+  // so a test can drive an application's builder with a real agent's view of
+  // the world.
+  PromptFacts prompt_facts() const;
+
 protected:
   // Runs one tool call, policy first. Never throws and never reports failure as
   // anything but a ToolResult: a tool that fails is information the model
   // needs, not a reason to abandon the turn.
   ToolResult dispatch(const std::string& tool_name, const ToolArgs& args);
-
-  // The system message, rebuilt for every model call. Deliberately not stored
-  // in the transcript.
-  std::string system_prompt() const;
 
 private:
   // Stamps the event with this agent's id/parent/depth/label and forwards it
@@ -263,6 +299,11 @@ private:
   // A handler is set in mOptions: the `ask_user` tool is advertised.
   bool ask_user_offered() const;
 
+  // This agent's persistent shell, started on the first `bash_repl` call. One
+  // per Agent rather than one per process: a subagent must get its own shell
+  // instead of racing its parent's.
+  BashReplSession& shell();
+
   // The skill a finished tool call's result should be tagged with (for
   // `skill unload`): the loaded skill name for a `skill load`, or the skill
   // whose directory a `python` script read from. "" otherwise.
@@ -280,6 +321,7 @@ private:
   std::string mLabel;
   std::atomic<int64_t> mContextTokens{0};
   mutable std::optional<SkillCatalog> mCatalog;
+  std::unique_ptr<BashReplSession> mShell;
 };
 
 }  // namespace agent

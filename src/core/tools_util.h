@@ -104,6 +104,13 @@ TruncatedOutput truncate_output(std::string text, std::string_view label,
 // The note appended to truncated output, telling the model what it is missing.
 std::string truncation_note(const TruncatedOutput& output);
 
+// Hard byte clip with a note saying how much was dropped. Unlike
+// truncate_output() this writes nothing to disk and does not respect line
+// boundaries — it is for text that is already bounded and merely needs a
+// ceiling: a tool result on its way into the transcript, or a `git status`
+// block on its way into a system prompt.
+std::string clip_text(const std::string& text, size_t limit);
+
 // ---------------------------------------------------------------------------
 // Filesystem walking.
 // ---------------------------------------------------------------------------

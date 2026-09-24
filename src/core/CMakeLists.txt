@@ -1,5 +1,7 @@
 add_library(agentcore STATIC
   agent.cpp
+  bash_repl.cpp
+  system_prompt.cpp
   agent_pool.cpp
   agent_settings.cpp
   sane_policy.cpp
@@ -14,6 +16,7 @@ add_library(agentcore STATIC
   shell_session.cpp
   skills.cpp
   tools_ask_user.cpp
+  tools_bash_repl.cpp
   tools_bash_search.cpp
   tools_file.cpp
   tools_memory.cpp

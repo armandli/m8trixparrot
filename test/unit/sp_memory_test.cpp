@@ -1,7 +1,7 @@
-// sp's own logic: the standing instructions it hands the agent, the slash
-// command grammar its TUI accepts, and the three memory operations the user
-// can drive by hand. Everything here runs against a hash embedder, so the
-// suite never needs an embedding model or a network.
+// sp's own logic: the slash command grammar its TUI accepts and the three
+// memory operations the user can drive by hand. Everything here runs against
+// a hash embedder, so the suite never needs an embedding model or a network.
+// sp's system prompt is covered by sp_prompt_test.cpp.
 
 #include <cstdint>
 #include <filesystem>
@@ -22,54 +22,6 @@ inline constexpr uint32_t kDim = 64;
 
 bool has(const std::string& haystack, const std::string& needle) {
   return haystack.find(needle) != std::string::npos;
-}
-
-// ─────────────────────────────── the prompt ────────────────────────────────
-
-TEST(SpPromptTest, DefaultMemoryPathSitsBesideTheScriptsDirectory) {
-  EXPECT_EQ(default_memory_path("/Users/x"),
-            "/Users/x/.local/share/sp/memory.m8db");
-}
-
-TEST(SpPromptTest, KeepsTheShellRulesWhicheverWayMemoryGoes) {
-  for (const bool memory : {false, true}) {
-    const std::string prompt = make_extra_prompt("ada", "/home/ada", memory);
-    EXPECT_TRUE(has(prompt, "/home/ada/.local/share/Trash/files")) << memory;
-    EXPECT_TRUE(has(prompt, "/home/ada/.local/share/sp/scripts")) << memory;
-    EXPECT_TRUE(has(prompt, "NEVER use rm")) << memory;
-    EXPECT_TRUE(has(prompt, "User: ada")) << memory;
-  }
-}
-
-// The regression that matters most: an agent that was not given the tool must
-// never be told to call it.
-TEST(SpPromptTest, SaysNothingAboutMemoryWhenItIsOff) {
-  const std::string prompt = make_extra_prompt("ada", "/home/ada", false);
-  EXPECT_FALSE(has(prompt, "memory"));
-  EXPECT_FALSE(has(prompt, "recall"));
-  EXPECT_FALSE(has(prompt, "LESSON"));
-}
-
-TEST(SpPromptTest, TeachesBothMemoryShapesWhenItIsOn) {
-  const std::string prompt = make_extra_prompt("ada", "/home/ada", true);
-  // The preference shape.
-  EXPECT_TRUE(has(prompt, "PREFERENCE (<subject>):"));
-  EXPECT_TRUE(has(prompt, "type='semantic'"));
-  // The lesson shape: the mistake, how to spot it, what to do, how to avoid it.
-  EXPECT_TRUE(has(prompt, "LESSON (<subject>):"));
-  EXPECT_TRUE(has(prompt, "Detect:"));
-  EXPECT_TRUE(has(prompt, "Instead:"));
-  EXPECT_TRUE(has(prompt, "Avoid:"));
-  EXPECT_TRUE(has(prompt, "type='procedural'"));
-  // Recall first, de-duplicate, and don't hoard junk.
-  EXPECT_TRUE(has(prompt, "action='recall'"));
-  EXPECT_TRUE(has(prompt, "action='forget'"));
-  EXPECT_TRUE(has(prompt, "Never use type='episodic'"));
-}
-
-TEST(SpPromptTest, PutsTheMemoryRulesAfterTheShellRules) {
-  const std::string prompt = make_extra_prompt("ada", "/home/ada", true);
-  EXPECT_LT(prompt.find("Rules:"), prompt.find("Memory:"));
 }
 
 // ─────────────────────────────── the grammar ───────────────────────────────

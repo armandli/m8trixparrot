@@ -384,7 +384,10 @@ std::string SanePolicy::inspect_command(const std::string& command) const {
 
 PolicyResult SanePolicy::verify(std::string_view tool_name,
                                 const ToolArgs& args) const {
-  if (tool_name == "bash") {
+  // bash_repl runs the same arbitrary shell text as bash, just in a shell that
+  // persists — so it needs the same inspection, or enabling it would route
+  // around every check below.
+  if (tool_name == "bash" or tool_name == "bash_repl") {
     const std::optional<std::string> command = string_arg(args, "command");
     if (not command) return PolicyResult::allow();
     const std::string problem = inspect_command(*command);

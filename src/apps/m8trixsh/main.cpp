@@ -38,6 +38,7 @@
 #include <core/sane_policy.h>
 #include <core/shell_session.h>
 #include <core/tools.h>
+#include <sh_prompt.h>
 #include <shell_integration.h>
 #include <terminal_emulator.h>
 
@@ -127,33 +128,6 @@ std::function<bool(const f::Event&)> parse_switch_key(const std::string& name) {
   if (name == "ctrl-\\") return exact(std::string(1, '\x1c'));
   if (name == "f12") return exact("\x1b[24~");
   return is_backtab;  // "shift-tab", "backtab", unset, or unrecognized
-}
-
-std::string workflow_prompt() {
-  const char* home_env = std::getenv("HOME");
-  const std::string home = home_env != nullptr ? home_env : "~";
-  return
-      "You are the AI side of an interactive shell. A human is at the terminal "
-      "and can also run their own shell commands beside you. The working "
-      "directory is the shell's directory as of when this turn began. Your home "
-      "directory is " + home + ".\n"
-      "For a request that only inspects the system (reading files, git status, "
-      "searching, listing), just do it with your tools and report back "
-      "concisely.\n"
-      "For a request that would create, modify, move, or delete files or "
-      "directories, or install or configure software:\n"
-      "1. Research first with `read`, `bash`, and search. State what you found.\n"
-      "2. Call `ask_user` with a short, concrete plan and wait for approval. "
-      "Revise and re-ask until the human approves.\n"
-      "3. On approval, `write` the steps as a shell script to " + home +
-      "/bin/<name>.sh (create " + home +
-      "/bin with `bash` if missing; chmod +x it).\n"
-      "4. Call `ask_user` again showing the script path and full contents for a "
-      "final approval.\n"
-      "5. On approval, run it with `bash` and report the result.\n"
-      "Never run the destructive steps before the script is approved. Keep "
-      "`ask_user` prompts short - the human answers by typing at the shell "
-      "prompt.";
 }
 
 }  // namespace
@@ -388,7 +362,13 @@ int main(int argc, char** argv) {
               << "' is not a pulled embedding model (try `ollama pull "
                  "nomic-embed-text`); memory calls will fail\n";
   }
-  options.extra_system_prompt = workflow_prompt();
+  // m8trixsh's prompt is entirely its own: the interactive-shell role, the
+  // ask_user approval workflow, and no coding-agent preamble contradicting it.
+  options.system_prompt_builder = [](const agent::PromptFacts& facts) {
+    const char* home_env = std::getenv("HOME");
+    return sh::make_system_prompt(facts,
+                                  home_env != nullptr ? home_env : "~");
+  };
   options.ask_user_handler = [&](const std::string& prompt) -> std::string {
     std::future<std::string> answer;
     {

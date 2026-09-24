@@ -6,25 +6,11 @@
 
 #include <core/memory_store.h>
 
-// The parts of sp that are worth testing on their own: the system prompt it
-// hands the agent, the slash-command grammar its TUI accepts, and the three
-// memory operations the user can drive by hand. main.cpp keeps the CLI, the
-// FTXUI wiring and the agent loop, none of which a unit test can reach.
+// The parts of sp that are worth testing on their own: the slash-command
+// grammar its TUI accepts and the three memory operations the user can drive
+// by hand. main.cpp keeps the CLI, the FTXUI wiring and the agent loop, none
+// of which a unit test can reach; sp's system prompt lives in sp_prompt.h.
 namespace sp {
-
-// Where sp keeps its memory, beside the scripts directory its system prompt
-// already names. User-global rather than the core default
-// (<workdir>/.m8trix/memory.m8db) because sp is run from wherever the user
-// happens to be standing: a preference about how they like things done should
-// not stop applying because they changed directory.
-std::string default_memory_path(const std::string& home);
-
-// The standing instructions appended to every system prompt, via
-// AgentOptions::extra_system_prompt. The memory section is omitted entirely
-// when `memory_enabled` is false, so the model is never told to call a tool it
-// was not given.
-std::string make_extra_prompt(const std::string& username,
-                              const std::string& home, bool memory_enabled);
 
 // One line of TUI input, classified. Anything that is not a recognised command
 // is Kind::None and goes to the agent as a task — including an unknown /word,

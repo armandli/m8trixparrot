@@ -47,6 +47,38 @@ TEST(AgentToolsTest, PythonAndBashOnlyWhenSubagentsAndPackageInstallDisabled) {
             std::string::npos);
 }
 
+// bash_repl replaces bash rather than joining it: an agent handed two shells
+// would have to guess which one holds its state.
+TEST(AgentToolsTest, BashReplReplacesBashRatherThanAddingToIt) {
+  AgentOptions options;
+  options.enable_bash_repl = true;
+  options.enable_python = false;
+  options.enable_subagents = false;
+  options.enable_package_install = false;
+
+  const YoloPolicy policy;
+  const std::string id = AgentPool::instance().register_root("root");
+  const Agent agent(options, policy, id, "", 0);
+
+  EXPECT_EQ((std::vector<std::string>{"bash_repl"}), agent.tool_names());
+  ASSERT_EQ(1u, agent.tool_schemas().size());
+  EXPECT_NE(agent.tool_schemas()[0].find("\"name\":\"bash_repl\""),
+            std::string::npos);
+}
+
+TEST(AgentToolsTest, BashReplSitsWhereBashDidInTheToolOrder) {
+  AgentOptions options;
+  options.enable_bash_repl = true;
+
+  const YoloPolicy policy;
+  const std::string id = AgentPool::instance().register_root("root");
+  const Agent agent(options, policy, id, "", 0);
+
+  EXPECT_EQ((std::vector<std::string>{"python", "bash_repl", "package_install",
+                                      "subagent_create", "subagent_wait"}),
+            agent.tool_names());
+}
+
 TEST(AgentToolsTest, FileToolsAdvertisedOnlyWhenEnabled) {
   const YoloPolicy policy;
 

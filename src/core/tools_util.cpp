@@ -347,6 +347,12 @@ std::string truncation_note(const TruncatedOutput& output) {
          "]";
 }
 
+std::string clip_text(const std::string& text, size_t limit) {
+  if (text.size() <= limit) return text;
+  return text.substr(0, limit) + "\n[... clipped, " +
+         std::to_string(text.size() - limit) + " more bytes]";
+}
+
 // ---------------------------------------------------------------------------
 
 void IgnoreFilter::RepoDeleter::operator()(git_repository* repo) const {

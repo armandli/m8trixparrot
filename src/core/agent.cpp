@@ -10,8 +10,8 @@
 
 #include <core/agent_pool.h>
 #include <core/memory_store.h>
+#include <core/system_prompt.h>
 #include <core/tools_util.h>
-#include <core/workspace_context.h>
 
 namespace agent {
 
@@ -21,12 +21,6 @@ namespace {
 // The tools already cap themselves at 100KB, which is still far more than a
 // step's worth of context is worth spending.
 constexpr size_t kMaxToolResultBytes = 16000;
-
-std::string clip(const std::string& text, size_t limit) {
-  if (text.size() <= limit) return text;
-  return text.substr(0, limit) + "\n[... clipped, " +
-         std::to_string(text.size() - limit) + " more bytes]";
-}
 
 // A one-line rendering of the arguments that matter for display, so the UI can
 // show "grep pattern=\"teh\"" rather than the whole JSON object.
@@ -51,26 +45,6 @@ std::string summarize(const std::string& tool_name, const ToolArgs& args) {
   if (summary.empty()) return tool_name;
   return summary;
 }
-
-// "`a`, `b`, and `c`" for the system prompt's tool sentence.
-std::string join_tool_names(const std::vector<std::string>& names) {
-  std::string joined;
-  for (size_t i = 0; i < names.size(); ++i) {
-    if (i > 0) joined += (i + 1 == names.size()) ? ", and " : ", ";
-    joined += "`" + names[i] + "`";
-  }
-  return joined;
-}
-
-constexpr const char* kSummarySystemPrompt =
-    "You are compacting a coding agent's working context. Below is the full "
-    "transcript so far. Produce a dense summary that a fresh instance of the "
-    "agent can use to continue with no loss of essential information. Preserve: "
-    "the user's most recent request, verbatim, as the active task; every "
-    "decision made and why; concrete findings - file paths, identifiers, "
-    "values, and command output that matter; what has been completed; what "
-    "remains; any errors hit and how they were handled. Drop chit-chat and "
-    "superseded intermediate steps. Output only the summary, no preamble.";
 
 // The transcript flattened to labelled text, for the summarizer to read. A
 // message that is loaded skill content is reduced to a placeholder — the model
@@ -110,7 +84,7 @@ Agent::Agent(AgentOptions options, const PolicyInterface& policy, std::string id
              std::string parent_id, int depth)
     : mOptions(std::move(options)),
       mPolicy(policy),
-      mStore(kAgentSessionDir),
+      mStore(mOptions.session_dir),
       mId(std::move(id)),
       mParentId(std::move(parent_id)),
       mDepth(depth),
@@ -127,7 +101,11 @@ bool Agent::ask_user_offered() const {
 std::vector<std::string> Agent::tool_schemas() const {
   std::vector<std::string> schemas;
   if (mOptions.enable_python) schemas.push_back(PythonTool().description());
-  schemas.push_back(BashTool().description());
+  if (mOptions.enable_bash_repl) {
+    schemas.push_back(BashReplTool::description());
+  } else {
+    schemas.push_back(BashTool().description());
+  }
   if (mOptions.enable_file_tools) {
     schemas.push_back(ReadTool().description());
     schemas.push_back(WriteTool().description());
@@ -157,7 +135,7 @@ std::vector<std::string> Agent::tool_schemas() const {
 std::vector<std::string> Agent::tool_names() const {
   std::vector<std::string> names;
   if (mOptions.enable_python) names.push_back("python");
-  names.push_back("bash");
+  names.push_back(mOptions.enable_bash_repl ? "bash_repl" : "bash");
   if (mOptions.enable_file_tools) {
     names.push_back("read");
     names.push_back("write");
@@ -201,11 +179,17 @@ std::string Agent::skill_label_for(const ToolCall& call, const ToolArgs& args,
   return std::string();
 }
 
+BashReplSession& Agent::shell() {
+  if (not mShell) mShell = std::make_unique<BashReplSession>();
+  return *mShell;
+}
+
 void Agent::reset() {
   mTranscript.clear();
   mSessionId.clear();
   mContextTokens.store(0);
   mCatalog.reset();  // pick up skills added since the last scan
+  mShell.reset();    // a new conversation gets a clean shell, not the old one
 }
 
 int64_t Agent::summarize_threshold() const {
@@ -252,7 +236,11 @@ void Agent::maybe_summarize_context() {
   }
 
   std::vector<ChatMessage> request;
-  request.push_back(ChatMessage{"system", kSummarySystemPrompt, {}, ""});
+  const std::string summary_prompt =
+      mOptions.summary_system_prompt.empty()
+          ? default_summary_prompt()
+          : mOptions.summary_system_prompt;
+  request.push_back(ChatMessage{"system", summary_prompt, {}, ""});
   request.push_back(ChatMessage{"user", render_transcript(mTranscript), {}, ""});
 
   const uint64_t ticket = OllamaClient::instance().enqueue_chat(request, {});
@@ -289,122 +277,47 @@ void Agent::maybe_summarize_context() {
   emit(summarized);
 }
 
+PromptFacts Agent::prompt_facts() const {
+  PromptFacts facts;
+  facts.depth = mDepth;
+  facts.max_depth = mOptions.max_depth;
+  facts.max_agents = mOptions.max_agents;
+  facts.free_agent_slots =
+      std::max(0, mOptions.max_agents - AgentPool::instance().live_count());
+  facts.tool_names = tool_names();
+
+  facts.enable_python = mOptions.enable_python;
+  facts.enable_bash_repl = mOptions.enable_bash_repl;
+  facts.enable_package_install = mOptions.enable_package_install;
+  facts.enable_file_tools = mOptions.enable_file_tools;
+  facts.enable_web_search = mOptions.enable_web_search;
+  facts.enable_bash_search = mOptions.enable_bash_search;
+  facts.enable_memory = mOptions.enable_memory;
+  facts.enable_subagents = mOptions.enable_subagents;
+  facts.ask_user_offered = ask_user_offered();
+  facts.can_spawn_subagents =
+      mOptions.enable_subagents and mDepth < mOptions.max_depth;
+
+  // Only when the `skill` tool is actually advertised: a catalog the model was
+  // given no way to load is not a fact about its situation.
+  if (skills_offered()) facts.skills = &catalog();
+
+  return facts;
+}
+
 std::string Agent::system_prompt() const {
-  const WorkspaceContext context = WorkspaceContext::from_environment();
-  const int live = AgentPool::instance().live_count();
-  const int free_slots = std::max(0, mOptions.max_agents - live);
-
-  const std::vector<std::string> names = tool_names();
-
-  std::ostringstream prompt;
-  prompt << "You are a coding agent working in a terminal on the user's "
-            "machine. You have "
-         << names.size() << " tools: " << join_tool_names(names)
-         << ". Use them rather than guessing or asking the user to run things "
-            "for you.\n\n";
-
-  if (mDepth == 0) {
-    prompt << "You are the root agent (depth 0 of max " << mOptions.max_depth
-           << "). ";
-  } else {
-    prompt << "You are a subagent at depth " << mDepth << " of max "
-           << mOptions.max_depth
-           << ". Your caller sees only your final message, not your steps. ";
-  }
-  prompt << free_slots << " of " << mOptions.max_agents
-         << " agent slots are free.\n\n";
-
-  prompt << "Working rules:\n";
-  if (mOptions.enable_python) {
-    prompt << "- Use `python` for computation, file I/O, and data transformation. "
-              "Use `bash` for shell commands: running programs, git, and anything "
-              "the shell does more directly than Python would. Prefer one of them "
-              "over describing what you would do.\n";
-    if (mOptions.enable_package_install) {
-      prompt << "- If a script needs a package that isn't installed, call "
-                "`package_install` with just its name first, then run the "
-                "script. Don't call it again for a package you already "
-                "installed or that already imported successfully.\n";
-    } else {
-      prompt << "- Only the Python standard library and already-installed "
-                "packages are importable; you cannot install new ones.\n";
-    }
-  } else {
-    prompt << "- Use `bash` for all shell operations.\n";
-  }
-  if (not mOptions.enable_subagents) {
-    prompt << "- You have no subagent tools; do all the work yourself.\n";
-  } else if (mDepth >= mOptions.max_depth) {
-    prompt << "- You are at the maximum depth and cannot spawn subagents; do "
-              "all the work yourself.\n";
-  } else {
-    prompt << "- Use `subagent_create` to spawn an independent subtask on its "
-              "own thread and `subagent_wait` to collect its conclusion. Give "
-              "each subagent a self-contained objective.\n";
-  }
-  if (mOptions.enable_web_search) {
-    prompt << "- Use `websearch` to look things up on the live web — current "
-              "events, library or API docs, unfamiliar errors. It returns "
-              "result URLs and snippets.\n";
-  }
-  prompt << "- Keep going until the task is done, then end the turn with a "
-            "plain message and no tool call. Make that final message a "
-            "self-contained summary of the objective and what you found or "
-            "did.\n"
-            "- If a tool fails, read the error and adapt. Don't retry the "
-            "identical call.\n\n";
-
-  prompt << "Workspace:\n";
-  prompt << "- cwd: " << context.cwd << "\n";
-  if (context.in_git_repo) {
-    prompt << "- git repo: " << context.repo_root << "\n";
-    if (not context.git_branch.empty()) {
-      prompt << "- branch: " << context.git_branch << "\n";
-    }
-    if (not context.git_status.empty()) {
-      prompt << "- status:\n" << clip(context.git_status, 2000) << "\n";
-    } else {
-      prompt << "- status: clean\n";
-    }
-  } else {
-    prompt << "- not inside a git repository\n";
-  }
-
-  if (mOptions.enable_skills) {
-    std::ostringstream list;
-    int shown = 0;
-    for (const SkillInfo& skill : catalog().skills) {
-      if (not skill.model_invocable) continue;
-      list << "- " << skill.name << " — " << skill.description;
-      if (not skill.dependencies.empty()) {
-        list << "  (depends on:";
-        for (const std::string& dep : skill.dependencies) list << " " << dep;
-        list << ")";
-      }
-      list << "\n";
-      ++shown;
-    }
-    if (shown > 0) {
-      prompt << "\nSkills available — reusable procedures for specific tasks. "
-                "To use one, call `skill` action \"load\" with its name to read "
-                "its SKILL.md, follow it (reading its other files with `python` "
-                "as needed), then call `skill` action \"unload\" with that name "
-                "to drop it from context when finished:\n"
-             << clip(list.str(), 4000);
-    }
-  }
-
-  if (not mOptions.extra_system_prompt.empty()) {
-    prompt << "\n\n" << mOptions.extra_system_prompt << "\n";
-  }
-
-  return prompt.str();
+  const PromptFacts facts = prompt_facts();
+  return mOptions.system_prompt_builder
+             ? mOptions.system_prompt_builder(facts)
+             : default_system_prompt(facts);
 }
 
 ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
   if (mOptions.enable_python and tool_name == "python")
     return PythonTool().execute(args);
-  if (tool_name == "bash")
+  if (mOptions.enable_bash_repl and tool_name == "bash_repl")
+    return BashReplTool{shell()}.execute(args);
+  if (not mOptions.enable_bash_repl and tool_name == "bash")
     return BashTool().execute(args);
   if (mOptions.enable_file_tools and tool_name == "read")
     return ReadTool().execute(args);
@@ -557,7 +470,8 @@ AgentResult Agent::run_turn(const std::string& objective) {
       if (content.empty()) content = "[no output]";
 
       emit({AgentEvent::Kind::ToolResult, content, call.name, ""});
-      ChatMessage tool_message{"tool", clip(content, kMaxToolResultBytes),
+      ChatMessage tool_message{"tool",
+                               clip_text(content, kMaxToolResultBytes),
                                {}, call.name};
       tool_message.skill_label = skill_label_for(call, args, executed);
       mTranscript.push_back(std::move(tool_message));

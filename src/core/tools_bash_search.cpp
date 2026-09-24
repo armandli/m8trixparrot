@@ -23,6 +23,14 @@ namespace agent {
 
 namespace {
 
+// Set once at startup, read by BashSearchIndex::index_path(). A function-local
+// static rather than a namespace-scope one so there is no initialisation-order
+// question with the index singleton that reads it.
+std::string& index_path_override() {
+  static std::string path;
+  return path;
+}
+
 // ─────────────────────────── data model ──────────────────────────────────────
 
 struct CommandEntry {
@@ -614,6 +622,10 @@ private:
   bool mLoaded = false;
 
   std::string index_path() const {
+    if (const std::string& override_path = index_path_override();
+        not override_path.empty()) {
+      return override_path;
+    }
     const char* home = std::getenv("HOME");
     return std::string(home ? home : "/tmp") + "/.m8trix/bash_search_index.json";
   }
@@ -810,6 +822,10 @@ ToolResult BashSearchTool::execute(const ToolArgs& args) const {
   result.error = "bash_search: unknown action '" + *action +
                  "'; expected list_tags, search, or scan";
   return result;
+}
+
+void set_bash_search_index_path(std::string path) {
+  index_path_override() = std::move(path);
 }
 
 }  // namespace agent
