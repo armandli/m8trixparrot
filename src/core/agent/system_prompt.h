@@ -1,5 +1,5 @@
-#ifndef SYSTEM_PROMPT_H
-#define SYSTEM_PROMPT_H
+#ifndef M8_AGENT_SYSTEM_PROMPT_H
+#define M8_AGENT_SYSTEM_PROMPT_H
 
 #include <cstddef>
 #include <optional>
@@ -7,8 +7,8 @@
 #include <string_view>
 #include <vector>
 
-#include <core/skills.h>
-#include <core/workspace_context.h>
+#include <core/agent/skills.h>
+#include <core/agent/workspace_context.h>
 
 namespace agent {
 
@@ -105,4 +105,4 @@ std::string default_summary_prompt();
 
 }  // namespace agent
 
-#endif  // SYSTEM_PROMPT_H
+#endif  // M8_AGENT_SYSTEM_PROMPT_H

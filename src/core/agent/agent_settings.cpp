@@ -1,4 +1,4 @@
-#include <core/agent_settings.h>
+#include <core/agent/agent_settings.h>
 
 #include <cctype>
 #include <cstddef>

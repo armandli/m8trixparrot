@@ -1,5 +1,5 @@
-#ifndef AGENT_RESULT_H
-#define AGENT_RESULT_H
+#ifndef M8_AGENT_AGENT_RESULT_H
+#define M8_AGENT_AGENT_RESULT_H
 
 #include <string>
 #include <vector>
@@ -36,4 +36,4 @@ struct SpawnResult {
 
 }  // namespace agent
 
-#endif  // AGENT_RESULT_H
+#endif  // M8_AGENT_AGENT_RESULT_H

@@ -1,4 +1,4 @@
-#include <core/skills.h>
+#include <core/agent/skills.h>
 
 #include <algorithm>
 #include <cctype>

@@ -24,9 +24,9 @@
 #include <ftxui/dom/elements.hpp>
 
 #include <common/transcript_view.h>
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/agent_settings.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/agent/agent_settings.h>
 #include <core/vdb/memory_store.h>
 #include <core/policy/policy.h>
 #include <core/tools/tools.h>

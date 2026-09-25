@@ -1,4 +1,4 @@
-#include <core/workspace_context.h>
+#include <core/agent/workspace_context.h>
 
 #include <filesystem>
 #include <memory>

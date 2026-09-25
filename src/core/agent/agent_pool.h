@@ -1,5 +1,5 @@
-#ifndef AGENT_POOL_H
-#define AGENT_POOL_H
+#ifndef M8_AGENT_AGENT_POOL_H
+#define M8_AGENT_AGENT_POOL_H
 
 #include <atomic>
 #include <condition_variable>
@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include <core/agent.h>
-#include <core/agent_result.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_result.h>
 #include <core/policy/policy.h>
 
 namespace agent {
@@ -101,4 +101,4 @@ private:
 
 }  // namespace agent
 
-#endif  // AGENT_POOL_H
+#endif  // M8_AGENT_AGENT_POOL_H

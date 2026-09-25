@@ -1,5 +1,5 @@
-#ifndef AGENT_SETTINGS_H
-#define AGENT_SETTINGS_H
+#ifndef M8_AGENT_AGENT_SETTINGS_H
+#define M8_AGENT_AGENT_SETTINGS_H
 
 #include <optional>
 #include <string>
@@ -71,4 +71,4 @@ StartupSettings load_shellrc_settings(const std::string& path,
 
 }  // namespace agent
 
-#endif  // AGENT_SETTINGS_H
+#endif  // M8_AGENT_AGENT_SETTINGS_H

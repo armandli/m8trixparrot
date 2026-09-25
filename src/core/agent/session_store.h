@@ -1,9 +1,9 @@
-#ifndef SESSION_STORE_H
-#define SESSION_STORE_H
+#ifndef M8_AGENT_SESSION_STORE_H
+#define M8_AGENT_SESSION_STORE_H
 
 #include <string>
 
-#include <core/agent_result.h>
+#include <core/agent/agent_result.h>
 
 namespace agent {
 
@@ -52,4 +52,4 @@ private:
 
 }  // namespace agent
 
-#endif  // SESSION_STORE_H
+#endif  // M8_AGENT_SESSION_STORE_H

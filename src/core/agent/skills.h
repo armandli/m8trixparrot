@@ -1,5 +1,5 @@
-#ifndef SKILLS_H
-#define SKILLS_H
+#ifndef M8_AGENT_SKILLS_H
+#define M8_AGENT_SKILLS_H
 
 #include <atomic>
 #include <map>
@@ -89,4 +89,4 @@ protected:
 
 }  // namespace agent
 
-#endif  // SKILLS_H
+#endif  // M8_AGENT_SKILLS_H

@@ -20,8 +20,8 @@
 #include <curl/curl.h>
 #include <gtest/gtest.h>
 
-#include <core/agent.h>
-#include <core/agent_pool.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
 #include <core/oc/basic_ollama_client.h>
 #include <core/oc/ollama_client.h>
 #include <core/policy/policy.h>

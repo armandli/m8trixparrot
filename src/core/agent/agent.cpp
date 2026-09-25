@@ -1,4 +1,4 @@
-#include <core/agent.h>
+#include <core/agent/agent.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -8,9 +8,9 @@
 #include <utility>
 #include <vector>
 
-#include <core/agent_pool.h>
+#include <core/agent/agent_pool.h>
 #include <core/vdb/memory_store.h>
-#include <core/system_prompt.h>
+#include <core/agent/system_prompt.h>
 #include <core/tools/tools_util.h>
 
 namespace agent {

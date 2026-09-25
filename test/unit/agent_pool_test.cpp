@@ -21,9 +21,9 @@
 
 #include <gtest/gtest.h>
 
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/agent_result.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/agent/agent_result.h>
 #include <core/oc/ollama_client.h>
 #include <core/policy/policy.h>
 #include <core/tools/tools.h>

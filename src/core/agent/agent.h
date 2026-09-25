@@ -1,5 +1,5 @@
-#ifndef AGENT_H
-#define AGENT_H
+#ifndef M8_AGENT_AGENT_H
+#define M8_AGENT_AGENT_H
 
 #include <atomic>
 #include <memory>
@@ -9,13 +9,13 @@
 #include <string>
 #include <vector>
 
-#include <core/agent_result.h>
+#include <core/agent/agent_result.h>
 #include <core/tools/bash_repl.h>
 #include <core/oc/ollama_client.h>
 #include <core/policy/policy.h>
-#include <core/session_store.h>
-#include <core/skills.h>
-#include <core/system_prompt.h>
+#include <core/agent/session_store.h>
+#include <core/agent/skills.h>
+#include <core/agent/system_prompt.h>
 #include <core/tools/tools.h>
 
 namespace agent {
@@ -326,4 +326,4 @@ private:
 
 }  // namespace agent
 
-#endif  // AGENT_H
+#endif  // M8_AGENT_AGENT_H

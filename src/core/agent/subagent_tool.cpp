@@ -1,9 +1,9 @@
-#include <core/agent.h>
+#include <core/agent/agent.h>
 
 #include <optional>
 #include <string>
 
-#include <core/agent_pool.h>
+#include <core/agent/agent_pool.h>
 #include <core/util/json_util.h>
 #include <core/tools/tools_util.h>
 

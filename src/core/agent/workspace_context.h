@@ -1,5 +1,5 @@
-#ifndef WORKSPACE_CONTEXT_H
-#define WORKSPACE_CONTEXT_H
+#ifndef M8_AGENT_WORKSPACE_CONTEXT_H
+#define M8_AGENT_WORKSPACE_CONTEXT_H
 
 #include <string>
 
@@ -25,4 +25,4 @@ struct WorkspaceContext {
 
 }  // namespace agent
 
-#endif  // WORKSPACE_CONTEXT_H
+#endif  // M8_AGENT_WORKSPACE_CONTEXT_H

@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include <core/skills.h>
+#include <core/agent/skills.h>
 #include <tool_test_env.h>
 
 namespace agent {

@@ -8,10 +8,10 @@
 
 #include <gtest/gtest.h>
 
-#include <core/agent.h>
-#include <core/agent_pool.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
 #include <core/policy/policy.h>
-#include <core/system_prompt.h>
+#include <core/agent/system_prompt.h>
 
 namespace agent {
 namespace {

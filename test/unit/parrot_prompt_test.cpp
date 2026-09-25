@@ -7,8 +7,8 @@
 
 #include <gtest/gtest.h>
 
-#include <core/system_prompt.h>
-#include <core/workspace_context.h>
+#include <core/agent/system_prompt.h>
+#include <core/agent/workspace_context.h>
 
 #include <parrot_prompt.h>
 

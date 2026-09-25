@@ -1,4 +1,4 @@
-#include <core/system_prompt.h>
+#include <core/agent/system_prompt.h>
 
 #include <algorithm>
 #include <sstream>

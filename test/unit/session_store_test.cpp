@@ -10,8 +10,8 @@
 
 #include <gtest/gtest.h>
 
-#include <core/agent_result.h>
-#include <core/session_store.h>
+#include <core/agent/agent_result.h>
+#include <core/agent/session_store.h>
 #include <core/util/uuid.h>
 
 namespace agent {

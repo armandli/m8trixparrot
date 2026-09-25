@@ -1,10 +1,10 @@
-#include <core/agent_pool.h>
+#include <core/agent/agent_pool.h>
 
 #include <system_error>
 #include <thread>
 #include <utility>
 
-#include <core/agent.h>
+#include <core/agent/agent.h>
 #include <core/util/uuid.h>
 
 namespace agent {
