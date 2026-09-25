@@ -1,5 +1,5 @@
-#ifndef VECTOR_INDEX_H
-#define VECTOR_INDEX_H
+#ifndef M8_VDB_VECTOR_INDEX_H
+#define M8_VDB_VECTOR_INDEX_H
 
 #include <cstddef>
 #include <cstdint>
@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace agent {
+namespace vdb {
 
 enum struct Metric : uint8_t {
   Cosine = 0,
@@ -169,6 +169,6 @@ protected:
   uint64_t mRngState = 0;
 };
 
-}  // namespace agent
+}  // namespace vdb
 
-#endif  // VECTOR_INDEX_H
+#endif  // M8_VDB_VECTOR_INDEX_H

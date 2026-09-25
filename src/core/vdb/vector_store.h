@@ -1,5 +1,5 @@
-#ifndef VECTOR_STORE_H
-#define VECTOR_STORE_H
+#ifndef M8_VDB_VECTOR_STORE_H
+#define M8_VDB_VECTOR_STORE_H
 
 #include <cstdint>
 #include <map>
@@ -11,9 +11,9 @@
 #include <variant>
 #include <vector>
 
-#include <core/vector_index.h>
+#include <core/vdb/vector_index.h>
 
-namespace agent {
+namespace vdb {
 
 // ---------------------------------------------------------------------------
 // Schema and metadata.
@@ -308,6 +308,6 @@ protected:
   mutable std::shared_mutex mMutex;
 };
 
-}  // namespace agent
+}  // namespace vdb
 
-#endif  // VECTOR_STORE_H
+#endif  // M8_VDB_VECTOR_STORE_H

@@ -9,7 +9,7 @@
 #include <vector>
 
 #include <core/agent_pool.h>
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 #include <core/system_prompt.h>
 #include <core/tools/tools_util.h>
 
@@ -120,7 +120,7 @@ std::vector<std::string> Agent::tool_schemas() const {
   if (mOptions.enable_bash_search) {
     schemas.push_back(tools::BashSearchTool().description());
   }
-  if (mOptions.enable_memory) schemas.push_back(MemoryTool::description());
+  if (mOptions.enable_memory) schemas.push_back(vdb::MemoryTool::description());
   if (skills_offered()) schemas.push_back(SkillTool::description());
   if (mOptions.enable_subagents) {
     schemas.push_back(SubagentCreateTool::description());
@@ -332,10 +332,10 @@ tools::ToolResult Agent::dispatch(const std::string& tool_name, const tools::Too
   if (mOptions.enable_bash_search and tool_name == "bash_search")
     return tools::BashSearchTool().execute(args);
   if (mOptions.enable_memory and tool_name == "memory") {
-    MemoryOptions memory;
+    vdb::MemoryOptions memory;
     memory.path = mOptions.memory_path;
     memory.embed_model = mOptions.memory_embed_model;
-    return MemoryTool{std::move(memory)}.execute(args);
+    return vdb::MemoryTool{std::move(memory)}.execute(args);
   }
   if (ask_user_offered() and tool_name == "ask_user")
     return tools::AskUserTool{mOptions.ask_user_handler}.execute(args);

@@ -32,7 +32,7 @@
 #include <common/transcript_view.h>
 #include <core/agent.h>
 #include <core/agent_pool.h>
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 #include <core/agent_settings.h>
 #include <core/policy/policy.h>
 #include <core/policy/sane_policy.h>
@@ -364,12 +364,12 @@ int main(int argc, char** argv) {
   if (options.enable_memory) {
     // Two models of the same width would otherwise open, write and rank
     // against each other with nothing to show for it but worse recall.
-    const std::string mismatch = agent::memory_model_mismatch(
+    const std::string mismatch = vdb::memory_model_mismatch(
         options.memory_path, options.memory_embed_model);
     if (not mismatch.empty()) {
       options.enable_memory = false;
       std::cerr << "warning: " << mismatch << " Memory is off for this run.\n";
-    } else if (not agent::memory_available(options.memory_embed_model)) {
+    } else if (not vdb::memory_available(options.memory_embed_model)) {
       std::cerr << "warning: ENABLE_MEMORY is set but '"
                 << options.memory_embed_model
                 << "' is not a pulled embedding model (try `ollama pull "

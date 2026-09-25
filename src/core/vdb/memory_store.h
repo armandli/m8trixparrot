@@ -1,5 +1,5 @@
-#ifndef MEMORY_STORE_H
-#define MEMORY_STORE_H
+#ifndef M8_VDB_MEMORY_STORE_H
+#define M8_VDB_MEMORY_STORE_H
 
 #include <cstdint>
 #include <functional>
@@ -13,9 +13,9 @@
 
 #include <core/oc/basic_ollama_client.h>
 #include <core/tools/tools.h>
-#include <core/vector_store.h>
+#include <core/vdb/vector_store.h>
 
-namespace agent {
+namespace vdb {
 
 // The six metadata fields a memory carries, mirroring caliby's
 // examples/agentic_memory_store.py exactly. Named constants because the filter
@@ -247,6 +247,6 @@ bool memory_available(const std::string& model);
 std::string memory_model_mismatch(const std::string& path,
                                   const std::string& model);
 
-}  // namespace agent
+}  // namespace vdb
 
-#endif  // MEMORY_STORE_H
+#endif  // M8_VDB_MEMORY_STORE_H

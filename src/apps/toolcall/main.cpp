@@ -8,21 +8,21 @@
 #include <simdjson.h>
 
 #include <core/util/json_util.h>
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 #include <core/tools/tools.h>
 #include <core/tools/tools_util.h>
 
 namespace {
 
 // The memory tool's configuration, filled in from the CLI before dispatch.
-agent::MemoryOptions memory_options;
+vdb::MemoryOptions memory_options;
 
 std::vector<std::string> tool_schemas() {
   return {
       tools::PythonTool().description(),
       tools::PackageInstallTool().description(),
       tools::WebSearchTool().description(),
-      agent::MemoryTool::description(),
+      vdb::MemoryTool::description(),
   };
 }
 
@@ -47,7 +47,7 @@ tools::ToolResult dispatch(const std::string& name,
   if (name == "python") return tools::PythonTool().execute(args);
   if (name == "package_install") return tools::PackageInstallTool().execute(args);
   if (name == "websearch") return tools::WebSearchTool().execute(args);
-  if (name == "memory") return agent::MemoryTool{memory_options}.execute(args);
+  if (name == "memory") return vdb::MemoryTool{memory_options}.execute(args);
 
   tools::ToolResult unknown;
   unknown.error = "no tool named '" + name +

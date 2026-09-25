@@ -1,5 +1,5 @@
-#ifndef BYTE_IO_H
-#define BYTE_IO_H
+#ifndef M8_VDB_BYTE_IO_H
+#define M8_VDB_BYTE_IO_H
 
 #include <bit>
 #include <cstdint>
@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace agent {
+namespace vdb {
 
 // Little-endian pack/unpack for the memory store's binary file format, shared
 // by the graph snapshot (vector_index.cpp) and the record log
@@ -104,6 +104,6 @@ protected:
 // nobody is waiting on, at the cost of an arch-specific path.
 uint32_t crc32c(std::string_view data, uint32_t seed = 0);
 
-}  // namespace agent
+}  // namespace vdb
 
-#endif  // BYTE_IO_H
+#endif  // M8_VDB_BYTE_IO_H

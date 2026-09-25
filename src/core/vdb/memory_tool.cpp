@@ -4,11 +4,11 @@
 #include <system_error>
 #include <utility>
 
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 #include <core/oc/ollama_client.h>
 #include <core/tools/tools_util.h>
 
-namespace agent {
+namespace vdb {
 
 namespace {
 
@@ -201,4 +201,4 @@ tools::ToolResult MemoryTool::execute(const tools::ToolArgs& args) const {
   return result;
 }
 
-}  // namespace agent
+}  // namespace vdb

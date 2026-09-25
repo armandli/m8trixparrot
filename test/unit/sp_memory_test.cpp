@@ -10,7 +10,7 @@
 
 #include <gtest/gtest.h>
 
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 #include <core/util/uuid.h>
 
 #include <sp_memory.h>
@@ -76,16 +76,16 @@ TEST(SpCommandTest, LeavesEverythingElseToTheAgent) {
 
 struct SpMemoryTest : ::testing::Test {
   std::filesystem::path dir;
-  std::unique_ptr<agent::MemoryStore> store;
+  std::unique_ptr<vdb::MemoryStore> store;
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
           ("m8trix-sp-" + util::generate_uuid_v4());
-    agent::MemoryOptions options;
+    vdb::MemoryOptions options;
     options.path = (dir / "memory.m8db").string();
-    options.embedder = agent::hash_embedder(kDim);
+    options.embedder = vdb::hash_embedder(kDim);
     options.embed_model = "stub";
-    agent::MemoryOpenResult opened = agent::MemoryStore::open(options);
+    vdb::MemoryOpenResult opened = vdb::MemoryStore::open(options);
     ASSERT_TRUE(opened.ok) << opened.error;
     store = std::move(opened.store);
   }
@@ -106,7 +106,7 @@ TEST_F(SpMemoryTest, WhatAPersonTypesIsStoredAsAPreference) {
   const std::string said = do_remember(*store, "I prefer rg over grep");
   EXPECT_TRUE(has(said, "remembered as memory")) << said;
 
-  const agent::MemoryStats stats = store->stats();
+  const vdb::MemoryStats stats = store->stats();
   EXPECT_EQ(stats.total, 1u);
   EXPECT_EQ(stats.semantic, 1u);  // Not episodic: it is a fact about the user.
   EXPECT_EQ(stats.episodic, 0u);
@@ -158,14 +158,14 @@ TEST(SpMemoryEmbedderTest, ReportsAnEmbeddingFailureAsAnOrdinaryLine) {
   const std::filesystem::path dir =
       std::filesystem::temp_directory_path() /
       ("m8trix-sp-" + util::generate_uuid_v4());
-  agent::MemoryOptions options;
+  vdb::MemoryOptions options;
   options.path = (dir / "memory.m8db").string();
   options.embed_model = "stub";
   options.embedder = [](std::string_view, std::string& error) {
     error = "no embedding model";
     return std::vector<float>();
   };
-  agent::MemoryOpenResult opened = agent::MemoryStore::open(options);
+  vdb::MemoryOpenResult opened = vdb::MemoryStore::open(options);
   ASSERT_TRUE(opened.ok) << opened.error;
 
   EXPECT_TRUE(has(do_remember(*opened.store, "anything"), "no embedding model"));

@@ -1,4 +1,4 @@
-#include <core/vector_store.h>
+#include <core/vdb/vector_store.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -12,10 +12,10 @@
 
 #include <simdjson.h>
 
-#include <core/byte_io.h>
+#include <core/vdb/byte_io.h>
 #include <core/util/json_util.h>
 
-namespace agent {
+namespace vdb {
 
 namespace {
 
@@ -1481,4 +1481,4 @@ StoreResult VectorStore::compact_locked() {
   return result;
 }
 
-}  // namespace agent
+}  // namespace vdb

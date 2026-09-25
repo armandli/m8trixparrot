@@ -1,4 +1,4 @@
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 
 #include <algorithm>
 #include <chrono>
@@ -8,7 +8,7 @@
 #include <core/util/json_util.h>
 #include <core/oc/ollama_client.h>
 
-namespace agent {
+namespace vdb {
 
 namespace {
 
@@ -495,4 +495,4 @@ MemoryStats MemoryStore::stats() const {
   return out;
 }
 
-}  // namespace agent
+}  // namespace vdb

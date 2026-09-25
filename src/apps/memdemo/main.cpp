@@ -11,7 +11,7 @@
 
 #include <CLI/CLI.hpp>
 
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 #include <core/oc/ollama_client.h>
 
 namespace {
@@ -20,8 +20,8 @@ void heading(int step, const std::string& text) {
   std::printf("\n%d. %s\n", step, text.c_str());
 }
 
-void show(const agent::ScoredMemory& scored) {
-  const agent::Memory& memory = scored.memory;
+void show(const vdb::ScoredMemory& scored) {
+  const vdb::Memory& memory = scored.memory;
   std::string content = memory.content;
   if (content.size() > 62) content = content.substr(0, 59) + "...";
   std::printf("   [%-9s] %-62s  score %.3f  sim %.3f  rec %.3f\n",
@@ -63,12 +63,12 @@ int main(int argc, char** argv) {
   std::printf("m8trixparrot agentic memory store\n");
   std::printf("======================================================\n");
 
-  agent::MemoryOptions options;
+  vdb::MemoryOptions options;
   options.path = db;
   options.recency_weight = 0.0;  // Per-query below, matching the python.
   if (model.empty()) {
     options.embed_model = "hash-" + std::to_string(dim);
-    options.embedder = agent::hash_embedder(static_cast<uint32_t>(dim));
+    options.embedder = vdb::hash_embedder(static_cast<uint32_t>(dim));
     std::printf("Embedder: built-in hash (%d dimensions, offline)\n", dim);
   } else {
     options.embed_model = model;
@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
   }
 
   heading(1, "Opening the memory store...");
-  agent::MemoryOpenResult opened = agent::MemoryStore::open(options);
+  vdb::MemoryOpenResult opened = vdb::MemoryStore::open(options);
   if (not opened.ok) {
     std::fprintf(stderr, "%s\n", opened.error.c_str());
     return 1;
@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
   if (not opened.warning.empty()) {
     std::fprintf(stderr, "   warning: %s\n", opened.warning.c_str());
   }
-  agent::MemoryStore& memory = *opened.store;
+  vdb::MemoryStore& memory = *opened.store;
   std::printf("   ready at %s\n", db.c_str());
 
   heading(2, "Storing conversation memories...");
@@ -106,16 +106,16 @@ int main(int argc, char** argv) {
        "impressionist collection.", 0.9},
   };
   for (const auto& [content, importance] : conversation) {
-    agent::Memory entry;
+    vdb::Memory entry;
     entry.content = content;
-    entry.memory_type = agent::kMemoryEpisodic;
+    entry.memory_type = vdb::kMemoryEpisodic;
     entry.context_id = "conv_001";
     entry.importance = importance;
     entry.tags = content.find("Paris") != std::string::npos or
                          content.find("trip") != std::string::npos
                      ? std::vector<std::string>{"conversation", "travel"}
                      : std::vector<std::string>{"conversation"};
-    const agent::RememberResult stored = memory.remember(entry);
+    const vdb::RememberResult stored = memory.remember(entry);
     if (not stored.ok) {
       std::fprintf(stderr, "%s\n", stored.error.c_str());
       return 1;
@@ -136,13 +136,13 @@ int main(int argc, char** argv) {
       {"User prefers impressionist art style.", {"user_preference", "art"}},
   };
   for (const auto& [content, tags] : facts) {
-    agent::Memory entry;
+    vdb::Memory entry;
     entry.content = content;
-    entry.memory_type = agent::kMemorySemantic;
+    entry.memory_type = vdb::kMemorySemantic;
     entry.context_id = "global";
     entry.importance = 0.8;
     entry.tags = tags;
-    const agent::RememberResult stored = memory.remember(entry);
+    const vdb::RememberResult stored = memory.remember(entry);
     if (not stored.ok) {
       std::fprintf(stderr, "%s\n", stored.error.c_str());
       return 1;
@@ -151,30 +151,30 @@ int main(int argc, char** argv) {
   std::printf("   stored %zu semantic memories\n", facts.size());
 
   heading(4, "Recalling for a new query, slightly favouring recent memories...");
-  agent::RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "What should I see in Paris?";
   query.k = 5;
   query.recency_weight = 0.2;
   std::printf("   query: '%s'\n", query.query.c_str());
-  agent::RecallResult recalled = memory.recall(query);
+  vdb::RecallResult recalled = memory.recall(query);
   if (not recalled.ok) {
     std::fprintf(stderr, "%s\n", recalled.error.c_str());
     return 1;
   }
-  for (const agent::ScoredMemory& scored : recalled.memories) show(scored);
+  for (const vdb::ScoredMemory& scored : recalled.memories) show(scored);
 
   heading(5, "The same query, filtered to semantic memories only...");
-  query.memory_type = agent::kMemorySemantic;
+  query.memory_type = vdb::kMemorySemantic;
   query.k = 3;
   recalled = memory.recall(query);
   if (not recalled.ok) {
     std::fprintf(stderr, "%s\n", recalled.error.c_str());
     return 1;
   }
-  for (const agent::ScoredMemory& scored : recalled.memories) show(scored);
+  for (const vdb::ScoredMemory& scored : recalled.memories) show(scored);
 
   heading(6, "Filtered by tag and importance through the filter DSL...");
-  agent::RecallQuery tagged;
+  vdb::RecallQuery tagged;
   tagged.query = "art museums";
   tagged.k = 3;
   tagged.tags = {"art"};
@@ -184,10 +184,10 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "%s\n", recalled.error.c_str());
     return 1;
   }
-  for (const agent::ScoredMemory& scored : recalled.memories) show(scored);
+  for (const vdb::ScoredMemory& scored : recalled.memories) show(scored);
 
   heading(7, "Statistics:");
-  agent::MemoryStats stats = memory.stats();
+  vdb::MemoryStats stats = memory.stats();
   std::printf("   total %llu  (episodic %llu, semantic %llu, procedural %llu)\n",
               static_cast<unsigned long long>(stats.total),
               static_cast<unsigned long long>(stats.episodic),
@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
 
   heading(8, "Closing, reopening, and checking the memories survived...");
   opened.store.reset();
-  agent::MemoryOpenResult reopened = agent::MemoryStore::open(options);
+  vdb::MemoryOpenResult reopened = vdb::MemoryStore::open(options);
   if (not reopened.ok) {
     std::fprintf(stderr, "%s\n", reopened.error.c_str());
     return 1;
@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
   stats = reopened.store->stats();
   std::printf("   reopened with %llu memories\n",
               static_cast<unsigned long long>(stats.total));
-  agent::RecallQuery again;
+  vdb::RecallQuery again;
   again.query = "impressionist paintings";
   again.k = 1;
   recalled = reopened.store->recall(again);

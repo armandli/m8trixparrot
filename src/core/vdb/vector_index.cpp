@@ -1,17 +1,17 @@
-#include <core/vector_index.h>
+#include <core/vdb/vector_index.h>
 
 #include <algorithm>
 #include <cmath>
 #include <queue>
 
-#include <core/byte_io.h>
+#include <core/vdb/byte_io.h>
 
 #if defined(__ARM_NEON) or defined(__aarch64__)
 #include <arm_neon.h>
 #define M8_HAS_NEON 1
 #endif
 
-namespace agent {
+namespace vdb {
 
 namespace {
 
@@ -510,4 +510,4 @@ bool VectorIndex::deserialize_graph(std::string_view blob, std::string& error) {
   return true;
 }
 
-}  // namespace agent
+}  // namespace vdb

@@ -1,8 +1,8 @@
-#include <core/byte_io.h>
+#include <core/vdb/byte_io.h>
 
 #include <array>
 
-namespace agent {
+namespace vdb {
 
 namespace {
 
@@ -37,4 +37,4 @@ uint32_t crc32c(std::string_view data, uint32_t seed) {
   return ~crc;
 }
 
-}  // namespace agent
+}  // namespace vdb

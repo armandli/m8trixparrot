@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 #include <simdjson.h>
 
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 #include <core/oc/ollama_client.h>
 #include <core/tools/tools.h>
 #include <core/util/uuid.h>
@@ -27,7 +27,7 @@ inline constexpr uint32_t kDim = 64;
 
 // Deterministic and offline. Every test that is not about the embedding
 // boundary itself uses this, so the suite never needs a model or a network.
-Embedder stub() { return hash_embedder(kDim); }
+vdb::Embedder stub() { return vdb::hash_embedder(kDim); }
 
 struct MemoryStoreTest : ::testing::Test {
   std::filesystem::path dir;
@@ -45,8 +45,8 @@ struct MemoryStoreTest : ::testing::Test {
     std::filesystem::remove_all(dir, ec);
   }
 
-  MemoryOptions options() const {
-    MemoryOptions out;
+  vdb::MemoryOptions options() const {
+    vdb::MemoryOptions out;
     out.path = path;
     out.embedder = stub();
     out.embed_model = "stub";
@@ -54,15 +54,15 @@ struct MemoryStoreTest : ::testing::Test {
     return out;
   }
 
-  MemoryOpenResult open_store(MemoryOptions opts) const {
-    return MemoryStore::open(opts);
+  vdb::MemoryOpenResult open_store(vdb::MemoryOptions opts) const {
+    return vdb::MemoryStore::open(opts);
   }
 
-  static Memory make(std::string content, std::string type = kMemoryEpisodic,
+  static vdb::Memory make(std::string content, std::string type = vdb::kMemoryEpisodic,
                      double importance = 0.5,
                      std::vector<std::string> tags = {},
                      std::string context = "default") {
-    Memory memory;
+    vdb::Memory memory;
     memory.content = std::move(content);
     memory.memory_type = std::move(type);
     memory.importance = importance;
@@ -73,17 +73,17 @@ struct MemoryStoreTest : ::testing::Test {
 };
 
 TEST_F(MemoryStoreTest, RememberReturnsAnIdAndRecallFindsTheContent) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult stored =
+  const vdb::RememberResult stored =
       opened.store->remember(make("The Louvre is in Paris"));
   ASSERT_TRUE(stored.ok) << stored.error;
   EXPECT_GT(stored.id, 0u);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "Louvre Paris";
   query.k = 3;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_FALSE(recalled.memories.empty());
   EXPECT_EQ(recalled.memories[0].memory.content, "The Louvre is in Paris");
@@ -93,7 +93,7 @@ TEST_F(MemoryStoreTest, RememberReturnsAnIdAndRecallFindsTheContent) {
 TEST_F(MemoryStoreTest, TheFileIsCreatedLazilyOnTheFirstRemember) {
   // An embedding model does not advertise its width, so a brand-new store
   // cannot write a header until something has been embedded.
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   EXPECT_FALSE(std::filesystem::exists(path));
   ASSERT_TRUE(opened.store->remember(make("something")).ok);
@@ -101,118 +101,118 @@ TEST_F(MemoryStoreTest, TheFileIsCreatedLazilyOnTheFirstRemember) {
 }
 
 TEST_F(MemoryStoreTest, RecallOnAnUntouchedStoreIsAnEmptyOkResult) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "anything";
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   EXPECT_TRUE(recalled.ok) << recalled.error;
   EXPECT_TRUE(recalled.memories.empty());
   EXPECT_FALSE(std::filesystem::exists(path));
 }
 
 TEST_F(MemoryStoreTest, RecallRanksTheClosestMemoryFirst) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(make("impressionist art museums")).ok);
   ASSERT_TRUE(opened.store->remember(make("diesel engine maintenance")).ok);
   ASSERT_TRUE(opened.store->remember(make("sourdough bread starter")).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "impressionist art museums";
   query.k = 1;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_EQ(recalled.memories[0].memory.content, "impressionist art museums");
 }
 
 TEST_F(MemoryStoreTest, MemoriesSurviveCloseAndReopen) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult stored = opened.store->remember(
-      make("user prefers impressionist art", kMemorySemantic, 0.9,
+  const vdb::RememberResult stored = opened.store->remember(
+      make("user prefers impressionist art", vdb::kMemorySemantic, 0.9,
            {"preference", "art"}));
   ASSERT_TRUE(stored.ok) << stored.error;
   opened.store.reset();
 
-  MemoryOpenResult reopened = open_store(options());
+  vdb::MemoryOpenResult reopened = open_store(options());
   ASSERT_TRUE(reopened.ok) << reopened.error;
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "impressionist art preference";
-  const RecallResult recalled = reopened.store->recall(query);
+  const vdb::RecallResult recalled = reopened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_FALSE(recalled.memories.empty());
-  const Memory& got = recalled.memories[0].memory;
+  const vdb::Memory& got = recalled.memories[0].memory;
   EXPECT_EQ(got.content, "user prefers impressionist art");
-  EXPECT_EQ(got.memory_type, kMemorySemantic);
+  EXPECT_EQ(got.memory_type, vdb::kMemorySemantic);
   EXPECT_DOUBLE_EQ(got.importance, 0.9);
   EXPECT_EQ(got.tags, (std::vector<std::string>{"preference", "art"}));
 }
 
 TEST_F(MemoryStoreTest, RecallHonorsTheMemoryTypeFilter) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  ASSERT_TRUE(opened.store->remember(make("paris trip talk", kMemoryEpisodic)).ok);
-  ASSERT_TRUE(opened.store->remember(make("paris is in france", kMemorySemantic)).ok);
+  ASSERT_TRUE(opened.store->remember(make("paris trip talk", vdb::kMemoryEpisodic)).ok);
+  ASSERT_TRUE(opened.store->remember(make("paris is in france", vdb::kMemorySemantic)).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "paris";
   query.k = 5;
-  query.memory_type = kMemorySemantic;
-  const RecallResult recalled = opened.store->recall(query);
+  query.memory_type = vdb::kMemorySemantic;
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
-  EXPECT_EQ(recalled.memories[0].memory.memory_type, kMemorySemantic);
+  EXPECT_EQ(recalled.memories[0].memory.memory_type, vdb::kMemorySemantic);
 }
 
 TEST_F(MemoryStoreTest, RecallHonorsTheContextIdFilter) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(
-      make("shared topic", kMemoryEpisodic, 0.5, {}, "conv_001")).ok);
+      make("shared topic", vdb::kMemoryEpisodic, 0.5, {}, "conv_001")).ok);
   ASSERT_TRUE(opened.store->remember(
-      make("shared topic", kMemoryEpisodic, 0.5, {}, "conv_002")).ok);
+      make("shared topic", vdb::kMemoryEpisodic, 0.5, {}, "conv_002")).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "shared topic";
   query.k = 5;
   query.context_id = "conv_002";
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_EQ(recalled.memories[0].memory.context_id, "conv_002");
 }
 
 TEST_F(MemoryStoreTest, RecallHonorsMinImportance) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  ASSERT_TRUE(opened.store->remember(make("trivial note", kMemoryEpisodic, 0.2)).ok);
-  ASSERT_TRUE(opened.store->remember(make("trivial note", kMemoryEpisodic, 0.9)).ok);
+  ASSERT_TRUE(opened.store->remember(make("trivial note", vdb::kMemoryEpisodic, 0.2)).ok);
+  ASSERT_TRUE(opened.store->remember(make("trivial note", vdb::kMemoryEpisodic, 0.9)).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "trivial note";
   query.k = 5;
   query.min_importance = 0.5;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_DOUBLE_EQ(recalled.memories[0].memory.importance, 0.9);
 }
 
 TEST_F(MemoryStoreTest, RecallHonorsATagFilter) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(
-      make("a note", kMemoryEpisodic, 0.5, {"travel", "paris"})).ok);
+      make("a note", vdb::kMemoryEpisodic, 0.5, {"travel", "paris"})).ok);
   ASSERT_TRUE(opened.store->remember(
-      make("a note", kMemoryEpisodic, 0.5, {"cooking"})).ok);
+      make("a note", vdb::kMemoryEpisodic, 0.5, {"cooking"})).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "a note";
   query.k = 5;
   query.tags = {"paris"};
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_EQ(recalled.memories[0].memory.tags,
@@ -220,48 +220,48 @@ TEST_F(MemoryStoreTest, RecallHonorsATagFilter) {
 }
 
 TEST_F(MemoryStoreTest, StructuredFieldsAndRawFilterJsonAreAnded) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  ASSERT_TRUE(opened.store->remember(make("x", kMemorySemantic, 0.9)).ok);
-  ASSERT_TRUE(opened.store->remember(make("x", kMemorySemantic, 0.1)).ok);
-  ASSERT_TRUE(opened.store->remember(make("x", kMemoryEpisodic, 0.9)).ok);
+  ASSERT_TRUE(opened.store->remember(make("x", vdb::kMemorySemantic, 0.9)).ok);
+  ASSERT_TRUE(opened.store->remember(make("x", vdb::kMemorySemantic, 0.1)).ok);
+  ASSERT_TRUE(opened.store->remember(make("x", vdb::kMemoryEpisodic, 0.9)).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "x";
   query.k = 5;
-  query.memory_type = kMemorySemantic;
+  query.memory_type = vdb::kMemorySemantic;
   query.filters = R"({"importance":{"$gte":0.5}})";
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
-  EXPECT_EQ(recalled.memories[0].memory.memory_type, kMemorySemantic);
+  EXPECT_EQ(recalled.memories[0].memory.memory_type, vdb::kMemorySemantic);
   EXPECT_DOUBLE_EQ(recalled.memories[0].memory.importance, 0.9);
 }
 
 TEST_F(MemoryStoreTest, AMalformedRawFilterIsAnError) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(make("x")).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "x";
   query.filters = "{not json";
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   EXPECT_FALSE(recalled.ok);
   EXPECT_NE(recalled.error.find("filter parse error"), std::string::npos)
       << recalled.error;
 }
 
 TEST_F(MemoryStoreTest, ARecallWithNoQueryIsAnError) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RecallResult recalled = opened.store->recall(RecallQuery{});
+  const vdb::RecallResult recalled = opened.store->recall(vdb::RecallQuery{});
   EXPECT_FALSE(recalled.ok);
   EXPECT_FALSE(recalled.error.empty());
 }
 
 TEST_F(MemoryStoreTest, RecencyWeightPromotesTheNewerOfTwoEqualMemories) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
 
   // Identical text, so similarity is identical and only the age separates
@@ -271,20 +271,20 @@ TEST_F(MemoryStoreTest, RecencyWeightPromotesTheNewerOfTwoEqualMemories) {
   const double now = std::chrono::duration<double>(
                          std::chrono::system_clock::now().time_since_epoch())
                          .count();
-  Memory old_memory = make("the same words exactly");
+  vdb::Memory old_memory = make("the same words exactly");
   old_memory.timestamp = now - 72.0 * 3600.0;
-  Memory new_memory = make("the same words exactly");
+  vdb::Memory new_memory = make("the same words exactly");
   new_memory.timestamp = now;
-  const RememberResult stored_old = opened.store->remember(old_memory);
-  const RememberResult stored_new = opened.store->remember(new_memory);
+  const vdb::RememberResult stored_old = opened.store->remember(old_memory);
+  const vdb::RememberResult stored_new = opened.store->remember(new_memory);
   ASSERT_TRUE(stored_old.ok) << stored_old.error;
   ASSERT_TRUE(stored_new.ok) << stored_new.error;
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "the same words exactly";
   query.k = 2;
   query.recency_weight = 0.5;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 2u);
   EXPECT_EQ(recalled.memories[0].memory.id, stored_new.id);
@@ -292,19 +292,19 @@ TEST_F(MemoryStoreTest, RecencyWeightPromotesTheNewerOfTwoEqualMemories) {
 }
 
 TEST_F(MemoryStoreTest, TheRecencyFactorDecaysByEAtTheHalfLife) {
-  MemoryOptions opts = options();
+  vdb::MemoryOptions opts = options();
   opts.recency_half_life_hours = 24.0;  // The python's decay.
-  MemoryOpenResult opened = open_store(opts);
+  vdb::MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
 
-  Memory memory = make("aged");
+  vdb::Memory memory = make("aged");
   memory.timestamp = 0.0;  // 0 means "stamp it now", so this is age zero.
   ASSERT_TRUE(opened.store->remember(memory).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "aged";
   query.recency_weight = 1.0;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_NEAR(recalled.memories[0].recency, 1.0, 1e-3);
@@ -312,19 +312,19 @@ TEST_F(MemoryStoreTest, TheRecencyFactorDecaysByEAtTheHalfLife) {
 }
 
 TEST_F(MemoryStoreTest, ZeroRecencyWeightRanksPurelyBySimilarity) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  Memory ancient = make("impressionist art museums in paris");
+  vdb::Memory ancient = make("impressionist art museums in paris");
   ancient.timestamp = 1.0;  // Effectively infinitely old.
-  const RememberResult stored_old = opened.store->remember(ancient);
+  const vdb::RememberResult stored_old = opened.store->remember(ancient);
   ASSERT_TRUE(stored_old.ok) << stored_old.error;
   ASSERT_TRUE(opened.store->remember(make("diesel engine maintenance")).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "impressionist art museums in paris";
   query.k = 1;
   query.recency_weight = 0.0;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_EQ(recalled.memories[0].memory.id, stored_old.id);
@@ -332,72 +332,72 @@ TEST_F(MemoryStoreTest, ZeroRecencyWeightRanksPurelyBySimilarity) {
 }
 
 TEST_F(MemoryStoreTest, ImportanceWeightPromotesTheMoreImportantMemory) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult dull =
-      opened.store->remember(make("equally worded memory", kMemoryEpisodic, 0.1));
-  const RememberResult vital =
-      opened.store->remember(make("equally worded memory", kMemoryEpisodic, 1.0));
+  const vdb::RememberResult dull =
+      opened.store->remember(make("equally worded memory", vdb::kMemoryEpisodic, 0.1));
+  const vdb::RememberResult vital =
+      opened.store->remember(make("equally worded memory", vdb::kMemoryEpisodic, 1.0));
   ASSERT_TRUE(dull.ok) << dull.error;
   ASSERT_TRUE(vital.ok) << vital.error;
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "equally worded memory";
   query.k = 2;
   query.recency_weight = 0.0;
   query.importance_weight = 0.5;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 2u);
   EXPECT_EQ(recalled.memories[0].memory.id, vital.id);
 }
 
 TEST_F(MemoryStoreTest, RecallBumpsAccessCountAndTheBumpSurvivesReopen) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(make("counted memory")).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "counted memory";
   query.k = 1;
-  const RecallResult first = opened.store->recall(query);
+  const vdb::RecallResult first = opened.store->recall(query);
   ASSERT_TRUE(first.ok) << first.error;
   ASSERT_EQ(first.memories.size(), 1u);
   EXPECT_EQ(first.memories[0].memory.access_count, 1);
 
-  const RecallResult second = opened.store->recall(query);
+  const vdb::RecallResult second = opened.store->recall(query);
   ASSERT_TRUE(second.ok) << second.error;
   EXPECT_EQ(second.memories[0].memory.access_count, 2);
   opened.store.reset();
 
-  MemoryOpenResult reopened = open_store(options());
+  vdb::MemoryOpenResult reopened = open_store(options());
   ASSERT_TRUE(reopened.ok) << reopened.error;
-  const RecallResult third = reopened.store->recall(query);
+  const vdb::RecallResult third = reopened.store->recall(query);
   ASSERT_TRUE(third.ok) << third.error;
   EXPECT_EQ(third.memories[0].memory.access_count, 3);
 }
 
 TEST_F(MemoryStoreTest, ForgetRemovesTheMemoryFromRecall) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult stored = opened.store->remember(make("forget me"));
+  const vdb::RememberResult stored = opened.store->remember(make("forget me"));
   ASSERT_TRUE(stored.ok) << stored.error;
   ASSERT_TRUE(opened.store->remember(make("keep me")).ok);
 
   ASSERT_TRUE(opened.store->forget({stored.id}).ok);
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "forget me";
   query.k = 5;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
-  for (const ScoredMemory& memory : recalled.memories) {
+  for (const vdb::ScoredMemory& memory : recalled.memories) {
     EXPECT_NE(memory.memory.id, stored.id);
   }
   EXPECT_EQ(opened.store->stats().total, 1u);
 }
 
 TEST_F(MemoryStoreTest, ForgettingAnUnknownIdIsHarmless) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   EXPECT_TRUE(opened.store->forget({999999}).ok);
   ASSERT_TRUE(opened.store->remember(make("x")).ok);
@@ -406,14 +406,14 @@ TEST_F(MemoryStoreTest, ForgettingAnUnknownIdIsHarmless) {
 }
 
 TEST_F(MemoryStoreTest, StatsCountMemoriesByType) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
-  ASSERT_TRUE(opened.store->remember(make("a", kMemoryEpisodic)).ok);
-  ASSERT_TRUE(opened.store->remember(make("b", kMemoryEpisodic)).ok);
-  ASSERT_TRUE(opened.store->remember(make("c", kMemorySemantic)).ok);
-  ASSERT_TRUE(opened.store->remember(make("d", kMemoryProcedural)).ok);
+  ASSERT_TRUE(opened.store->remember(make("a", vdb::kMemoryEpisodic)).ok);
+  ASSERT_TRUE(opened.store->remember(make("b", vdb::kMemoryEpisodic)).ok);
+  ASSERT_TRUE(opened.store->remember(make("c", vdb::kMemorySemantic)).ok);
+  ASSERT_TRUE(opened.store->remember(make("d", vdb::kMemoryProcedural)).ok);
 
-  const MemoryStats stats = opened.store->stats();
+  const vdb::MemoryStats stats = opened.store->stats();
   EXPECT_EQ(stats.total, 4u);
   EXPECT_EQ(stats.episodic, 2u);
   EXPECT_EQ(stats.semantic, 1u);
@@ -425,14 +425,14 @@ TEST_F(MemoryStoreTest, StatsCountMemoriesByType) {
 // ───────────────────────── the embedding boundary ──────────────────────────
 
 TEST_F(MemoryStoreTest, AnEmbedderFailureIsReportedNotThrown) {
-  MemoryOptions opts = options();
+  vdb::MemoryOptions opts = options();
   opts.embedder = [](std::string_view, std::string& error) {
     error = "the model is on fire";
     return std::vector<float>();
   };
-  MemoryOpenResult opened = open_store(opts);
+  vdb::MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult stored = opened.store->remember(make("x"));
+  const vdb::RememberResult stored = opened.store->remember(make("x"));
   EXPECT_FALSE(stored.ok);
   EXPECT_NE(stored.error.find("the model is on fire"), std::string::npos)
       << stored.error;
@@ -440,47 +440,47 @@ TEST_F(MemoryStoreTest, AnEmbedderFailureIsReportedNotThrown) {
 }
 
 TEST_F(MemoryStoreTest, AnEmbedderChangingItsDimensionIsAnError) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(make("first")).ok);
   opened.store.reset();
 
-  MemoryOptions wider = options();
-  wider.embedder = hash_embedder(kDim * 2);
-  MemoryOpenResult reopened = open_store(wider);
+  vdb::MemoryOptions wider = options();
+  wider.embedder = vdb::hash_embedder(kDim * 2);
+  vdb::MemoryOpenResult reopened = open_store(wider);
   ASSERT_TRUE(reopened.ok) << reopened.error;
-  const RememberResult stored = reopened.store->remember(make("second"));
+  const vdb::RememberResult stored = reopened.store->remember(make("second"));
   EXPECT_FALSE(stored.ok);
   EXPECT_NE(stored.error.find("dimensions"), std::string::npos) << stored.error;
 }
 
 TEST_F(MemoryStoreTest, AConfiguredDimensionThatContradictsTheFileIsAnError) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(make("first")).ok);
   opened.store.reset();
 
-  MemoryOptions wrong = options();
+  vdb::MemoryOptions wrong = options();
   wrong.embedding_dim = kDim * 2;
-  const MemoryOpenResult reopened = open_store(wrong);
+  const vdb::MemoryOpenResult reopened = open_store(wrong);
   EXPECT_FALSE(reopened.ok);
   EXPECT_NE(reopened.error.find("dimensional"), std::string::npos)
       << reopened.error;
 }
 
 TEST_F(MemoryStoreTest, AZeroVectorDoesNotProduceNaNs) {
-  MemoryOptions opts = options();
+  vdb::MemoryOptions opts = options();
   opts.embedder = [](std::string_view, std::string&) {
     return std::vector<float>(kDim, 0.0f);
   };
-  MemoryOpenResult opened = open_store(opts);
+  vdb::MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
   ASSERT_TRUE(opened.store->remember(make("degenerate")).ok);
 
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "degenerate";
   query.k = 1;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_FALSE(std::isnan(recalled.memories[0].similarity));
@@ -488,17 +488,17 @@ TEST_F(MemoryStoreTest, AZeroVectorDoesNotProduceNaNs) {
 }
 
 TEST_F(MemoryStoreTest, OverlongContentIsRejected) {
-  MemoryOptions opts = options();
+  vdb::MemoryOptions opts = options();
   opts.max_content_bytes = 32;
-  MemoryOpenResult opened = open_store(opts);
+  vdb::MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult stored = opened.store->remember(make(std::string(64, 'x')));
+  const vdb::RememberResult stored = opened.store->remember(make(std::string(64, 'x')));
   EXPECT_FALSE(stored.ok);
   EXPECT_NE(stored.error.find("limit"), std::string::npos) << stored.error;
 }
 
 TEST_F(MemoryStoreTest, EmptyContentIsRejected) {
-  MemoryOpenResult opened = open_store(options());
+  vdb::MemoryOpenResult opened = open_store(options());
   ASSERT_TRUE(opened.ok) << opened.error;
   EXPECT_FALSE(opened.store->remember(make("")).ok);
 }
@@ -507,32 +507,32 @@ TEST_F(MemoryStoreTest, EmptyContentIsRejected) {
 // fails, so without this check recall just quietly gets worse.
 TEST_F(MemoryStoreTest, AChangeOfEmbeddingModelIsCaughtAtTheSameWidth) {
   {
-    MemoryOpenResult opened = open_store(options());
+    vdb::MemoryOpenResult opened = open_store(options());
     ASSERT_TRUE(opened.ok) << opened.error;
     ASSERT_TRUE(opened.store->remember(make("something")).ok);
     ASSERT_TRUE(opened.store->flush().ok);
   }
 
-  MemoryOptions other = options();
+  vdb::MemoryOptions other = options();
   other.embed_model = "a-different-model";  // Same hash embedder, same width.
 
-  const std::string mismatch = memory_model_mismatch(path, other.embed_model);
+  const std::string mismatch = vdb::memory_model_mismatch(path, other.embed_model);
   EXPECT_NE(mismatch.find("stub"), std::string::npos) << mismatch;
   EXPECT_NE(mismatch.find("a-different-model"), std::string::npos) << mismatch;
 
   // And open() refuses rather than leaving it to a later tool call.
-  MemoryOpenResult reopened = open_store(other);
+  vdb::MemoryOpenResult reopened = open_store(other);
   EXPECT_FALSE(reopened.ok);
   EXPECT_NE(reopened.error.find("a-different-model"), std::string::npos)
       << reopened.error;
 
   // The model it was built with still opens.
-  EXPECT_TRUE(memory_model_mismatch(path, "stub").empty());
+  EXPECT_TRUE(vdb::memory_model_mismatch(path, "stub").empty());
   EXPECT_TRUE(open_store(options()).ok);
 }
 
 TEST_F(MemoryStoreTest, AMissingFileHasNoModelToDisagreeWith) {
-  EXPECT_TRUE(memory_model_mismatch(path, "stub").empty());
+  EXPECT_TRUE(vdb::memory_model_mismatch(path, "stub").empty());
 }
 
 TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
@@ -540,25 +540,25 @@ TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
       200, "application/json",
       R"({"model":"stub","embeddings":[[3.0,4.0,0.0,0.0]]})");
 
-  MemoryOptions opts;
+  vdb::MemoryOptions opts;
   opts.path = path;
   opts.embed_model = "stub";
   oc::OllamaClient::configure_embed("stub", server.url());
-  opts.embedder = ollama_embedder("stub");
+  opts.embedder = vdb::ollama_embedder("stub");
   opts.recency_weight = 0.0;
-  MemoryOpenResult opened = open_store(opts);
+  vdb::MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
 
-  const RememberResult stored = opened.store->remember(make("anything"));
+  const vdb::RememberResult stored = opened.store->remember(make("anything"));
   ASSERT_TRUE(stored.ok) << stored.error;
   EXPECT_EQ(opened.store->stats().dim, 4u);
 
   // Stored normalized: (3,4,0,0) has length 5, so the query (3,4,0,0) must
   // come back at cosine similarity 1.
-  RecallQuery query;
+  vdb::RecallQuery query;
   query.query = "anything";
   query.k = 1;
-  const RecallResult recalled = opened.store->recall(query);
+  const vdb::RecallResult recalled = opened.store->recall(query);
   ASSERT_TRUE(recalled.ok) << recalled.error;
   ASSERT_EQ(recalled.memories.size(), 1u);
   EXPECT_NEAR(recalled.memories[0].similarity, 1.0f, 1e-5);
@@ -566,13 +566,13 @@ TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
 
 TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnHttpErrorAsAString) {
   const test::LoopbackServer server(500, "text/plain", "upstream is down");
-  MemoryOptions opts;
+  vdb::MemoryOptions opts;
   opts.path = path;
   oc::OllamaClient::configure_embed("stub", server.url());
-  opts.embedder = ollama_embedder("stub");
-  MemoryOpenResult opened = open_store(opts);
+  opts.embedder = vdb::ollama_embedder("stub");
+  vdb::MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult stored = opened.store->remember(make("x"));
+  const vdb::RememberResult stored = opened.store->remember(make("x"));
   EXPECT_FALSE(stored.ok);
   EXPECT_NE(stored.error.find("embedding failed"), std::string::npos)
       << stored.error;
@@ -581,20 +581,20 @@ TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnHttpErrorAsAString) {
 TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnEmptyResponseAsAString) {
   const test::LoopbackServer server(200, "application/json",
                                     R"({"model":"stub","embeddings":[]})");
-  MemoryOptions opts;
+  vdb::MemoryOptions opts;
   opts.path = path;
   oc::OllamaClient::configure_embed("stub", server.url());
-  opts.embedder = ollama_embedder("stub");
-  MemoryOpenResult opened = open_store(opts);
+  opts.embedder = vdb::ollama_embedder("stub");
+  vdb::MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
-  const RememberResult stored = opened.store->remember(make("x"));
+  const vdb::RememberResult stored = opened.store->remember(make("x"));
   EXPECT_FALSE(stored.ok);
   EXPECT_NE(stored.error.find("no embedding"), std::string::npos)
       << stored.error;
 }
 
 TEST_F(MemoryStoreTest, TheHashEmbedderIsDeterministicAndDirectional) {
-  const Embedder embedder = hash_embedder(kDim);
+  const vdb::Embedder embedder = vdb::hash_embedder(kDim);
   std::string error;
   const std::vector<float> first = embedder("paris art museums", error);
   const std::vector<float> again = embedder("paris art museums", error);
@@ -612,14 +612,14 @@ struct MemoryToolTest : MemoryStoreTest {
   void TearDown() override {
     // The registry is process-wide and caches by path, so a case that did not
     // clean up would hand its store to the next one.
-    MemoryStoreRegistry::instance().reset();
+    vdb::MemoryStoreRegistry::instance().reset();
     MemoryStoreTest::TearDown();
   }
 
-  MemoryTool tool() const {
-    MemoryOptions opts = options();
+  vdb::MemoryTool tool() const {
+    vdb::MemoryOptions opts = options();
     opts.recency_weight = 0.0;
-    return MemoryTool{opts};
+    return vdb::MemoryTool{opts};
   }
 
   static tools::ToolArgs args_of(std::initializer_list<
@@ -631,7 +631,7 @@ struct MemoryToolTest : MemoryStoreTest {
 };
 
 TEST_F(MemoryToolTest, TheSchemaIsValidJsonAndNamesTheTool) {
-  const std::string schema = MemoryTool::description();
+  const std::string schema = vdb::MemoryTool::description();
   simdjson::dom::parser parser;
   simdjson::dom::element root;
   ASSERT_FALSE(parser.parse(simdjson::padded_string(schema)).get(root));
@@ -644,7 +644,7 @@ TEST_F(MemoryToolTest, TheSchemaIsValidJsonAndNamesTheTool) {
 }
 
 TEST_F(MemoryToolTest, RemembersAndRecallsThroughTheToolInterface) {
-  const MemoryTool memory = tool();
+  const vdb::MemoryTool memory = tool();
   const tools::ToolResult stored = memory.execute(args_of({
       {"action", std::string("remember")},
       {"content", std::string("the user lives in Lisbon")},
@@ -669,7 +669,7 @@ TEST_F(MemoryToolTest, RemembersAndRecallsThroughTheToolInterface) {
 }
 
 TEST_F(MemoryToolTest, ATagArgumentReachesTheFilter) {
-  const MemoryTool memory = tool();
+  const vdb::MemoryTool memory = tool();
   ASSERT_TRUE(memory
                   .execute(args_of({{"action", std::string("remember")},
                                     {"content", std::string("a tagged note")},
@@ -692,7 +692,7 @@ TEST_F(MemoryToolTest, ATagArgumentReachesTheFilter) {
 }
 
 TEST_F(MemoryToolTest, ForgetRemovesTheMemory) {
-  const MemoryTool memory = tool();
+  const vdb::MemoryTool memory = tool();
   const tools::ToolResult stored = memory.execute(
       args_of({{"action", std::string("remember")},
                {"content", std::string("temporary")}}));
@@ -714,7 +714,7 @@ TEST_F(MemoryToolTest, ForgetRemovesTheMemory) {
 }
 
 TEST_F(MemoryToolTest, EveryArgumentErrorNamesTheToolAndTheArgument) {
-  const MemoryTool memory = tool();
+  const vdb::MemoryTool memory = tool();
   const std::vector<std::pair<tools::ToolArgs, std::string>> cases = {
       {args_of({}), "action"},
       {args_of({{"action", std::string("remember")}}), "content"},
@@ -731,7 +731,7 @@ TEST_F(MemoryToolTest, EveryArgumentErrorNamesTheToolAndTheArgument) {
 }
 
 TEST_F(MemoryToolTest, AMalformedFiltersArgumentIsAnError) {
-  const MemoryTool memory = tool();
+  const vdb::MemoryTool memory = tool();
   ASSERT_TRUE(memory
                   .execute(args_of({{"action", std::string("remember")},
                                     {"content", std::string("x")}}))
