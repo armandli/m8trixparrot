@@ -88,7 +88,7 @@ flowchart TD
     subgraph UI["main.cpp — FTXUI single-pane TUI"]
         Input[Keyboard input]
         Bang{starts with !}
-        Transcript[TranscriptView\ntranscript + subagent grid]
+        Transcript[agentui TranscriptNode list\ntranscript + subagent grid]
     end
 
     subgraph Core["agentcore"]
@@ -130,11 +130,11 @@ A turn starts when the user submits a line that doesn't start with `!`:
 gates each returned tool call through `PolicyInterface` before dispatching
 it, and stops once the model replies with no more tool calls. Every step
 emits an `AgentEvent` through the shared `AgentPool`, which stamps
-agent/parent/depth and routes it to `TranscriptView`. Calling the
-`subagent_create` tool spawns another `Agent` on its own thread — sharing the
-same `OllamaClient` pool, so however many agents are live, no more than `k`
-requests are ever in flight against Ollama — whose events nest under the parent
-in the transcript until `subagent_wait` joins it.
+agent/parent/depth and routes it to the app's `agentui::TranscriptNode` list.
+Calling the `subagent_create` tool spawns another `Agent` on its own thread —
+sharing the same `OllamaClient` pool, so however many agents are live, no more
+than `k` requests are ever in flight against Ollama — whose events nest under
+the parent in the transcript until `subagent_wait` joins it.
 The root agent's result tree (not the full transcript) is saved to
 `SessionStore` after each turn — to `.m8trix/sessions/` under the working
 directory, except for `sp`, which points `AgentOptions::session_dir` at
@@ -208,7 +208,7 @@ flowchart TD
     subgraph UI["main.cpp — FTXUI event loop, two-pane layout"]
         Input[Keyboard input]
         Mode{shell mode or ai mode}
-        Transcript[Left pane\nTranscriptView renders agent turn]
+        Transcript[Left pane\nagentui renders the agent turn]
         Right[Right pane\nterminal grid]
     end
 
@@ -346,6 +346,355 @@ keys `MODEL`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`, `OLLAMA_JOBS`,
 exists, then the command line — each winning over the one before it. `sp` is
 run from wherever the user happens to be standing, so the config file is what
 actually persists a setting. An older `~/.sprc` is moved here on first run.
+
+### Architecture
+
+```mermaid
+flowchart TD
+    subgraph Start["main.cpp — startup, in order"]
+        Paths["sp::resolve_sp_paths → sp::SpPaths<br/>ensure_sp_dirs · migrate_legacy_paths"]
+        Cfg["~/.config/sp/config, then .m8trix/settings.json,<br/>then the CLI11 flags"]
+        Probe["ollama list · context_length<br/>memory_model_mismatch · memory_available"]
+        Opts["agent::AgentOptions<br/>bash_repl · bash_search · memory? · subagents?<br/>session_dir · system_prompt_builder"]
+    end
+
+    subgraph Mode["one of two modes, each installing the one observer"]
+        Single["run_single_shot()<br/>root text to stdout, the rest to stderr"]
+        Inter["run_interactive()<br/>FTXUI + agentui transcript / pane grid"]
+    end
+
+    subgraph Core["agentcore"]
+        Agent["agent::Agent::run_turn"]
+        Pool["agent::AgentPool «singleton»<br/>spawn · wait_for · the one observer"]
+        Ollama["agent::OllamaClient «singleton»<br/>chat + embed queues, k in flight"]
+        Policy["agent::YoloPolicy"]
+        Shell["agent::BashReplSession<br/>one bash per Agent"]
+        Search["BashSearchIndex «singleton»<br/>$XDG_CACHE_HOME/sp/bash_search_index.json"]
+        Mem["MemoryStoreRegistry → MemoryStore<br/>$XDG_DATA_HOME/sp/memory.m8db"]
+        Store["agent::SessionStore<br/>$XDG_STATE_HOME/sp/sessions/"]
+    end
+
+    Paths --> Cfg --> Probe --> Opts
+    Opts --> Single
+    Opts --> Inter
+    Single --> Agent
+    Inter --> Agent
+
+    Agent -- messages + tool schemas --> Ollama
+    Ollama -- ChatResult --> Agent
+    Agent -- tool call --> Policy
+    Policy -- allow --> Shell
+    Policy -- allow --> Search
+    Policy -- allow --> Mem
+    Mem -- Embedder --> Ollama
+
+    Agent -- subagent_create --> Pool
+    Pool -- owns a child Agent, own shell --> Agent
+    Agent -- AgentEvent --> Pool
+    Pool -- routed events --> Mode
+    Agent -- save after each root turn --> Store
+```
+
+`sp` is the same `Agent` the other two apps run, configured differently and
+wrapped in about 1100 lines of `main.cpp`. Startup order is deliberate: paths
+resolve before anything reads a config, and the embedding probe runs last
+because it is a second call to the same Ollama the model check just used
+(`main.cpp:1017-1046`). `set_bash_search_index_path(paths.search_index())` at
+`main.cpp:895` is what moves the command index off the shared `~/.m8trix` one,
+so sp leaves nothing behind in a directory it was merely run from.
+
+sp constructs exactly one object of its own: the root `agent::Agent`, on
+`main`'s stack (`main.cpp:1110`). `OllamaClient` and `AgentPool` are singletons
+it only configures — `set_concurrency`, `configure`, `configure_embed`,
+`AgentPool::configure` — and every subagent is built by `AgentPool::spawn`,
+which owns it through a `unique_ptr` in its node.
+
+There is no tool registration step. sp sets nine booleans on `AgentOptions`
+(`main.cpp:1069-1103`) and `Agent::tool_schemas()` turns them into the
+advertised list: `bash_repl`, `bash_search`, then `memory` when it is on, then
+`subagent_create` and `subagent_wait`. `enable_bash_repl` *replaces* `bash`
+rather than adding to it, which is why sp has one shell rather than two ways to
+run a command.
+
+Both modes are one `AgentPool` observer and nothing more. Single-shot's
+(`main.cpp:139`) prints root `Assistant` text to stdout and everything else
+depth-indented to stderr. Interactive's (`main.cpp:247`) routes each event by
+`ev.agent_id` through an `unordered_map<string, list<TranscriptNode>*>`, so a
+subagent's output nests under the node that spawned it instead of piling into
+one column. `AgentPool::emit` holds its observer mutex across the whole
+callback, which is why the single-shot writer needs no lock of its own.
+
+Each subagent is a whole `Agent`, so it gets its own `BashReplSession` — the
+code-level reason a delegated task cannot see the parent's variables or its
+`cd`. `Agent::save()` goes through `AgentPool::assemble_tree()`, which blocks on
+every descendant, so the root's session file is never written while a subagent
+is still running.
+
+### Classes
+
+Two views of the same set: what owns what at runtime, then how a tool call
+reaches the thing that does the work.
+
+```mermaid
+classDiagram
+    direction LR
+
+    class XdgEnv
+    class SpPaths {
+        +bin() src() trash() memory()
+        +config_file() sessions() search_index()
+        +bool bin_on_path
+    }
+    class PromptFacts
+
+    class Agent {
+        +run_turn(objective) AgentResult
+        +tool_schemas() tool_names()
+        +save() SessionStoreResult
+        #dispatch(name, args) ToolResult
+        -vector~ChatMessage~ mTranscript
+    }
+    class AgentOptions
+    class AgentPool {
+        <<singleton>>
+        +spawn(parent, objective, policy, options)
+        +wait_for(id) AgentResult
+        +set_observer(AgentObserver)
+        +assemble_tree(id) AgentResult
+    }
+    class OllamaClient {
+        <<singleton>>
+        +enqueue_chat(messages, tools) ticket
+        +wait_for(ticket) ChatResult
+        +enqueue_embed(input) ticket
+        +context_length(model)
+    }
+    class BasicOllamaClient
+    class PolicyInterface {
+        <<abstract>>
+        +verify(tool, args) PolicyResult
+    }
+    class YoloPolicy
+    class BashReplSession {
+        +run(command, timeout) Outcome
+        +restart()
+    }
+    class SessionStore
+    class AgentResult
+
+    XdgEnv ..> SpPaths : resolve_sp_paths()
+    SpPaths ..> Agent : system_prompt_builder
+    Agent ..> PromptFacts : prompt_facts() feeds the builder
+
+    Agent *-- AgentOptions : by value
+    Agent *-- SessionStore : by value
+    Agent *-- BashReplSession : unique_ptr, one per agent
+    Agent o-- PolicyInterface : borrowed, must outlive
+    YoloPolicy --|> PolicyInterface
+    AgentPool "1" *-- "n" Agent : owns every subagent
+    Agent ..> AgentPool : emit(AgentEvent) / spawn
+    Agent ..> OllamaClient : enqueue_chat / wait_for
+    OllamaClient *-- BasicOllamaClient : one per worker thread
+    Agent ..> AgentResult : produces
+    SessionStore ..> AgentResult : serialises the tree
+```
+
+```mermaid
+classDiagram
+    direction LR
+
+    class Agent {
+        #dispatch(name, args) ToolResult
+    }
+    class BashReplTool {
+        +session
+    }
+    class BashSearchTool
+    class MemoryTool {
+        +options
+    }
+    class SubagentCreateTool {
+        +parent_id
+        +policy
+        +options
+    }
+    class SubagentWaitTool
+
+    class BashReplSession
+    class BashSearchIndex {
+        <<singleton>>
+    }
+    class MemoryStoreRegistry {
+        <<singleton>>
+    }
+    class MemoryStore
+    class VectorStore
+    class VectorIndex {
+        <<HNSW>>
+    }
+    class AgentPool {
+        <<singleton>>
+    }
+    class OllamaClient {
+        <<singleton>>
+    }
+    class AgentEvent
+    class TranscriptNode
+    class ToolSegment
+
+    Agent ..> BashReplTool : dispatch
+    Agent ..> BashSearchTool : dispatch
+    Agent ..> MemoryTool : dispatch
+    Agent ..> SubagentCreateTool : dispatch
+    Agent ..> SubagentWaitTool : dispatch
+
+    BashReplTool o-- BashReplSession : borrowed from the Agent
+    BashSearchTool ..> BashSearchIndex
+    MemoryTool ..> MemoryStoreRegistry : get(path)
+    MemoryStoreRegistry "1" *-- "n" MemoryStore : one per canonical path
+    MemoryStore *-- VectorStore
+    VectorStore *-- VectorIndex
+    MemoryStore ..> OllamaClient : Embedder, /api/embed
+    SubagentCreateTool ..> AgentPool : spawn
+    SubagentWaitTool ..> AgentPool : wait_for
+
+    Agent ..> AgentEvent : emits
+    AgentPool ..> AgentEvent : stamps and routes
+    AgentEvent ..> TranscriptNode : the observer builds
+    TranscriptNode *-- ToolSegment
+    TranscriptNode *-- TranscriptNode : children
+```
+
+**sp's own types** — `src/apps/sp/`. Only four, because nearly everything else
+in the app is a free function.
+
+| Type | File | Role |
+|---|---|---|
+| `sp::XdgEnv` | `sp_paths.h:14` | The four raw `$XDG_*_HOME` strings, read by `main()` and passed in, so resolving paths stays a pure function a test can drive |
+| `sp::SpPaths` | `sp_paths.h:24` | Every location sp owns, one accessor per purpose: `bin()`, `src()`, `trash()`, `memory()`, `config_file()`, `sessions()`, `search_index()`, plus `bin_on_path` |
+| `sp::Command` | `sp_memory.h:18` | One line of TUI input, classified; the nested `Kind` covers `/quit` `/help` `/reset` `/remember` `/memories` `/forget` |
+| `MemoryConfig` | `main.cpp:120` | Anonymous namespace. `enabled` plus the `MemoryOptions` that both the `memory` tool and the slash commands open the store through |
+
+The rest of `src/apps/sp/` is functions: `resolve_sp_paths`, `ensure_sp_dirs`
+and `migrate_legacy_paths` (`sp_paths.cpp`); `make_system_prompt`, one builder
+serving both altitudes off `facts.is_root()` (`sp_prompt.cpp:7`);
+`parse_command`, `do_remember`, `do_search`, `do_forget` (`sp_memory.cpp`); and
+the two modes, `run_single_shot` (`main.cpp:139`) and `run_interactive`
+(`main.cpp:196`), which are functions rather than classes — all their state is
+locals under one `std::mutex`.
+
+**The agent runtime** — `src/core/`
+
+| Type | File | Role |
+|---|---|---|
+| `agent::Agent` | `agent.h:210` | The turn loop. One type for root and subagents; the root is the one at depth 0 that persists |
+| `agent::AgentOptions` | `agent.h:70` | Every knob, copied by value into each subagent — including the prompt builder |
+| `agent::AgentEvent` | `agent.h:36` | One thing that happened, with a `Kind` of `Assistant`, `ToolCall`, `ToolResult`, `Denied`, `Error`, `Notice`, `SubagentStart`, `SubagentDone`, `ContextUsage`, `ContextSummarized` |
+| `agent::AgentObserver` | `agent.h:68` | `std::function<void(const AgentEvent&)>` — the only callback typedef in the runtime |
+| `agent::AgentResult` | `agent_result.h:18` | Recursive; the root's copy is the whole tree, and it is what a session file holds |
+| `agent::SpawnResult` | `agent_result.h:31` | What `subagent_create` gets back |
+| `agent::AgentPool` (+ private `Node`) | `agent_pool.h:29`, `:73` | Registry of every agent, the spawn/depth caps, and the single process-wide observer |
+| `agent::SessionStore` | `session_store.h:33` | Writes the result tree; owned by value by each `Agent`, a no-op below depth 0 |
+| `agent::SessionRecord` / `SessionResult` / `SessionStoreResult` | `session_store.h:16`, `:21`, `:27` | What a session file is, and the two result types around it |
+| `agent::PolicyResult` (+ `Decision`) | `policy.h:17` | Allow or deny, with a reason the model reads |
+| `agent::PolicyInterface` | `policy.h:39` | Abstract; borrowed by `Agent` and passed by reference into every child |
+| `agent::YoloPolicy` | `policy.h:66` | Allows everything. The only policy sp instantiates (`main.cpp:1107`) |
+| `agent::PromptFacts` | `system_prompt.h:23` | The whole contract between core and an app's prompt builder |
+
+**Talking to Ollama** — `src/core/`
+
+| Type | File | Role |
+|---|---|---|
+| `agent::OllamaClient` (+ private `Target`, `ChatJob`, `EmbedJob`) | `ollama_client.h:41`, `:106`, `:120`, `:128` | The work pool. Two queues, embeddings served first, `k` in flight; `/api/show` skips it |
+| `agent::BasicOllamaClient` (+ `HttpResult`) | `basic_ollama_client.h:123`, `:152` | Synchronous libcurl client. One per pool worker; never used directly by an app |
+| `agent::ChatMessage` | `basic_ollama_client.h:26` | The transcript element — there is no `Transcript` class, just `vector<ChatMessage>` on the `Agent` |
+| `agent::ToolCall` | `basic_ollama_client.h:21` | Name plus raw JSON arguments, as the model returned them |
+| `agent::ChatResult` | `basic_ollama_client.h:36` | Reply text, tool calls, and the `prompt_eval_count` that drives context tracking |
+| `agent::EmbedResult` / `ShowResult` / `ModelDetails` | `basic_ollama_client.h:82`, `:101`, `:92` | Embeddings, and the `/api/show` capabilities the memory probe greps for `"embedding"` |
+
+**sp's five tools.** A tool is a plain struct with no base class; the ones that
+need context take it as an aggregate member filled in at the dispatch site.
+
+| Type | File | Role |
+|---|---|---|
+| `agent::BashReplTool` | `tools.h:106` | Borrows the session; a non-zero exit or a timeout is output, not tool failure |
+| `agent::BashReplSession` (+ `Outcome`) | `bash_repl.h:28`, `:35` | One `bash --norc --noprofile` over pipes, not a pty. A per-session sentinel marker carries `$?` and `$PWD` back; commands are staged through a temp file so an unterminated quote cannot wedge it |
+| `agent::BashSearchTool` | `tools.h:234` | `list_tags`, `search` over a boolean tag expression, `scan` |
+| `BashSearchIndex`, `CommandEntry`, `ManPageLine`, `TagExpr`, `TagQueryParser` | `tools_bash_search.cpp:571`, `:44`, `:291`, `:452`, `:475` | File-local. The singleton serves the cache and rescans on a worker it joins rather than detaches; one `apropos .` dump, not one `whatis` per command |
+| `agent::MemoryTool` | `memory_store.h:224` | `remember` / `recall` / `forget`. Declared beside `MemoryOptions` rather than in `tools.h` |
+| `agent::SubagentCreateTool` / `SubagentWaitTool` | `agent.h:183`, `:192` | Carry the spawning agent's identity into `AgentPool::spawn`; a cap refusal comes back as a tool error so the model does the work itself |
+| `agent::ToolArgValue` / `ToolArgs` / `ToolResult` | `tools.h:23`, `:30`, `:64` | The shared vocabulary. Tools never parse JSON — `args_from_json()` (`tools_util.h:61`) is the one seam |
+
+**The memory stack**, bottom-up. Only `MemoryTool` and the registry are
+sp-facing; the three layers below have no idea an agent exists.
+
+| Type | File | Role |
+|---|---|---|
+| `agent::VectorIndex` (+ `IndexParams`, `Metric`, `Neighbor`, `LabelPredicate`) | `vector_index.h:68`, `:41`, `:13`, `:54`, `:62` | The HNSW graph, with NEON kernels. No I/O and no locking — `VectorStore` holds the lock, which is what lets this file be tested standalone |
+| `agent::VectorStore` (+ `Schema`, `Filter`, `Document`, `ScoredDoc`, `StoreOptions`, `StoreOpenResult`) | `vector_store.h:222`, `:45`, `:110`, `:62`, `:68`, `:153`, `:197` | One file per collection: duplicated header, append-only checksummed log, graph snapshot on flush. Caller-supplied `vector<float>`, no network dependency |
+| `agent::MemoryStore` (+ `Memory`, `RecallQuery`, `ScoredMemory`, `MemoryOptions`, `MemoryStats`) | `memory_store.h:164`, `:70`, `:81`, `:94`, `:101`, `:128` | Text in, ranked memories out. Owns the `Embedder` and embeds outside its own lock |
+| `agent::Embedder` + `ollama_embedder()` | `memory_store.h:50`, `:62` | The single network boundary of the memory system |
+| `agent::MemoryStoreRegistry` | `memory_store.h:204` | One open store per canonical absolute path, so the agent's tool and sp's slash commands share a file rather than two stale views of it |
+| `agent::ByteReader`, `crc32c()` | `byte_io.h:54`, `:105` | The `.m8db` record format |
+
+**The view layer** — `src/common/transcript_view.h`, namespace `agentui`,
+shared with `m8trixparrot` and `m8trixsh`.
+
+| Type | File | Role |
+|---|---|---|
+| `agentui::ToolSegment` | `transcript_view.h:32` | One tool call, its output and its fold state |
+| `agentui::TranscriptNode` | `transcript_view.h:45` | `Kind` of `User`, `Assistant`, `ToolGroup`, `Error`, `Notice`, `Subagent`; holds `segments` and a `std::list` of children, so pointers survive a `push_back` |
+| `agentui::GridShape` | `transcript_view.h:111` | `grid_shape(n)` gives `cols = ceil(sqrt(n))` for the subagent pane grid |
+
+Beside them are the free functions sp calls: `add_node`, `open_segment`,
+`render_node`, `render_pane`, `empty_pane`, `grid_shape`, `hit_test`,
+`any_group_expanded`, `set_all_expanded`, `collapse_subtree`, `forget_subtree`,
+`reset_boxes`, `clip_lines`, `human_tokens`.
+
+**Settings and JSON**: `agent::StartupSettings` (`agent_settings.h:23`) is an
+all-`std::optional` struct so "unset" layers cleanly; sp loads it twice, once
+through `load_shellrc_settings` for `~/.config/sp/config` and once through
+`load_startup_settings` for `.m8trix/settings.json`. `agent::JsonWriter` and
+`RawJson` (`json_util.h:37`, `:20`) write every JSON body the tools produce.
+
+#### Three things that are not there
+
+**No tool base class and no registry.** `tools.h:72-89` spells out the
+convention: a tool is a plain struct exposing `description()` and
+`execute(const ToolArgs&) const`, with no common base and usually no members.
+What stands in for a registry is three hand-written if-chains inside `Agent` —
+`tool_schemas()` (`agent.cpp:101`), `tool_names()` (`agent.cpp:135`) and
+`dispatch()` (`agent.cpp:315`) — all gated on the same `AgentOptions` flags,
+so the advertised list, the names in the prompt, and what actually runs cannot
+drift apart.
+
+**No `TranscriptView` class.** The view layer is free functions over
+`TranscriptNode`; the *app* owns the `std::list<TranscriptNode>`, mutates it
+from the observer, and renders it. Fold state and click hit-testing live on the
+nodes. That is why sp and `m8trixparrot` each carry their own copy of the
+observer, routing-map and grid wiring around the same shared helpers.
+
+**No code enforces the trash rule.** sp runs `YoloPolicy`, which allows
+everything; `BashReplTool` inspects the command for nothing. The trash
+directory is real and pre-created by `ensure_sp_dirs`, and the rule is emitted
+to root and subagent alike (`sp_prompt.cpp:51-56`), but it is a prompt rule. An
+`rm` the model decided to run would run.
+
+#### Linked but never reached
+
+`agentcore` is one static library, so `sp` links all of it and the honest
+distinction is reachable at runtime versus never advertised. Dead weight for
+sp, and the clearest statement of how it differs from the other two apps:
+`BashTool` (replaced by `bash_repl`), `PythonTool` with `VenvBootstrap`,
+`create_workspace_venv` and `ensure_python_ready`, `ReadTool` / `WriteTool` /
+`EditTool`, `FindTool` / `GrepTool` and `IgnoreFilter`, `WebFetchTool` /
+`WebSearchTool`, `AskUserTool` (sp sets no `ask_user_handler`),
+`PackageInstallTool` with `PackageInstaller`, `SkillTool` with `SkillCatalog`,
+`SkillInfo` and `SkillFrontmatter`, `SanePolicy`, `WorkspaceContext` (so sp
+never shells out to `git`), and `hash_embedder`. Also unused: `ShellSession`
+(`shell_session.h:30`), which is m8trixsh's pseudo-terminal and is easy to
+confuse with `BashReplSession` — sp's shell is pipes to a `bash` child, not a
+pty.
 
 ### What sp remembers
 
