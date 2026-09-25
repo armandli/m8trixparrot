@@ -80,7 +80,7 @@ std::string human_tokens(int64_t n) {
 
 }  // namespace
 
-Agent::Agent(AgentOptions options, const PolicyInterface& pol, std::string id,
+Agent::Agent(AgentOptions options, const policy::PolicyInterface& pol, std::string id,
              std::string parent_id, int depth)
     : mOptions(std::move(options)),
       mPolicy(pol),
@@ -452,7 +452,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
         continue;
       }
 
-      const PolicyResult verdict = mPolicy.verify(call.name, args);
+      const policy::PolicyResult verdict = mPolicy.verify(call.name, args);
       if (not verdict.allowed()) {
         // The refusal goes back as the tool's result: the model is told why and
         // can pick another approach, which is the whole point of making

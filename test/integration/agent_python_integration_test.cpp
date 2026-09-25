@@ -24,7 +24,7 @@
 #include <core/agent_pool.h>
 #include <core/oc/basic_ollama_client.h>
 #include <core/oc/ollama_client.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <core/tools/tools.h>
 
 #include <parallel_key.h>
@@ -97,7 +97,7 @@ struct AgentPythonIntegrationTest : test::ToolTest {
   }
 
   AgentResult run(const std::string& objective) {
-    const YoloPolicy pol;
+    const policy::YoloPolicy pol;
     const std::string id = AgentPool::instance().register_root("root");
     Agent agent(opts(), pol, id, "", 0);
     return agent.run_turn(objective);

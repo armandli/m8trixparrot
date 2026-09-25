@@ -26,8 +26,8 @@
 #include <core/agent_pool.h>
 #include <core/memory_store.h>
 #include <core/agent_settings.h>
-#include <core/policy.h>
-#include <core/sane_policy.h>
+#include <core/policy/policy.h>
+#include <core/policy/sane_policy.h>
 #include <core/tools/tools.h>
 
 #include <parrot_prompt.h>
@@ -178,12 +178,12 @@ int main(int argc, char** argv) {
 
   // Agent only knows PolicyInterface, so which policy is in force is decided
   // here and nowhere else.
-  const agent::YoloPolicy yolo_policy;
-  const agent::SanePolicy sane_policy;
-  const agent::PolicyInterface& pol =
+  const policy::YoloPolicy yolo_policy;
+  const policy::SanePolicy sane_policy;
+  const policy::PolicyInterface& pol =
       policy_name == "sane"
-          ? static_cast<const agent::PolicyInterface&>(sane_policy)
-          : static_cast<const agent::PolicyInterface&>(yolo_policy);
+          ? static_cast<const policy::PolicyInterface&>(sane_policy)
+          : static_cast<const policy::PolicyInterface&>(yolo_policy);
 
   oc::OllamaClient::set_concurrency(ollama_jobs);
   oc::OllamaClient::configure(model);

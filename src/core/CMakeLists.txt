@@ -4,7 +4,7 @@ add_library(agentcore STATIC
   system_prompt.cpp
   agent_pool.cpp
   agent_settings.cpp
-  sane_policy.cpp
+  policy/sane_policy.cpp
   util/json_util.cpp
   util/uuid.cpp
   memory_store.cpp
@@ -12,7 +12,7 @@ add_library(agentcore STATIC
   byte_io.cpp
   oc/ollama_client.cpp
   tools/package_installer.cpp
-  policy.cpp
+  policy/policy.cpp
   session_store.cpp
   tools/shell_session.cpp
   skills.cpp

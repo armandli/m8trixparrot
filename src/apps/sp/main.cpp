@@ -28,7 +28,7 @@
 #include <core/agent_pool.h>
 #include <core/agent_settings.h>
 #include <core/memory_store.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <core/tools/tools.h>
 
 #include <sp_memory.h>
@@ -1104,7 +1104,7 @@ int main(int argc, char** argv) {
 
   agent::AgentPool::configure(options.max_agents, options.max_depth);
 
-  const agent::YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string root_id =
       agent::AgentPool::instance().register_root("sp");
   agent::Agent root_agent(options, pol, root_id, "", 0);

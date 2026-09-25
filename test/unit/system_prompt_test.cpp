@@ -10,7 +10,7 @@
 
 #include <core/agent.h>
 #include <core/agent_pool.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <core/system_prompt.h>
 
 namespace agent {
@@ -87,7 +87,7 @@ TEST(SystemPromptTest, BuilderReplacesThePromptEntirely) {
     return std::string(kMarker);
   };
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
@@ -97,7 +97,7 @@ TEST(SystemPromptTest, BuilderReplacesThePromptEntirely) {
 }
 
 TEST(SystemPromptTest, FallsBackToTheDefaultWithoutABuilder) {
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(AgentOptions{}, pol, id, "", 0);
 
@@ -125,7 +125,7 @@ TEST(SystemPromptTest, FactsReportTheAgentsOwnDepthAndTools) {
     return std::string("x");
   };
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 2);
   agent.system_prompt();
@@ -146,7 +146,7 @@ TEST(SystemPromptTest, CanSpawnIsFalseAtMaxDepth) {
     return std::string("x");
   };
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent at_max(options, pol, id, "", 2);
   at_max.system_prompt();

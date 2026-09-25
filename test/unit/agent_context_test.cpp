@@ -13,7 +13,7 @@
 #include <core/agent.h>
 #include <core/agent_pool.h>
 #include <core/oc/ollama_client.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <loopback_server.h>
 
 namespace agent {
@@ -40,7 +40,7 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
   options.context_summarize_at_tokens = 100;  // call 1's 999999 trips it
   options.context_window_tokens = 0;
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   Agent root(options, pol, id, "", 0);
 
@@ -83,7 +83,7 @@ TEST(AgentContextTest, NoSummarizeBelowThreshold) {
   options.context_summarize_at_tokens = 200000;
   options.context_window_tokens = 0;
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   Agent root(options, pol, id, "", 0);
 

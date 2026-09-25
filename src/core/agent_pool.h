@@ -12,7 +12,7 @@
 
 #include <core/agent.h>
 #include <core/agent_result.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 
 namespace agent {
 
@@ -45,7 +45,7 @@ struct AgentPool {
   // with `objective`. Returns its id, or an error when a cap is hit (the model
   // should then do the work itself). Never blocks.
   SpawnResult spawn(const std::string& parent_id, const std::string& objective,
-                    const PolicyInterface& pol, AgentOptions options);
+                    const policy::PolicyInterface& pol, AgentOptions options);
 
   // Record an agent's scalar result (no children) and wake anything waiting on
   // it. For subagents this also marks the node finished and frees a slot.

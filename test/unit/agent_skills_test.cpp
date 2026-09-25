@@ -13,7 +13,7 @@
 #include <core/agent.h>
 #include <core/agent_pool.h>
 #include <core/oc/ollama_client.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <core/util/uuid.h>
 #include <loopback_server.h>
 
@@ -24,7 +24,7 @@ constexpr const char* kBodyMarker = "ZZZ_SKILL_BODY_MARKER_ZZZ";
 
 struct AgentSkillsTest : ::testing::Test {
   std::filesystem::path root;
-  YoloPolicy pol;
+  policy::YoloPolicy pol;
 
   void SetUp() override {
     root = std::filesystem::temp_directory_path() /

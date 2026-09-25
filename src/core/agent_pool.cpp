@@ -68,7 +68,7 @@ std::string AgentPool::register_root(std::string label) {
 
 SpawnResult AgentPool::spawn(const std::string& parent_id,
                              const std::string& objective,
-                             const PolicyInterface& pol,
+                             const policy::PolicyInterface& pol,
                              AgentOptions options) {
   int parent_depth = 0;
   {

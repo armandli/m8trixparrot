@@ -1,15 +1,15 @@
-#ifndef SANE_POLICY_H
-#define SANE_POLICY_H
+#ifndef M8_POLICY_SANE_POLICY_H
+#define M8_POLICY_SANE_POLICY_H
 
 #include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <core/tools/tools.h>
 
-namespace agent {
+namespace policy {
 
 // The public temporary directory writes are allowed into, alongside the
 // workspace. Literally /tmp — not TMPDIR, not /var/tmp.
@@ -61,6 +61,6 @@ private:
   std::vector<std::filesystem::path> mWriteRoots;
 };
 
-}  // namespace agent
+}  // namespace policy
 
-#endif  // SANE_POLICY_H
+#endif  // M8_POLICY_SANE_POLICY_H

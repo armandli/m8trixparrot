@@ -1,12 +1,12 @@
-#ifndef POLICY_H
-#define POLICY_H
+#ifndef M8_POLICY_POLICY_H
+#define M8_POLICY_POLICY_H
 
 #include <string>
 #include <string_view>
 
 #include <core/tools/tools.h>
 
-namespace agent {
+namespace policy {
 
 // The verdict on one tool call.
 //
@@ -69,6 +69,6 @@ struct YoloPolicy : PolicyInterface {
                       const tools::ToolArgs& args) const override;
 };
 
-}  // namespace agent
+}  // namespace policy
 
-#endif  // POLICY_H
+#endif  // M8_POLICY_POLICY_H

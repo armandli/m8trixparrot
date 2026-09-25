@@ -12,7 +12,7 @@
 #include <core/agent_result.h>
 #include <core/tools/bash_repl.h>
 #include <core/oc/ollama_client.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <core/session_store.h>
 #include <core/skills.h>
 #include <core/system_prompt.h>
@@ -182,7 +182,7 @@ struct AgentOptions {
 // is built at the dispatch site with the current agent's fields.
 struct SubagentCreateTool {
   std::string parent_id;
-  const PolicyInterface& pol;
+  const policy::PolicyInterface& pol;
   const AgentOptions& options;
 
   static std::string description();
@@ -211,7 +211,7 @@ struct Agent {
   // `policy` is borrowed and must outlive the agent. `id` is the agent's node
   // id in AgentPool; the root passes its register_root() id and an empty
   // parent, subagents are constructed by AgentPool::spawn().
-  Agent(AgentOptions options, const PolicyInterface& pol, std::string id,
+  Agent(AgentOptions options, const policy::PolicyInterface& pol, std::string id,
         std::string parent_id, int depth);
 
   // Runs one turn. `objective` is the task; the return's `conclusion` is the
@@ -311,7 +311,7 @@ private:
                               const tools::ToolResult& result) const;
 
   AgentOptions mOptions;
-  const PolicyInterface& mPolicy;
+  const policy::PolicyInterface& mPolicy;
   SessionStore mStore;
   std::vector<oc::ChatMessage> mTranscript;
   std::string mSessionId;

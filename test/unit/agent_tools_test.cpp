@@ -13,14 +13,14 @@
 #include <core/agent.h>
 #include <core/agent_pool.h>
 #include <core/oc/ollama_client.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <loopback_server.h>
 
 namespace agent {
 namespace {
 
 TEST(AgentToolsTest, DefaultOptionsAdvertiseAllFiveTools) {
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(AgentOptions{}, pol, id, "", 0);
 
@@ -35,7 +35,7 @@ TEST(AgentToolsTest, PythonAndBashOnlyWhenSubagentsAndPackageInstallDisabled) {
   options.enable_subagents = false;
   options.enable_package_install = false;
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
@@ -56,7 +56,7 @@ TEST(AgentToolsTest, BashReplReplacesBashRatherThanAddingToIt) {
   options.enable_subagents = false;
   options.enable_package_install = false;
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
@@ -70,7 +70,7 @@ TEST(AgentToolsTest, BashReplSitsWhereBashDidInTheToolOrder) {
   AgentOptions options;
   options.enable_bash_repl = true;
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
@@ -80,7 +80,7 @@ TEST(AgentToolsTest, BashReplSitsWhereBashDidInTheToolOrder) {
 }
 
 TEST(AgentToolsTest, FileToolsAdvertisedOnlyWhenEnabled) {
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
 
   {
     const std::string id = AgentPool::instance().register_root("root");
@@ -103,7 +103,7 @@ TEST(AgentToolsTest, FileToolsAdvertisedOnlyWhenEnabled) {
 }
 
 TEST(AgentToolsTest, WebSearchAdvertisedOnlyWhenEnabled) {
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
 
   {
     const std::string id = AgentPool::instance().register_root("root");
@@ -126,7 +126,7 @@ TEST(AgentToolsTest, WebSearchAdvertisedOnlyWhenEnabled) {
 }
 
 TEST(AgentToolsTest, AskUserAdvertisedOnlyWithAHandler) {
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
 
   {
     const std::string id = AgentPool::instance().register_root("root");
@@ -163,7 +163,7 @@ TEST(AgentToolsTest, AskUserHandlerReplyIsFedBackToTheModel) {
     return std::string("approved");
   };
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   Agent agent(options, pol, id, "", 0);
 
@@ -197,7 +197,7 @@ TEST(AgentToolsTest, SubagentCallIsRefusedWhenDisabled) {
   options.max_steps = 4;
   options.enable_subagents = false;
 
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   Agent agent(options, pol, id, "", 0);
 
@@ -218,7 +218,7 @@ TEST(AgentToolsTest, SubagentCallIsRefusedWhenDisabled) {
 }
 
 TEST(AgentToolsTest, MemoryIsAdvertisedOnlyWhenEnabled) {
-  const YoloPolicy pol;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("memory-gate");
 
   AgentOptions off;

@@ -25,7 +25,7 @@
 #include <core/agent_pool.h>
 #include <core/agent_result.h>
 #include <core/oc/ollama_client.h>
-#include <core/policy.h>
+#include <core/policy/policy.h>
 #include <core/tools/tools.h>
 #include <loopback_server.h>
 
@@ -33,7 +33,7 @@ namespace agent {
 namespace {
 
 struct AgentPoolTest : ::testing::Test {
-  YoloPolicy pol;
+  policy::YoloPolicy pol;
   std::vector<std::string> spawned;
 
   void SetUp() override {

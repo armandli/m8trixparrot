@@ -1,9 +1,9 @@
-#include <core/policy.h>
+#include <core/policy/policy.h>
 
 #include <string>
 #include <utility>
 
-namespace agent {
+namespace policy {
 
 PolicyResult PolicyResult::allow() {
   return PolicyResult{Decision::Allow, std::string()};
@@ -25,4 +25,4 @@ PolicyResult YoloPolicy::verify(std::string_view tool_name,
   return PolicyResult::allow();
 }
 
-}  // namespace agent
+}  // namespace policy

@@ -1,4 +1,4 @@
-#include <core/sane_policy.h>
+#include <core/policy/sane_policy.h>
 
 #include <cctype>
 
@@ -10,7 +10,7 @@
 
 #include <core/tools/tools_util.h>
 
-namespace agent {
+namespace policy {
 
 namespace {
 
@@ -420,4 +420,4 @@ PolicyResult SanePolicy::verify(std::string_view tool_name,
   return PolicyResult::allow();
 }
 
-}  // namespace agent
+}  // namespace policy
