@@ -11,11 +11,11 @@
 
 #include <gtest/gtest.h>
 
-#include <core/basic_ollama_client.h>
-#include <core/ollama_client.h>
+#include <core/oc/basic_ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <loopback_server.h>
 
-namespace agent {
+namespace oc {
 namespace {
 
 // One body that satisfies both parsers, because a concurrent LoopbackServer
@@ -29,7 +29,7 @@ const char* kChatAndEmbedBody =
     R"("prompt_eval_count":1,"eval_count":1,"done":true})";
 
 TEST(OllamaClientTest, ChatResultCarriesTokenCounts) {
-  test::LoopbackServer server(
+  m8test::LoopbackServer server(
       200, "application/json",
       R"({"model":"m","message":{"role":"assistant","content":"hi"},)"
       R"("done":true,"prompt_eval_count":1234,"eval_count":56})");
@@ -47,7 +47,7 @@ TEST(OllamaClientTest, ChatResultCarriesTokenCounts) {
 }
 
 TEST(OllamaClientTest, DetectsContextLengthFromModelInfo) {
-  test::LoopbackServer server(
+  m8test::LoopbackServer server(
       200, "application/json",
       R"({"model_info":{"general.architecture":"gemma3",)"
       R"("gemma3.context_length":262144,"gemma3.embedding_length":5376}})");
@@ -57,7 +57,7 @@ TEST(OllamaClientTest, DetectsContextLengthFromModelInfo) {
 }
 
 TEST(OllamaClientTest, ContextLengthIsZeroWhenAbsent) {
-  test::LoopbackServer server(
+  m8test::LoopbackServer server(
       200, "application/json",
       R"({"model_info":{"general.architecture":"x"}})");
   OllamaClient::configure("m", server.url(""));
@@ -66,7 +66,7 @@ TEST(OllamaClientTest, ContextLengthIsZeroWhenAbsent) {
 }
 
 TEST(OllamaClientTest, EmbedGoesThroughTheQueue) {
-  test::LoopbackServer server(
+  m8test::LoopbackServer server(
       200, "application/json",
       R"({"model":"e","embeddings":[[0.25,0.5,0.75]]})");
   OllamaClient::configure("m", server.url(""));
@@ -82,7 +82,7 @@ TEST(OllamaClientTest, EmbedGoesThroughTheQueue) {
 }
 
 TEST(OllamaClientTest, WaitForEmbedRejectsATicketItDoesNotOwn) {
-  test::LoopbackServer server(200, "application/json", kChatAndEmbedBody);
+  m8test::LoopbackServer server(200, "application/json", kChatAndEmbedBody);
   OllamaClient::configure("m", server.url(""));
   OllamaClient& client = OllamaClient::instance();
 
@@ -100,7 +100,7 @@ TEST(OllamaClientTest, WaitForEmbedRejectsATicketItDoesNotOwn) {
 // a different cap would be quietly ignored.
 TEST(OllamaClientTest, TheWorkPoolCapsRequestsInFlightAndRunsEmbedsFirst) {
   constexpr auto kHold = std::chrono::milliseconds(150);
-  test::LoopbackServer server(test::LoopbackOptions{
+  m8test::LoopbackServer server(m8test::LoopbackOptions{
       {kChatAndEmbedBody}, kHold, /*concurrent=*/true});
   OllamaClient::configure("m", server.url(""));
   OllamaClient::configure_embed("e");
@@ -146,4 +146,4 @@ TEST(ContextLengthFromModelInfoTest, MatchesArchPrefixedKey) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace oc

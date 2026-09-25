@@ -16,15 +16,15 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <parallel_key.h>
 
-namespace agent {
+namespace tools {
 namespace {
 
 TEST(WebSearchIntegrationTest, RealParallelSearchReturnsResultsWithUrls) {
-  if (not test::parallel_key_available()) {
+  if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
                     ".m8trix/parallel_api_key to run this test";
   }
@@ -44,7 +44,7 @@ TEST(WebSearchIntegrationTest, RealParallelSearchReturnsResultsWithUrls) {
 // error carrying Parallel's own message. Gated the same way — it needs the
 // network, and only a live-test environment has that set up.
 TEST(WebSearchIntegrationTest, AnInvalidKeyIsRejectedByParallelWithItsMessage) {
-  if (not test::parallel_key_available()) {
+  if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
                     ".m8trix/parallel_api_key to run this test";
   }
@@ -71,4 +71,4 @@ TEST(WebSearchIntegrationTest, AnInvalidKeyIsRejectedByParallelWithItsMessage) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace tools

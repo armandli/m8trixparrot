@@ -8,10 +8,10 @@
 
 #include <gtest/gtest.h>
 
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/policy.h>
-#include <core/system_prompt.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/policy/policy.h>
+#include <core/agent/system_prompt.h>
 
 namespace agent {
 namespace {
@@ -87,9 +87,9 @@ TEST(SystemPromptTest, BuilderReplacesThePromptEntirely) {
     return std::string(kMarker);
   };
 
-  const YoloPolicy policy;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  const Agent agent(options, policy, id, "", 0);
+  const Agent agent(options, pol, id, "", 0);
 
   // Exactly the builder's output: core adds no preamble, no workspace block,
   // no trailing rules.
@@ -97,9 +97,9 @@ TEST(SystemPromptTest, BuilderReplacesThePromptEntirely) {
 }
 
 TEST(SystemPromptTest, FallsBackToTheDefaultWithoutABuilder) {
-  const YoloPolicy policy;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  const Agent agent(AgentOptions{}, policy, id, "", 0);
+  const Agent agent(AgentOptions{}, pol, id, "", 0);
 
   const std::string prompt = agent.system_prompt();
   EXPECT_TRUE(has(prompt, "You are an agent working in a terminal"));
@@ -125,9 +125,9 @@ TEST(SystemPromptTest, FactsReportTheAgentsOwnDepthAndTools) {
     return std::string("x");
   };
 
-  const YoloPolicy policy;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  const Agent agent(options, policy, id, "", 2);
+  const Agent agent(options, pol, id, "", 2);
   agent.system_prompt();
 
   EXPECT_EQ((std::vector<std::string>{"bash"}), seen);
@@ -146,14 +146,14 @@ TEST(SystemPromptTest, CanSpawnIsFalseAtMaxDepth) {
     return std::string("x");
   };
 
-  const YoloPolicy policy;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  const Agent at_max(options, policy, id, "", 2);
+  const Agent at_max(options, pol, id, "", 2);
   at_max.system_prompt();
   EXPECT_FALSE(can_spawn);
 
   const std::string id2 = AgentPool::instance().register_root("root2");
-  const Agent below(options, policy, id2, "", 1);
+  const Agent below(options, pol, id2, "", 1);
   below.system_prompt();
   EXPECT_TRUE(can_spawn);
 }

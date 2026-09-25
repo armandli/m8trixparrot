@@ -16,10 +16,10 @@
 
 #include <gtest/gtest.h>
 
-#include <core/session_store.h>
-#include <core/vector_store.h>
+#include <core/util/uuid.h>
+#include <core/vdb/vector_store.h>
 
-namespace agent {
+namespace vdb {
 namespace {
 
 inline constexpr uint32_t kDim = 16;
@@ -65,7 +65,7 @@ struct VectorStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-vecstore-" + generate_uuid_v4());
+          ("m8trix-vecstore-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
     path = (dir / "memory.m8db").string();
   }
@@ -690,4 +690,4 @@ TEST_F(VectorStoreTest, ConcurrentAddsAndSearchesDoNotCorruptTheStore) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace vdb

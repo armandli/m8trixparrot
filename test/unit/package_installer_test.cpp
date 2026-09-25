@@ -15,9 +15,9 @@
 
 #include <gtest/gtest.h>
 
-#include <core/package_installer.h>
+#include <core/tools/package_installer.h>
 
-namespace agent {
+namespace tools {
 namespace {
 
 TEST(PackageInstallerTest, ConcurrentRequestsForSamePackageDedupToOneRun) {
@@ -108,4 +108,4 @@ TEST(PackageInstallerTest, FailedInstallIsNotMemoizedAsInstalled) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace tools

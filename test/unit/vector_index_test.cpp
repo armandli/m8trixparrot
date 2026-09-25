@@ -11,9 +11,9 @@
 
 #include <gtest/gtest.h>
 
-#include <core/vector_index.h>
+#include <core/vdb/vector_index.h>
 
-namespace agent {
+namespace vdb {
 namespace {
 
 std::vector<std::vector<float>> random_vectors(size_t count, size_t dim,
@@ -244,4 +244,4 @@ TEST_F(VectorIndexTest, L2AndInnerProductOrderTheirOwnNearest) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace vdb

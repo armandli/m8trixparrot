@@ -10,10 +10,10 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct BashSearchTest : ToolTest {
@@ -26,19 +26,19 @@ struct BashSearchTest : ToolTest {
   }
 
   static void SetUpTestSuite() {
-    set_bash_search_index_path(index_file().string());
-    BashSearchTool().execute(args({{"action", str("scan")}}));
+    tools::set_bash_search_index_path(index_file().string());
+    tools::BashSearchTool().execute(args({{"action", str("scan")}}));
   }
 
   static void TearDownTestSuite() {
     // A rescan still in flight would write through index_path() *after* the
     // override is cleared — i.e. into the developer's real
     // ~/.m8trix/bash_search_index.json.
-    wait_for_bash_search_rescan();
+    tools::wait_for_bash_search_rescan();
     std::error_code ec;
     std::filesystem::remove(index_file(), ec);
     std::filesystem::remove(index_file().string() + ".tmp", ec);
-    set_bash_search_index_path("");
+    tools::set_bash_search_index_path("");
   }
 };
 
@@ -48,12 +48,12 @@ struct BashSearchTest : ToolTest {
 // must not pay for the ~1.4s `apropos` the scan costs. The rescan that follows
 // runs on a worker thread, so it must not show up in the caller's time either.
 TEST_F(BashSearchTest, ServingFromCacheDoesNotWaitForAScan) {
-  wait_for_bash_search_rescan();
+  tools::wait_for_bash_search_rescan();
   ASSERT_TRUE(std::filesystem::exists(index_file()));
 
   const auto start = std::chrono::steady_clock::now();
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("list_tags")}}));
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("list_tags")}}));
   const double seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
           .count();
@@ -68,7 +68,7 @@ TEST_F(BashSearchTest, ServingFromCacheDoesNotWaitForAScan) {
 // The rescan has to actually finish and rewrite the file, or "refresh in the
 // background" is just a slower way of never refreshing.
 TEST_F(BashSearchTest, TheBackgroundRescanRewritesTheIndexFile) {
-  wait_for_bash_search_rescan();
+  tools::wait_for_bash_search_rescan();
   ASSERT_TRUE(std::filesystem::exists(index_file()));
 
   // Make the file obviously old, then drop the loaded index so the next call
@@ -80,9 +80,9 @@ TEST_F(BashSearchTest, TheBackgroundRescanRewritesTheIndexFile) {
       std::filesystem::file_time_type::clock::now() - std::chrono::hours(48));
   const auto stale = std::filesystem::last_write_time(index_file());
 
-  reset_bash_search_index_for_test();
-  BashSearchTool().execute(args({{"action", str("list_tags")}}));
-  wait_for_bash_search_rescan();
+  tools::reset_bash_search_index_for_test();
+  tools::BashSearchTool().execute(args({{"action", str("list_tags")}}));
+  tools::wait_for_bash_search_rescan();
 
   EXPECT_GT(std::filesystem::last_write_time(index_file()), stale);
 }
@@ -90,7 +90,7 @@ TEST_F(BashSearchTest, TheBackgroundRescanRewritesTheIndexFile) {
 // The write goes through a temp file and a rename, so nothing is left behind
 // and a reader never sees half a file.
 TEST_F(BashSearchTest, WritingTheIndexLeavesNoTempFile) {
-  wait_for_bash_search_rescan();
+  tools::wait_for_bash_search_rescan();
   EXPECT_FALSE(std::filesystem::exists(index_file().string() + ".tmp"));
 }
 
@@ -98,7 +98,7 @@ TEST_F(BashSearchTest, WritingTheIndexLeavesNoTempFile) {
 // parse failed, but the index was still marked loaded, so every later query
 // answered "no tags found" until someone ran a scan by hand.
 TEST_F(BashSearchTest, ACorruptIndexFileIsRecoveredFrom) {
-  wait_for_bash_search_rescan();
+  tools::wait_for_bash_search_rescan();
 
   // A fresh singleton is not reachable from a test, so this exercises the
   // recovery through the file: truncate it, then scan, and confirm what lands
@@ -109,15 +109,15 @@ TEST_F(BashSearchTest, ACorruptIndexFileIsRecoveredFrom) {
   }
   ASSERT_TRUE(std::filesystem::file_size(index_file()) > 0);
 
-  const ToolResult rebuilt =
-      BashSearchTool().execute(args({{"action", str("scan")}}));
-  wait_for_bash_search_rescan();
+  const tools::ToolResult rebuilt =
+      tools::BashSearchTool().execute(args({{"action", str("scan")}}));
+  tools::wait_for_bash_search_rescan();
 
   EXPECT_TRUE(rebuilt.ok);
   EXPECT_NE(rebuilt.output.find("Scanned"), std::string::npos);
 
-  const ToolResult tags =
-      BashSearchTool().execute(args({{"action", str("list_tags")}}));
+  const tools::ToolResult tags =
+      tools::BashSearchTool().execute(args({{"action", str("list_tags")}}));
   EXPECT_TRUE(tags.ok);
   EXPECT_FALSE(tags.output.empty());
   EXPECT_EQ(tags.output.find("No tags found"), std::string::npos)
@@ -127,8 +127,8 @@ TEST_F(BashSearchTest, ACorruptIndexFileIsRecoveredFrom) {
 // ── scan ─────────────────────────────────────────────────────────────────────
 
 TEST_F(BashSearchTest, ScanReturnsOkAndReportsCommandCount) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("scan")}}));
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("scan")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_TRUE(result.error.empty());
@@ -144,8 +144,8 @@ TEST_F(BashSearchTest, ScanFinishesInSecondsNotMinutes) {
   // now asks apropos(1) for every description in one call, so its cost no
   // longer scales with PATH at all.
   const auto start = std::chrono::steady_clock::now();
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("scan")}}));
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("scan")}}));
   const double seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
           .count();
@@ -159,8 +159,8 @@ TEST_F(BashSearchTest, ScanFinishesInSecondsNotMinutes) {
 // ── list_tags ────────────────────────────────────────────────────────────────
 
 TEST_F(BashSearchTest, ListTagsReturnsNonEmptyList) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("list_tags")}}));
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("list_tags")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_TRUE(result.error.empty());
@@ -168,8 +168,8 @@ TEST_F(BashSearchTest, ListTagsReturnsNonEmptyList) {
 }
 
 TEST_F(BashSearchTest, ListTagsContainsKnownCategories) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("list_tags")}}));
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("list_tags")}}));
 
   EXPECT_TRUE(result.ok);
   // file, text, and network are on any POSIX system.
@@ -181,8 +181,8 @@ TEST_F(BashSearchTest, ListTagsContainsKnownCategories) {
 // ── search ───────────────────────────────────────────────────────────────────
 
 TEST_F(BashSearchTest, SearchSingleTagFindsExpectedCommands) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("search")},
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("search")},
                                      {"query",  str("file")}}));
 
   EXPECT_TRUE(result.ok);
@@ -192,8 +192,8 @@ TEST_F(BashSearchTest, SearchSingleTagFindsExpectedCommands) {
 }
 
 TEST_F(BashSearchTest, SearchAndExpressionReturnsOnlyCommandsMatchingBothTags) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("search")},
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("search")},
                                      {"query",  str("file AND text")}}));
 
   EXPECT_TRUE(result.ok);
@@ -203,8 +203,8 @@ TEST_F(BashSearchTest, SearchAndExpressionReturnsOnlyCommandsMatchingBothTags) {
 }
 
 TEST_F(BashSearchTest, SearchOrExpressionReturnsCommandsFromEitherTag) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("search")},
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("search")},
                                      {"query",  str("file OR text")}}));
 
   EXPECT_TRUE(result.ok);
@@ -215,8 +215,8 @@ TEST_F(BashSearchTest, SearchOrExpressionReturnsCommandsFromEitherTag) {
 }
 
 TEST_F(BashSearchTest, SearchUnknownTagReturnsEmptyButOk) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("search")},
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("search")},
                                      {"query",  str("nonexistent_tag_xyz")}}));
 
   EXPECT_TRUE(result.ok);
@@ -225,8 +225,8 @@ TEST_F(BashSearchTest, SearchUnknownTagReturnsEmptyButOk) {
 }
 
 TEST_F(BashSearchTest, SearchWithParenthesisGroupingWorks) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("search")},
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("search")},
                                      {"query",  str("(file AND text) OR editor")}}));
 
   EXPECT_TRUE(result.ok);
@@ -236,31 +236,31 @@ TEST_F(BashSearchTest, SearchWithParenthesisGroupingWorks) {
 // ── error cases ───────────────────────────────────────────────────────────────
 
 TEST_F(BashSearchTest, MissingActionArgumentIsAnError) {
-  const ToolResult result = BashSearchTool().execute(args({}));
+  const tools::ToolResult result = tools::BashSearchTool().execute(args({}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.error.find("missing"), std::string::npos);
 }
 
 TEST_F(BashSearchTest, UnknownActionIsAnError) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("fly")}}));
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("fly")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.error.find("unknown action"), std::string::npos);
 }
 
 TEST_F(BashSearchTest, SearchWithoutQueryIsAnError) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("search")}}));
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("search")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.error.find("query"), std::string::npos);
 }
 
 TEST_F(BashSearchTest, SearchWithMalformedQueryIsAnError) {
-  const ToolResult result =
-      BashSearchTool().execute(args({{"action", str("search")},
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("search")},
                                      {"query",  str("(file AND")}}));
 
   EXPECT_FALSE(result.ok);
@@ -268,4 +268,4 @@ TEST_F(BashSearchTest, SearchWithMalformedQueryIsAnError) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

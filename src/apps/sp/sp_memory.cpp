@@ -94,28 +94,28 @@ Command parse_command(const std::string& input) {
   return command;
 }
 
-std::string do_remember(agent::MemoryStore& store, const std::string& text) {
+std::string do_remember(vdb::MemoryStore& store, const std::string& text) {
   if (text.empty()) {
     return "usage: /remember <something about you or how you like things "
            "done>";
   }
-  agent::Memory memory;
+  vdb::Memory memory;
   memory.content = text;
   // Semantic and tagged as a preference: what a person types by hand is a
   // standing fact about them, not something that happened. The context_id is
   // left at the tool's own default so the agent's recalls see these too.
-  memory.memory_type = agent::kMemorySemantic;
+  memory.memory_type = vdb::kMemorySemantic;
   memory.importance = 0.8;
   memory.tags = {"preference"};
 
-  const agent::RememberResult stored = store.remember(memory);
+  const vdb::RememberResult stored = store.remember(memory);
   if (not stored.ok) return stored.error;
   return "remembered as memory " + std::to_string(stored.id);
 }
 
-std::string do_search(agent::MemoryStore& store, const std::string& query) {
+std::string do_search(vdb::MemoryStore& store, const std::string& query) {
   if (query.empty()) {
-    const agent::MemoryStats stats = store.stats();
+    const vdb::MemoryStats stats = store.stats();
     std::ostringstream out;
     out << stats.total << " memories";
     if (stats.total > 0) {
@@ -131,16 +131,16 @@ std::string do_search(agent::MemoryStore& store, const std::string& query) {
     return out.str();
   }
 
-  agent::RecallQuery recall;
+  vdb::RecallQuery recall;
   recall.query = query;
   recall.k = 10;
 
-  const agent::RecallResult recalled = store.recall(recall);
+  const vdb::RecallResult recalled = store.recall(recall);
   if (not recalled.ok) return recalled.error;
   if (recalled.memories.empty()) return "no memories matched '" + query + "'";
 
   std::ostringstream out;
-  for (const agent::ScoredMemory& scored : recalled.memories) {
+  for (const vdb::ScoredMemory& scored : recalled.memories) {
     out << "[" << scored.memory.id << "] " << scored.memory.memory_type << " ("
         << two_places(scored.score) << ") "
         << first_line(scored.memory.content, 100) << "\n";
@@ -149,8 +149,8 @@ std::string do_search(agent::MemoryStore& store, const std::string& query) {
   return out.str();
 }
 
-std::string do_forget(agent::MemoryStore& store, uint64_t id) {
-  const agent::StoreResult forgotten = store.forget({id});
+std::string do_forget(vdb::MemoryStore& store, uint64_t id) {
+  const vdb::StoreResult forgotten = store.forget({id});
   if (not forgotten.ok) return forgotten.error;
   return "forgot memory " + std::to_string(id);
 }

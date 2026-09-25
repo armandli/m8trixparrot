@@ -3,7 +3,7 @@
 
 #include <CLI/CLI.hpp>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 int main(int argc, char** argv) {
   CLI::App app{
@@ -26,11 +26,11 @@ int main(int argc, char** argv) {
 
   CLI11_PARSE(app, argc, argv);
 
-  agent::ToolArgs args;
-  args.emplace("query", agent::ToolArgValue{query});
-  args.emplace("limit", agent::ToolArgValue{limit});
+  tools::ToolArgs args;
+  args.emplace("query", tools::ToolArgValue{query});
+  args.emplace("limit", tools::ToolArgValue{limit});
 
-  const agent::ToolResult result = agent::WebSearchTool().execute(args);
+  const tools::ToolResult result = tools::WebSearchTool().execute(args);
 
   if (!result.ok) {
     std::cerr << result.error << "\n";

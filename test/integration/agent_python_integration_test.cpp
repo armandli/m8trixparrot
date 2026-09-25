@@ -20,12 +20,12 @@
 #include <curl/curl.h>
 #include <gtest/gtest.h>
 
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/basic_ollama_client.h>
-#include <core/ollama_client.h>
-#include <core/policy.h>
-#include <core/tools.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/oc/basic_ollama_client.h>
+#include <core/oc/ollama_client.h>
+#include <core/policy/policy.h>
+#include <core/tools/tools.h>
 
 #include <parallel_key.h>
 #include <tool_test_env.h>
@@ -50,7 +50,7 @@ bool mentions_number(const std::string& haystack, const std::string& n) {
   return false;
 }
 
-struct AgentPythonIntegrationTest : test::ToolTest {
+struct AgentPythonIntegrationTest : m8test::ToolTest {
   void SetUp() override {
     const char* host_env = std::getenv("OLLAMA_HOST");
     mHost = (host_env != nullptr and *host_env != '\0')
@@ -60,18 +60,18 @@ struct AgentPythonIntegrationTest : test::ToolTest {
     mModel = (model_env != nullptr and *model_env != '\0') ? model_env
                                                            : "qwen3.8:27b-mlx";
 
-    if (not BasicOllamaClient(mHost).show(mModel).ok) {
+    if (not oc::BasicOllamaClient(mHost).show(mModel).ok) {
       GTEST_SKIP() << "Ollama model '" << mModel << "' not reachable at "
                    << mHost << " — start Ollama and `ollama pull " << mModel
                    << "` (or set OLLAMA_HOST / M8_TEST_MODEL) to run this suite.";
     }
 
-    test::ToolTest::SetUp();  // fresh temp dir, chdir into it
+    m8test::ToolTest::SetUp();  // fresh temp dir, chdir into it
     mBaseReady = true;
 
-    ensure_python_ready();  // on the main thread, before any turn
-    OllamaClient::configure(mModel, mHost);
-    OllamaClient::set_num_ctx(0);
+    tools::ensure_python_ready();  // on the main thread, before any turn
+    oc::OllamaClient::configure(mModel, mHost);
+    oc::OllamaClient::set_num_ctx(0);
     AgentPool::configure(/*max_agents=*/4, /*max_depth=*/0);
 
     AgentPool::instance().set_observer([this](const AgentEvent& event) {
@@ -82,7 +82,7 @@ struct AgentPythonIntegrationTest : test::ToolTest {
 
   void TearDown() override {
     AgentPool::instance().set_observer({});
-    if (mBaseReady) test::ToolTest::TearDown();
+    if (mBaseReady) m8test::ToolTest::TearDown();
   }
 
   AgentOptions opts() const {
@@ -97,9 +97,9 @@ struct AgentPythonIntegrationTest : test::ToolTest {
   }
 
   AgentResult run(const std::string& objective) {
-    const YoloPolicy policy;
+    const policy::YoloPolicy pol;
     const std::string id = AgentPool::instance().register_root("root");
-    Agent agent(opts(), policy, id, "", 0);
+    Agent agent(opts(), pol, id, "", 0);
     return agent.run_turn(objective);
   }
 
@@ -243,7 +243,7 @@ TEST_F(AgentPythonIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
 // `websearch` reaches the model only with AgentOptions::enable_web_search set;
 // this also needs a Parallel API key and outbound network.
 TEST_F(AgentPythonIntegrationTest, CallsWebSearchWhenEnabledAndAKeyIsConfigured) {
-  if (not test::parallel_key_available()) {
+  if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
                     ".m8trix/parallel_api_key to run this test";
   }

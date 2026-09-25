@@ -10,9 +10,15 @@ with terminal UIs built on [FTXUI](https://github.com/ArthurSonzogni/FTXUI).
 ├── CMakeLists.txt          top-level build: fetches deps, adds src/
 ├── Makefile                convenience wrapper around cmake/make
 └── src/
-    ├── core/                shared library (agentcore): Ollama HTTP client, etc.
-    │   ├── ollama_client.h/.cpp
+    ├── core/                shared library (agentcore), one dir per component
+    │   ├── util/            json_util, uuid — depends on nothing
+    │   ├── oc/              Ollama HTTP clients and the work pool
+    │   ├── tools/           the tools, plus bash_repl/shell_session/installer
+    │   ├── policy/          PolicyInterface, YoloPolicy, SanePolicy
+    │   ├── vdb/             vector index/store, memory store, the .m8db format
+    │   ├── agent/           Agent, AgentPool, sessions, skills, prompts
     │   └── CMakeLists.txt
+    ├── common/              agentui: the shared FTXUI transcript view
     └── apps/                one subdirectory per agent experiment
         ├── CMakeLists.txt   registers each experiment
         └── chat_tui/        first experiment: minimal FTXUI chat against Ollama
@@ -20,13 +26,33 @@ with terminal UIs built on [FTXUI](https://github.com/ArthurSonzogni/FTXUI).
             └── CMakeLists.txt
 ```
 
+`src/core/` is one library, `agentcore`, but it is six components with six
+namespaces — `util`, `oc`, `tools`, `policy`, `vdb`, `agent` — and the
+dependencies between them run one way only:
+
+```
+util  ← oc, tools, policy, vdb, agent      (json_util, generate_uuid_v4)
+tools ← policy, vdb, agent
+oc    ← vdb, agent
+policy, vdb ← agent
+```
+
+`agent` sits on top and may use anything; `util` sits at the bottom and uses
+nothing. `agent` depending on `tools` is not an accident — `Agent::dispatch`
+constructs every tool. Two files are named for where they are *called* rather
+than where they are declared, and live with their declarations: the `memory`
+tool is `vdb/memory_tool.cpp` because `MemoryTool` is declared in
+`memory_store.h`, and the subagent tools are `agent/subagent_tool.cpp` because
+they are declared in `agent.h` and call `AgentPool`. Filing them under `tools/`
+is what used to make the graph cyclic.
+
 Every experiment is its own executable target under `src/apps/<name>/`,
 linked against the shared `agentcore` library. All built executables are
 placed directly in `build/` (e.g. `build/chat_tui`) regardless of how deep
 their source lives, so they're easy to find and run.
 
 Communication with Ollama happens over HTTP via libcurl
-(`src/core/ollama_client.{hpp,cpp}`), talking to Ollama's REST API
+(`src/core/oc/ollama_client.{h,cpp}`), talking to Ollama's REST API
 (`/api/chat`) with JSON bodies parsed via
 [nlohmann/json](https://github.com/nlohmann/json).
 
@@ -366,9 +392,9 @@ flowchart TD
     subgraph Core["agentcore"]
         Agent["agent::Agent::run_turn"]
         Pool["agent::AgentPool «singleton»<br/>spawn · wait_for · the one observer"]
-        Ollama["agent::OllamaClient «singleton»<br/>chat + embed queues, k in flight"]
-        Policy["agent::YoloPolicy"]
-        Shell["agent::BashReplSession<br/>one bash per Agent"]
+        Ollama["oc::OllamaClient «singleton»<br/>chat + embed queues, k in flight"]
+        Policy["policy::YoloPolicy"]
+        Shell["tools::BashReplSession<br/>one bash per Agent"]
         Search["BashSearchIndex «singleton»<br/>$XDG_CACHE_HOME/sp/bash_search_index.json"]
         Mem["MemoryStoreRegistry → MemoryStore<br/>$XDG_DATA_HOME/sp/memory.m8db"]
         Store["agent::SessionStore<br/>$XDG_STATE_HOME/sp/sessions/"]
@@ -399,7 +425,7 @@ flowchart TD
 wrapped in about 1100 lines of `main.cpp`. Startup order is deliberate: paths
 resolve before anything reads a config, and the embedding probe runs last
 because it is a second call to the same Ollama the model check just used
-(`main.cpp:1017-1046`). `set_bash_search_index_path(paths.search_index())` at
+(`main.cpp:1017-1046`). `tools::set_bash_search_index_path(paths.search_index())` at
 `main.cpp:895` is what moves the command index off the shared `~/.m8trix` one,
 so sp leaves nothing behind in a directory it was merely run from.
 
@@ -583,7 +609,7 @@ the two modes, `run_single_shot` (`main.cpp:139`) and `run_interactive`
 (`main.cpp:196`), which are functions rather than classes — all their state is
 locals under one `std::mutex`.
 
-**The agent runtime** — `src/core/`
+**The agent runtime** — `src/core/agent/`
 
 | Type | File | Role |
 |---|---|---|
@@ -594,48 +620,48 @@ locals under one `std::mutex`.
 | `agent::AgentResult` | `agent_result.h:18` | Recursive; the root's copy is the whole tree, and it is what a session file holds |
 | `agent::SpawnResult` | `agent_result.h:31` | What `subagent_create` gets back |
 | `agent::AgentPool` (+ private `Node`) | `agent_pool.h:29`, `:73` | Registry of every agent, the spawn/depth caps, and the single process-wide observer |
-| `agent::SessionStore` | `session_store.h:33` | Writes the result tree; owned by value by each `Agent`, a no-op below depth 0 |
-| `agent::SessionRecord` / `SessionResult` / `SessionStoreResult` | `session_store.h:16`, `:21`, `:27` | What a session file is, and the two result types around it |
-| `agent::PolicyResult` (+ `Decision`) | `policy.h:17` | Allow or deny, with a reason the model reads |
-| `agent::PolicyInterface` | `policy.h:39` | Abstract; borrowed by `Agent` and passed by reference into every child |
-| `agent::YoloPolicy` | `policy.h:66` | Allows everything. The only policy sp instantiates (`main.cpp:1107`) |
+| `agent::SessionStore` | `session_store.h:30` | Writes the result tree; owned by value by each `Agent`, a no-op below depth 0 |
+| `agent::SessionRecord` / `SessionResult` / `SessionStoreResult` | `session_store.h:13`, `:18`, `:24` | What a session file is, and the two result types around it |
+| `policy::PolicyResult` (+ `Decision`) | `policy.h:17` | Allow or deny, with a reason the model reads |
+| `policy::PolicyInterface` | `policy.h:39` | Abstract; borrowed by `Agent` and passed by reference into every child |
+| `policy::YoloPolicy` | `policy.h:66` | Allows everything. The only policy sp instantiates (`main.cpp:1107`) |
 | `agent::PromptFacts` | `system_prompt.h:23` | The whole contract between core and an app's prompt builder |
 
-**Talking to Ollama** — `src/core/`
+**Talking to Ollama** — `src/core/oc/`
 
 | Type | File | Role |
 |---|---|---|
-| `agent::OllamaClient` (+ private `Target`, `ChatJob`, `EmbedJob`) | `ollama_client.h:41`, `:106`, `:120`, `:128` | The work pool. Two queues, embeddings served first, `k` in flight; `/api/show` skips it |
-| `agent::BasicOllamaClient` (+ `HttpResult`) | `basic_ollama_client.h:123`, `:152` | Synchronous libcurl client. One per pool worker; never used directly by an app |
-| `agent::ChatMessage` | `basic_ollama_client.h:26` | The transcript element — there is no `Transcript` class, just `vector<ChatMessage>` on the `Agent` |
-| `agent::ToolCall` | `basic_ollama_client.h:21` | Name plus raw JSON arguments, as the model returned them |
-| `agent::ChatResult` | `basic_ollama_client.h:36` | Reply text, tool calls, and the `prompt_eval_count` that drives context tracking |
-| `agent::EmbedResult` / `ShowResult` / `ModelDetails` | `basic_ollama_client.h:82`, `:101`, `:92` | Embeddings, and the `/api/show` capabilities the memory probe greps for `"embedding"` |
+| `oc::OllamaClient` (+ private `Target`, `ChatJob`, `EmbedJob`) | `ollama_client.h:41`, `:106`, `:120`, `:128` | The work pool. Two queues, embeddings served first, `k` in flight; `/api/show` skips it |
+| `oc::BasicOllamaClient` (+ `HttpResult`) | `basic_ollama_client.h:123`, `:152` | Synchronous libcurl client. One per pool worker; never used directly by an app |
+| `oc::ChatMessage` | `basic_ollama_client.h:26` | The transcript element — there is no `Transcript` class, just `vector<ChatMessage>` on the `Agent` |
+| `oc::ToolCall` | `basic_ollama_client.h:21` | Name plus raw JSON arguments, as the model returned them |
+| `oc::ChatResult` | `basic_ollama_client.h:36` | Reply text, tool calls, and the `prompt_eval_count` that drives context tracking |
+| `oc::EmbedResult` / `ShowResult` / `ModelDetails` | `basic_ollama_client.h:82`, `:101`, `:92` | Embeddings, and the `/api/show` capabilities the memory probe greps for `"embedding"` |
 
-**sp's five tools.** A tool is a plain struct with no base class; the ones that
+**sp's five tools** — paths relative to `src/core/`. A tool is a plain struct with no base class; the ones that
 need context take it as an aggregate member filled in at the dispatch site.
 
 | Type | File | Role |
 |---|---|---|
-| `agent::BashReplTool` | `tools.h:106` | Borrows the session; a non-zero exit or a timeout is output, not tool failure |
-| `agent::BashReplSession` (+ `Outcome`) | `bash_repl.h:28`, `:35` | One `bash --norc --noprofile` over pipes, not a pty. A per-session sentinel marker carries `$?` and `$PWD` back; commands are staged through a temp file so an unterminated quote cannot wedge it |
-| `agent::BashSearchTool` | `tools.h:234` | `list_tags`, `search` over a boolean tag expression, `scan` |
-| `BashSearchIndex`, `CommandEntry`, `ManPageLine`, `TagExpr`, `TagQueryParser` | `tools_bash_search.cpp:571`, `:44`, `:291`, `:452`, `:475` | File-local. The singleton serves the cache and rescans on a worker it joins rather than detaches; one `apropos .` dump, not one `whatis` per command |
-| `agent::MemoryTool` | `memory_store.h:224` | `remember` / `recall` / `forget`. Declared beside `MemoryOptions` rather than in `tools.h` |
-| `agent::SubagentCreateTool` / `SubagentWaitTool` | `agent.h:183`, `:192` | Carry the spawning agent's identity into `AgentPool::spawn`; a cap refusal comes back as a tool error so the model does the work itself |
-| `agent::ToolArgValue` / `ToolArgs` / `ToolResult` | `tools.h:23`, `:30`, `:64` | The shared vocabulary. Tools never parse JSON — `args_from_json()` (`tools_util.h:61`) is the one seam |
+| `tools::BashReplTool` | `tools/tools.h:106` | Borrows the session; a non-zero exit or a timeout is output, not tool failure |
+| `tools::BashReplSession` (+ `Outcome`) | `tools/bash_repl.h:28`, `:35` | One `bash --norc --noprofile` over pipes, not a pty. A per-session sentinel marker carries `$?` and `$PWD` back; commands are staged through a temp file so an unterminated quote cannot wedge it |
+| `tools::BashSearchTool` | `tools/tools.h:234` | `list_tags`, `search` over a boolean tag expression, `scan` |
+| `BashSearchIndex`, `CommandEntry`, `ManPageLine`, `TagExpr`, `TagQueryParser` | `tools/tools_bash_search.cpp:571`, `:44`, `:291`, `:452`, `:475` | File-local. The singleton serves the cache and rescans on a worker it joins rather than detaches; one `apropos .` dump, not one `whatis` per command |
+| `vdb::MemoryTool` | `vdb/memory_store.h:224` | `remember` / `recall` / `forget`. Declared beside `MemoryOptions` rather than in `tools.h` |
+| `agent::SubagentCreateTool` / `SubagentWaitTool` | `agent/agent.h:183`, `:192` | Carry the spawning agent's identity into `AgentPool::spawn`; a cap refusal comes back as a tool error so the model does the work itself |
+| `tools::ToolArgValue` / `ToolArgs` / `ToolResult` | `tools/tools.h:23`, `:30`, `:64` | The shared vocabulary. Tools never parse JSON — `tools::args_from_json()` (`tools/tools_util.h:61`) is the one seam |
 
-**The memory stack**, bottom-up. Only `MemoryTool` and the registry are
+**The memory stack** — `src/core/vdb/`, bottom-up. Only `MemoryTool` and the registry are
 sp-facing; the three layers below have no idea an agent exists.
 
 | Type | File | Role |
 |---|---|---|
-| `agent::VectorIndex` (+ `IndexParams`, `Metric`, `Neighbor`, `LabelPredicate`) | `vector_index.h:68`, `:41`, `:13`, `:54`, `:62` | The HNSW graph, with NEON kernels. No I/O and no locking — `VectorStore` holds the lock, which is what lets this file be tested standalone |
-| `agent::VectorStore` (+ `Schema`, `Filter`, `Document`, `ScoredDoc`, `StoreOptions`, `StoreOpenResult`) | `vector_store.h:222`, `:45`, `:110`, `:62`, `:68`, `:153`, `:197` | One file per collection: duplicated header, append-only checksummed log, graph snapshot on flush. Caller-supplied `vector<float>`, no network dependency |
-| `agent::MemoryStore` (+ `Memory`, `RecallQuery`, `ScoredMemory`, `MemoryOptions`, `MemoryStats`) | `memory_store.h:164`, `:70`, `:81`, `:94`, `:101`, `:128` | Text in, ranked memories out. Owns the `Embedder` and embeds outside its own lock |
-| `agent::Embedder` + `ollama_embedder()` | `memory_store.h:50`, `:62` | The single network boundary of the memory system |
-| `agent::MemoryStoreRegistry` | `memory_store.h:204` | One open store per canonical absolute path, so the agent's tool and sp's slash commands share a file rather than two stale views of it |
-| `agent::ByteReader`, `crc32c()` | `byte_io.h:54`, `:105` | The `.m8db` record format |
+| `vdb::VectorIndex` (+ `IndexParams`, `Metric`, `Neighbor`, `LabelPredicate`) | `vector_index.h:68`, `:41`, `:13`, `:54`, `:62` | The HNSW graph, with NEON kernels. No I/O and no locking — `VectorStore` holds the lock, which is what lets this file be tested standalone |
+| `vdb::VectorStore` (+ `Schema`, `Filter`, `Document`, `ScoredDoc`, `StoreOptions`, `StoreOpenResult`) | `vector_store.h:222`, `:45`, `:110`, `:62`, `:68`, `:153`, `:197` | One file per collection: duplicated header, append-only checksummed log, graph snapshot on flush. Caller-supplied `vector<float>`, no network dependency |
+| `vdb::MemoryStore` (+ `Memory`, `RecallQuery`, `ScoredMemory`, `MemoryOptions`, `MemoryStats`) | `memory_store.h:164`, `:70`, `:81`, `:94`, `:101`, `:128` | Text in, ranked memories out. Owns the `Embedder` and embeds outside its own lock |
+| `vdb::Embedder` + `vdb::ollama_embedder()` | `memory_store.h:50`, `:62` | The single network boundary of the memory system |
+| `vdb::MemoryStoreRegistry` | `memory_store.h:204` | One open store per canonical absolute path, so the agent's tool and sp's slash commands share a file rather than two stale views of it |
+| `vdb::ByteReader`, `crc32c()` | `byte_io.h:54`, `:105` | The `.m8db` record format |
 
 **The view layer** — `src/common/transcript_view.h`, namespace `agentui`,
 shared with `m8trixparrot` and `m8trixsh`.
@@ -651,11 +677,11 @@ Beside them are the free functions sp calls: `add_node`, `open_segment`,
 `any_group_expanded`, `set_all_expanded`, `collapse_subtree`, `forget_subtree`,
 `reset_boxes`, `clip_lines`, `human_tokens`.
 
-**Settings and JSON**: `agent::StartupSettings` (`agent_settings.h:23`) is an
+**Settings and JSON**: `agent::StartupSettings` (`agent/agent_settings.h:23`) is an
 all-`std::optional` struct so "unset" layers cleanly; sp loads it twice, once
 through `load_shellrc_settings` for `~/.config/sp/config` and once through
-`load_startup_settings` for `.m8trix/settings.json`. `agent::JsonWriter` and
-`RawJson` (`json_util.h:37`, `:20`) write every JSON body the tools produce.
+`load_startup_settings` for `.m8trix/settings.json`. `util::JsonWriter` and
+`RawJson` (`util/json_util.h:37`, `:20`) write every JSON body the tools produce.
 
 #### Three things that are not there
 
@@ -686,12 +712,12 @@ to root and subagent alike (`sp_prompt.cpp:51-56`), but it is a prompt rule. An
 distinction is reachable at runtime versus never advertised. Dead weight for
 sp, and the clearest statement of how it differs from the other two apps:
 `BashTool` (replaced by `bash_repl`), `PythonTool` with `VenvBootstrap`,
-`create_workspace_venv` and `ensure_python_ready`, `ReadTool` / `WriteTool` /
+`tools::create_workspace_venv` and `tools::ensure_python_ready`, `ReadTool` / `WriteTool` /
 `EditTool`, `FindTool` / `GrepTool` and `IgnoreFilter`, `WebFetchTool` /
 `WebSearchTool`, `AskUserTool` (sp sets no `ask_user_handler`),
 `PackageInstallTool` with `PackageInstaller`, `SkillTool` with `SkillCatalog`,
 `SkillInfo` and `SkillFrontmatter`, `SanePolicy`, `WorkspaceContext` (so sp
-never shells out to `git`), and `hash_embedder`. Also unused: `ShellSession`
+never shells out to `git`), and `vdb::hash_embedder`. Also unused: `ShellSession`
 (`shell_session.h:30`), which is m8trixsh's pseudo-terminal and is easy to
 confuse with `BashReplSession` — sp's shell is pipes to a `bash` child, not a
 pty.
@@ -790,7 +816,7 @@ tombstones; `compact()` rewrites the file without them, through a sibling temp
 file and a `rename(2)`, so the database is never in a half-written state. It
 runs automatically on open once dead bytes outweigh live ones.
 
-Search is an HNSW graph (`src/core/vector_index.{h,cpp}`) with NEON distance
+Search is an HNSW graph (`src/core/vdb/vector_index.{h,cpp}`) with NEON distance
 kernels and a scalar fallback. Below a few thousand documents an exact scan is
 both faster and exact, so small stores never touch the graph; above that the
 graph is used, with an exact scan as the backstop whenever a selective filter
@@ -798,9 +824,9 @@ starves it of hits. The whole working set is held in memory — there is no
 buffer pool — which is the deliberate trade that keeps the implementation
 small.
 
-The vector store itself (`src/core/vector_store.{h,cpp}`) takes caller-supplied
+The vector store itself (`src/core/vdb/vector_store.{h,cpp}`) takes caller-supplied
 `std::vector<float>` and has no network dependency at all; embeddings are the
-layer above it (`src/core/memory_store.{h,cpp}`), through an `Embedder`
+layer above it (`src/core/vdb/memory_store.{h,cpp}`), through an `Embedder`
 callback that defaults to Ollama's `/api/embed`. The API shape follows
 [caliby](https://github.com/zxjcarrot/caliby) — `Schema`, typed metadata, and
 a `{"field":{"$gte":0.5}}` filter DSL — but none of its code: caliby's kernels

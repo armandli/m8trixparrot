@@ -22,13 +22,13 @@
 #include <ftxui/dom/elements.hpp>
 
 #include <common/transcript_view.h>
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/memory_store.h>
-#include <core/agent_settings.h>
-#include <core/policy.h>
-#include <core/sane_policy.h>
-#include <core/tools.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/vdb/memory_store.h>
+#include <core/agent/agent_settings.h>
+#include <core/policy/policy.h>
+#include <core/policy/sane_policy.h>
+#include <core/tools/tools.h>
 
 #include <parrot_prompt.h>
 
@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
   int max_agents = settings.max_agents.value_or(16);
   int num_ctx = settings.num_ctx.value_or(0);
   int summarize_at = settings.summarize_at.value_or(200000);
-  int ollama_jobs = settings.ollama_jobs.value_or(agent::kDefaultOllamaJobs);
+  int ollama_jobs = settings.ollama_jobs.value_or(oc::kDefaultOllamaJobs);
   std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
   bool no_skills = not settings.enable_skills.value_or(true);
 
@@ -178,28 +178,28 @@ int main(int argc, char** argv) {
 
   // Agent only knows PolicyInterface, so which policy is in force is decided
   // here and nowhere else.
-  const agent::YoloPolicy yolo_policy;
-  const agent::SanePolicy sane_policy;
-  const agent::PolicyInterface& policy =
+  const policy::YoloPolicy yolo_policy;
+  const policy::SanePolicy sane_policy;
+  const policy::PolicyInterface& pol =
       policy_name == "sane"
-          ? static_cast<const agent::PolicyInterface&>(sane_policy)
-          : static_cast<const agent::PolicyInterface&>(yolo_policy);
+          ? static_cast<const policy::PolicyInterface&>(sane_policy)
+          : static_cast<const policy::PolicyInterface&>(yolo_policy);
 
-  agent::OllamaClient::set_concurrency(ollama_jobs);
-  agent::OllamaClient::configure(model);
+  oc::OllamaClient::set_concurrency(ollama_jobs);
+  oc::OllamaClient::configure(model);
   agent::AgentPool::configure(max_agents, max_depth);
 
   // Bring Python up (main thread, before any agent thread touches it) and
   // build/activate this workspace's .m8trixenv. A hard failure is worth
   // stopping for: the agent would otherwise run against the base interpreter
   // and package_install would be broken.
-  const agent::VenvBootstrap venv = agent::create_workspace_venv();
-  if (venv.status == agent::VenvBootstrap::Status::Failed) {
+  const tools::VenvBootstrap venv = tools::create_workspace_venv();
+  if (venv.status == tools::VenvBootstrap::Status::Failed) {
     std::cerr << "error: could not create the .m8trixenv virtualenv at "
               << venv.venv_dir << "\n       " << venv.detail << "\n";
     return 1;
   }
-  if (venv.status == agent::VenvBootstrap::Status::NotAProject) {
+  if (venv.status == tools::VenvBootstrap::Status::NotAProject) {
     std::cerr << "note: launch directory is not a project (no .git, .m8trix, "
                  "pyproject.toml or requirements.txt here or in any parent); "
                  "skipping .m8trixenv and running against the base Python\n";
@@ -207,14 +207,14 @@ int main(int argc, char** argv) {
 
   int64_t window = num_ctx;
   if (window <= 0) {
-    window = agent::OllamaClient::instance().context_length(model);
+    window = oc::OllamaClient::instance().context_length(model);
     if (window <= 0) {
       std::cerr << "warning: could not detect the context length for '" << model
                 << "'; auto-summarizing at a flat " << summarize_at
                 << " tokens\n";
     }
   }
-  if (window > 0) agent::OllamaClient::set_num_ctx(window);
+  if (window > 0) oc::OllamaClient::set_num_ctx(window);
 
   agent::AgentOptions options;
   options.max_steps = max_steps;
@@ -231,7 +231,7 @@ int main(int argc, char** argv) {
       settings.enable_package_install.value_or(options.enable_package_install);
   options.enable_web_search =
       settings.enable_web_search.value_or(options.enable_web_search);
-  if (options.enable_web_search and not agent::web_search_available()) {
+  if (options.enable_web_search and not tools::web_search_available()) {
     std::cerr << "warning: enable_web_search is set but no Parallel API key was "
                  "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
                  "websearch calls will fail\n";
@@ -240,16 +240,16 @@ int main(int argc, char** argv) {
   options.memory_path = settings.memory_path.value_or(options.memory_path);
   options.memory_embed_model =
       settings.memory_embed_model.value_or(options.memory_embed_model);
-  agent::OllamaClient::configure_embed(options.memory_embed_model);
+  oc::OllamaClient::configure_embed(options.memory_embed_model);
   if (options.enable_memory) {
     // Two models of the same width would otherwise open, write and rank
     // against each other with nothing to show for it but worse recall.
-    const std::string mismatch = agent::memory_model_mismatch(
+    const std::string mismatch = vdb::memory_model_mismatch(
         options.memory_path, options.memory_embed_model);
     if (not mismatch.empty()) {
       options.enable_memory = false;
       std::cerr << "warning: " << mismatch << " Memory is off for this run.\n";
-    } else if (not agent::memory_available(options.memory_embed_model)) {
+    } else if (not vdb::memory_available(options.memory_embed_model)) {
       std::cerr << "warning: enable_memory is set but '"
                 << options.memory_embed_model
                 << "' is not a pulled embedding model (try `ollama pull "
@@ -263,7 +263,7 @@ int main(int argc, char** argv) {
   options.system_prompt_builder = parrot::make_system_prompt;
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
-  agent::Agent root_agent(options, policy, root_id, "", 0);
+  agent::Agent root_agent(options, pol, root_id, "", 0);
 
   std::mutex mutex;
   std::list<TranscriptNode> transcript;
@@ -505,9 +505,9 @@ int main(int argc, char** argv) {
       const std::string command = entered.substr(1);
       push_notice(TranscriptNode::Kind::User, entered);
       std::thread([&push_notice, command] {
-        agent::ToolArgs args;
+        tools::ToolArgs args;
         args["command"] = command;
-        const agent::ToolResult result = agent::BashTool().execute(args);
+        const tools::ToolResult result = tools::BashTool().execute(args);
         if (result.ok) {
           push_notice(TranscriptNode::Kind::Assistant, result.output);
         } else {
@@ -749,7 +749,7 @@ int main(int argc, char** argv) {
 
     return f::vbox({
                f::text("m8trixparrot  |  model: " + model + "  |  policy: " +
-                       policy.name() + ctx_part + sub_part) |
+                       pol.name() + ctx_part + sub_part) |
                    f::bold | f::center,
                f::separator(),
                std::move(middle),

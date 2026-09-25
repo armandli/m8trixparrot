@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string>
 
-#include <core/memory_store.h>
+#include <core/vdb/memory_store.h>
 
 // The parts of sp that are worth testing on their own: the slash-command
 // grammar its TUI accepts and the three memory operations the user can drive
@@ -43,10 +43,10 @@ Command parse_command(const std::string& input);
 // off the network.
 // ---------------------------------------------------------------------------
 
-std::string do_remember(agent::MemoryStore& store, const std::string& text);
+std::string do_remember(vdb::MemoryStore& store, const std::string& text);
 // An empty query reports statistics instead of searching.
-std::string do_search(agent::MemoryStore& store, const std::string& query);
-std::string do_forget(agent::MemoryStore& store, uint64_t id);
+std::string do_search(vdb::MemoryStore& store, const std::string& query);
+std::string do_forget(vdb::MemoryStore& store, uint64_t id);
 
 }  // namespace sp
 

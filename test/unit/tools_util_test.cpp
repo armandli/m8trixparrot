@@ -6,9 +6,9 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
-namespace agent {
+namespace tools {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -72,4 +72,4 @@ TEST(RunShellCaptureTimeout, NonPositiveTimeoutMeansNoLimit) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace tools

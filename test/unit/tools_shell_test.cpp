@@ -10,16 +10,16 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct BashTest : ToolTest {};
 
 TEST_F(BashTest, RunsACommandAndReturnsItsStdout) {
-  const ToolResult result = BashTool().execute(args({{"command", str("echo hello")}}));
+  const tools::ToolResult result = tools::BashTool().execute(args({{"command", str("echo hello")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "hello\n");
@@ -30,7 +30,7 @@ TEST_F(BashTest, RunsACommandAndReturnsItsStdout) {
 // The headline surprise. A caller checking only `ok` will treat a failed
 // command as a success; the status is recoverable *only* by reading the text.
 TEST_F(BashTest, NonZeroExitIsStillOkAndReportsTheStatusInTheOutput) {
-  const ToolResult result = BashTool().execute(args({{"command", str("exit 3")}}));
+  const tools::ToolResult result = tools::BashTool().execute(args({{"command", str("exit 3")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_TRUE(result.error.empty());
@@ -38,8 +38,8 @@ TEST_F(BashTest, NonZeroExitIsStillOkAndReportsTheStatusInTheOutput) {
 }
 
 TEST_F(BashTest, StderrIsMergedIntoStdout) {
-  const ToolResult result =
-      BashTool().execute(args({{"command", str("echo out; echo err >&2")}}));
+  const tools::ToolResult result =
+      tools::BashTool().execute(args({{"command", str("echo out; echo err >&2")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_NE(result.output.find("out"), std::string::npos);
@@ -53,8 +53,8 @@ TEST_F(BashTest, StderrIsMergedIntoStdout) {
 // A SIGTERM therefore surfaces as status 143, and the caller has to know the
 // 128+N convention to read it.
 TEST_F(BashTest, ACommandKilledBySignalIsReportedAsExitStatus128PlusTheSignal) {
-  const ToolResult result =
-      BashTool().execute(args({{"command", str("kill -TERM $$")}}));
+  const tools::ToolResult result =
+      tools::BashTool().execute(args({{"command", str("kill -TERM $$")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_NE(result.output.find("[command exited with status 143]"),
@@ -78,7 +78,7 @@ TEST_F(BashTest, ACommandKilledBySignalIsReportedAsExitStatus128PlusTheSignal) {
 // A timeout of zero means "no timeout", not "give up immediately" — the
 // argument is only honored when positive.
 TEST_F(BashTest, ATimeoutOfZeroIsIgnoredRatherThanMeaningImmediately) {
-  const ToolResult result = BashTool().execute(
+  const tools::ToolResult result = tools::BashTool().execute(
       args({{"command", str("echo survived")}, {"timeout", num(0)}}));
 
   EXPECT_TRUE(result.ok);
@@ -88,7 +88,7 @@ TEST_F(BashTest, ATimeoutOfZeroIsIgnoredRatherThanMeaningImmediately) {
 // The command is handed to `bash -c` inside single quotes, so an embedded
 // single quote has to be escaped by closing and reopening the quote.
 TEST_F(BashTest, ACommandContainingSingleQuotesIsQuotedCorrectly) {
-  const ToolResult result = BashTool().execute(
+  const tools::ToolResult result = tools::BashTool().execute(
       args({{"command", str("echo \"it's fine\"")}}));
 
   EXPECT_TRUE(result.ok);
@@ -102,14 +102,14 @@ TEST_F(BashTest, ACommandContainingSingleQuotesIsQuotedCorrectly) {
 TEST_F(BashTest, TheCommandInheritsTheProcessWorkingDirectory) {
   write_file("marker.txt", "x");
 
-  const ToolResult result = BashTool().execute(args({{"command", str("ls")}}));
+  const tools::ToolResult result = tools::BashTool().execute(args({{"command", str("ls")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "marker.txt\n");
 }
 
 TEST_F(BashTest, MissingCommandIsAnError) {
-  const ToolResult result = BashTool().execute(args({}));
+  const tools::ToolResult result = tools::BashTool().execute(args({}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "bash: missing required string argument 'command'");
@@ -117,7 +117,7 @@ TEST_F(BashTest, MissingCommandIsAnError) {
 }
 
 TEST_F(BashTest, AnEmptyCommandIsTreatedAsMissing) {
-  const ToolResult result = BashTool().execute(args({{"command", str("")}}));
+  const tools::ToolResult result = tools::BashTool().execute(args({{"command", str("")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "bash: missing required string argument 'command'");
@@ -126,7 +126,7 @@ TEST_F(BashTest, AnEmptyCommandIsTreatedAsMissing) {
 // An argument of the wrong JSON type reads as absent rather than as a type
 // error — string_arg() returns nullopt for both cases (see tools_util.h).
 TEST_F(BashTest, ACommandOfTheWrongTypeReadsAsMissing) {
-  const ToolResult result = BashTool().execute(args({{"command", num(42)}}));
+  const tools::ToolResult result = tools::BashTool().execute(args({{"command", num(42)}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "bash: missing required string argument 'command'");
@@ -135,8 +135,8 @@ TEST_F(BashTest, ACommandOfTheWrongTypeReadsAsMissing) {
 // Output past 5000 lines is cut and the remainder written to a temp file, with
 // a note pointing at it. Every tool inherits this cap from truncate_output().
 TEST_F(BashTest, OutputBeyondFiveThousandLinesIsTruncatedToATempFile) {
-  const ToolResult result =
-      BashTool().execute(args({{"command", str("seq 1 6000")}}));
+  const tools::ToolResult result =
+      tools::BashTool().execute(args({{"command", str("seq 1 6000")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_TRUE(result.truncated);
@@ -151,4 +151,4 @@ TEST_F(BashTest, OutputBeyondFiveThousandLinesIsTruncatedToATempFile) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

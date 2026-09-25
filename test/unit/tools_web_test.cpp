@@ -8,17 +8,17 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <loopback_server.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct WebFetchTest : ToolTest {};
 
 // The body of a fetch, with the "[fetched URL (type)]" header line removed.
-std::string body_of(const ToolResult& result) {
+std::string body_of(const tools::ToolResult& result) {
   const size_t newline = result.output.find('\n');
   if (newline == std::string::npos) return std::string();
   return result.output.substr(newline + 1);
@@ -27,8 +27,8 @@ std::string body_of(const ToolResult& result) {
 TEST_F(WebFetchTest, PlainTextIsReturnedAsIsBehindAFetchedHeaderLine) {
   LoopbackServer server(200, "text/plain", "just some text\n");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url("/notes.txt"))}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url("/notes.txt"))}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output,
@@ -44,8 +44,8 @@ TEST_F(WebFetchTest, HtmlIsRenderedToMarkdown) {
                         "<ul><li>first</li><li>second</li></ul>"
                         "</body></html>");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url("/page"))}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url("/page"))}}));
 
   ASSERT_TRUE(result.ok);
   const std::string body = body_of(result);
@@ -63,8 +63,8 @@ TEST_F(WebFetchTest, RelativeLinksAreResolvedAgainstTheFetchedUrl) {
   LoopbackServer server(200, "text/html",
                         "<a href=\"/other\">elsewhere</a>");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url("/dir/page"))}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url("/dir/page"))}}));
 
   ASSERT_TRUE(result.ok);
   EXPECT_NE(body_of(result).find("[elsewhere](" + server.url("/other") + ")"),
@@ -74,8 +74,8 @@ TEST_F(WebFetchTest, RelativeLinksAreResolvedAgainstTheFetchedUrl) {
 TEST_F(WebFetchTest, HtmlEntitiesAreDecoded) {
   LoopbackServer server(200, "text/html", "<p>a &amp; b &lt; c</p>");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url())}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url())}}));
 
   ASSERT_TRUE(result.ok);
   EXPECT_NE(body_of(result).find("a & b < c"), std::string::npos);
@@ -86,8 +86,8 @@ TEST_F(WebFetchTest, HtmlEntitiesAreDecoded) {
 TEST_F(WebFetchTest, ACharsetParameterIsStrippedBeforeDispatch) {
   LoopbackServer server(200, "text/html; charset=utf-8", "<h1>Heading</h1>");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url())}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url())}}));
 
   ASSERT_TRUE(result.ok);
   EXPECT_NE(body_of(result).find("# Heading"), std::string::npos);
@@ -96,8 +96,8 @@ TEST_F(WebFetchTest, ACharsetParameterIsStrippedBeforeDispatch) {
 TEST_F(WebFetchTest, JsonIsTreatedAsTextAndPassedThroughUnrendered) {
   LoopbackServer server(200, "application/json", "{\"key\":\"value\"}");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url())}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url())}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(body_of(result), "{\"key\":\"value\"}");
@@ -107,8 +107,8 @@ TEST_F(WebFetchTest, JsonIsTreatedAsTextAndPassedThroughUnrendered) {
 TEST_F(WebFetchTest, WithNoContentTypeTheBodyIsSniffed) {
   LoopbackServer server(200, "", "plain enough\n");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url())}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url())}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(body_of(result), "plain enough\n");
@@ -117,8 +117,8 @@ TEST_F(WebFetchTest, WithNoContentTypeTheBodyIsSniffed) {
 TEST_F(WebFetchTest, WithNoContentTypeABodyContainingNulIsRefused) {
   LoopbackServer server(200, "", std::string("bytes\0here", 10));
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url())}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url())}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.error.find("returned unsupported content (binary)"),
@@ -128,8 +128,8 @@ TEST_F(WebFetchTest, WithNoContentTypeABodyContainingNulIsRefused) {
 TEST_F(WebFetchTest, AnImageContentTypeIsRefusedAsUnsupported) {
   LoopbackServer server(200, "image/png", "\x89PNG");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url())}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url())}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.error.find("unsupported content type image/png"),
@@ -141,8 +141,8 @@ TEST_F(WebFetchTest, AnImageContentTypeIsRefusedAsUnsupported) {
 TEST_F(WebFetchTest, ANonSuccessStatusIsAnErrorThatNamesTheStatus) {
   LoopbackServer server(404, "text/html", "<h1>Not Found</h1>");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url("/missing"))}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url("/missing"))}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error,
@@ -152,15 +152,15 @@ TEST_F(WebFetchTest, ANonSuccessStatusIsAnErrorThatNamesTheStatus) {
 
 TEST_F(WebFetchTest, AnUnreachableHostIsReportedAsACurlError) {
   // Port 1 on loopback has nothing listening.
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str("http://127.0.0.1:1/")}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str("http://127.0.0.1:1/")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error.rfind("webfetch: ", 0), 0u);
 }
 
 TEST_F(WebFetchTest, MissingUrlIsAnError) {
-  const ToolResult result = WebFetchTool().execute(args({}));
+  const tools::ToolResult result = tools::WebFetchTool().execute(args({}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "webfetch: missing required string argument 'url'");
@@ -175,8 +175,8 @@ TEST_F(WebFetchTest, MissingUrlIsAnError) {
 TEST_F(WebFetchTest, LoopbackAddressesAreFetchedBecauseThereIsNoHostRestriction) {
   LoopbackServer server(200, "text/plain", "reached loopback");
 
-  const ToolResult result =
-      WebFetchTool().execute(args({{"url", str(server.url())}}));
+  const tools::ToolResult result =
+      tools::WebFetchTool().execute(args({{"url", str(server.url())}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(body_of(result), "reached loopback");
@@ -188,4 +188,4 @@ TEST_F(WebFetchTest, LoopbackAddressesAreFetchedBecauseThereIsNoHostRestriction)
 // src/core/tools_web.cpp.
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

@@ -24,12 +24,12 @@
 #include <ftxui/dom/elements.hpp>
 
 #include <common/transcript_view.h>
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/agent_settings.h>
-#include <core/memory_store.h>
-#include <core/policy.h>
-#include <core/tools.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/agent/agent_settings.h>
+#include <core/vdb/memory_store.h>
+#include <core/policy/policy.h>
+#include <core/tools/tools.h>
 
 #include <sp_memory.h>
 #include <sp_prompt.h>
@@ -119,14 +119,14 @@ const char* kHelpText =
 // has no `memory` tool, so the slash commands have nothing to talk to either.
 struct MemoryConfig {
   bool enabled = false;
-  agent::MemoryOptions options;
+  vdb::MemoryOptions options;
 };
 
 // The agent reaches its store through Agent::dispatch; the slash commands
 // reach the same one through the registry, which keys on the canonical path —
 // so both share a single open file rather than two stale views of it.
-agent::MemoryStore* open_store(const MemoryConfig& memory, std::string& error) {
-  return agent::MemoryStoreRegistry::instance().get(memory.options, error);
+vdb::MemoryStore* open_store(const MemoryConfig& memory, std::string& error) {
+  return vdb::MemoryStoreRegistry::instance().get(memory.options, error);
 }
 
 }  // namespace
@@ -433,7 +433,7 @@ int run_interactive(agent::Agent& root_agent, const std::string& model,
       if (not memory.enabled) {
         notice(std::string("Memory is off. Pull an embedding model (ollama "
                            "pull ") +
-               agent::kDefaultEmbedModel + ") or start sp with --memory.");
+               oc::kDefaultEmbedModel + ") or start sp with --memory.");
         return;
       }
       // remember and recall both block on an embedding round trip, so they
@@ -447,7 +447,7 @@ int run_interactive(agent::Agent& root_agent, const std::string& model,
       threads_in_flight.fetch_add(1);
       std::thread([&, command, node] {
         std::string error;
-        agent::MemoryStore* store = open_store(memory, error);
+        vdb::MemoryStore* store = open_store(memory, error);
         std::string text;
         if (store == nullptr) {
           text = "could not open the memory database: " + error;
@@ -805,7 +805,7 @@ int run_interactive(agent::Agent& root_agent, const std::string& model,
       // else, so do it here.
       if (memory.enabled) {
         std::string error;
-        if (agent::MemoryStore* store = open_store(memory, error)) {
+        if (vdb::MemoryStore* store = open_store(memory, error)) {
           store->flush();
         }
       }
@@ -892,7 +892,7 @@ int main(int argc, char** argv) {
   }
 
   // sp's own cache, not the shared ~/.m8trix one.
-  agent::set_bash_search_index_path(paths.search_index());
+  tools::set_bash_search_index_path(paths.search_index());
 
   std::string settings_warning;
   agent::StartupSettings settings =
@@ -923,8 +923,8 @@ int main(int argc, char** argv) {
   std::string memory_path =
       settings.memory_path.value_or(paths.memory());
   std::string memory_model =
-      settings.memory_embed_model.value_or(agent::kDefaultEmbedModel);
-  int ollama_jobs = settings.ollama_jobs.value_or(agent::kDefaultOllamaJobs);
+      settings.memory_embed_model.value_or(oc::kDefaultEmbedModel);
+  int ollama_jobs = settings.ollama_jobs.value_or(oc::kDefaultOllamaJobs);
   // Unset means "decide from whether an embedding model is pulled"; a flag or
   // a config key makes it a decision the user made, which is honoured either
   // way.
@@ -1000,19 +1000,19 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  agent::OllamaClient::set_concurrency(ollama_jobs);
-  agent::OllamaClient::configure(model);
-  agent::OllamaClient::configure_embed(memory_model);
+  oc::OllamaClient::set_concurrency(ollama_jobs);
+  oc::OllamaClient::configure(model);
+  oc::OllamaClient::configure_embed(memory_model);
 
   int64_t window = num_ctx;
   if (window <= 0) {
-    window = agent::OllamaClient::instance().context_length(model);
+    window = oc::OllamaClient::instance().context_length(model);
     if (window <= 0 and not interactive) {
       std::cerr << "warning: could not detect context length for '" << model
                 << "'; auto-summarizing at a flat " << 200000 << " tokens\n";
     }
   }
-  if (window > 0) agent::OllamaClient::set_num_ctx(window);
+  if (window > 0) oc::OllamaClient::set_num_ctx(window);
 
   // Resolve memory last, because the probe is a call to the same Ollama the
   // model validation above has already shown to be up.
@@ -1020,14 +1020,14 @@ int main(int argc, char** argv) {
   memory.options.path = memory_path;
   memory.options.embed_model = memory_model;
   const std::string memory_mismatch =
-      agent::memory_model_mismatch(memory_path, memory_model);
+      vdb::memory_model_mismatch(memory_path, memory_model);
   if (not memory_mismatch.empty()) {
     // Two models of the same width would otherwise open, write and rank
     // against each other with nothing to show for it but worse recall.
     std::cerr << "warning: " << memory_mismatch
               << " Memory is off for this run.\n";
   } else if (memory_wanted.value_or(true)) {
-    const bool usable = agent::memory_available(memory_model);
+    const bool usable = vdb::memory_available(memory_model);
     if (usable) {
       memory.enabled = true;
     } else if (memory_wanted.has_value()) {
@@ -1104,10 +1104,10 @@ int main(int argc, char** argv) {
 
   agent::AgentPool::configure(options.max_agents, options.max_depth);
 
-  const agent::YoloPolicy policy;
+  const policy::YoloPolicy pol;
   const std::string root_id =
       agent::AgentPool::instance().register_root("sp");
-  agent::Agent root_agent(options, policy, root_id, "", 0);
+  agent::Agent root_agent(options, pol, root_id, "", 0);
 
   const int status = interactive ? run_interactive(root_agent, model, memory)
                                  : run_single_shot(prompt, root_agent);
@@ -1118,7 +1118,7 @@ int main(int argc, char** argv) {
   // flushes to a no-op.
   if (memory.enabled) {
     std::string error;
-    if (agent::MemoryStore* store = open_store(memory, error)) store->flush();
+    if (vdb::MemoryStore* store = open_store(memory, error)) store->flush();
   }
   return status;
 }

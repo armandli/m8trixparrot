@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <core/system_prompt.h>
+#include <core/agent/system_prompt.h>
 
 #include <sp_memory.h>
 #include <sp_prompt.h>

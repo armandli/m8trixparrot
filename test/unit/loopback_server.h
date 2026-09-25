@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-namespace agent::test {
+namespace m8test {
 
 // For the cases that are about how a client schedules requests rather than what
 // it does with one. `delay` holds each connection open before replying, so
@@ -76,6 +76,6 @@ protected:
   std::vector<std::thread> mHandlers;
 };
 
-}  // namespace agent::test
+}  // namespace m8test
 
 #endif  // LOOPBACK_SERVER_H

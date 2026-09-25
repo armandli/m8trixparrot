@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include <core/system_prompt.h>
+#include <core/agent/system_prompt.h>
 
 namespace sh {
 

@@ -30,14 +30,14 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include <common/transcript_view.h>
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/memory_store.h>
-#include <core/agent_settings.h>
-#include <core/policy.h>
-#include <core/sane_policy.h>
-#include <core/shell_session.h>
-#include <core/tools.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/vdb/memory_store.h>
+#include <core/agent/agent_settings.h>
+#include <core/policy/policy.h>
+#include <core/policy/sane_policy.h>
+#include <core/tools/shell_session.h>
+#include <core/tools/tools.h>
 #include <sh_prompt.h>
 #include <shell_integration.h>
 #include <terminal_emulator.h>
@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
   int max_steps = settings.max_steps.value_or(40);
   int num_ctx = settings.num_ctx.value_or(0);
   int summarize_at = settings.summarize_at.value_or(200000);
-  int ollama_jobs = settings.ollama_jobs.value_or(agent::kDefaultOllamaJobs);
+  int ollama_jobs = settings.ollama_jobs.value_or(oc::kDefaultOllamaJobs);
   std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
   bool no_skills = not settings.enable_skills.value_or(true);
   std::string shell_override = settings.shell.value_or("");
@@ -220,19 +220,19 @@ int main(int argc, char** argv) {
 
   const std::string launch_dir = std::filesystem::current_path().string();
 
-  const agent::YoloPolicy yolo_policy;
-  const agent::SanePolicy sane_policy(launch_dir);
-  const agent::PolicyInterface& policy =
+  const policy::YoloPolicy yolo_policy;
+  const policy::SanePolicy sane_policy(launch_dir);
+  const policy::PolicyInterface& pol =
       policy_name == "sane"
-          ? static_cast<const agent::PolicyInterface&>(sane_policy)
-          : static_cast<const agent::PolicyInterface&>(yolo_policy);
+          ? static_cast<const policy::PolicyInterface&>(sane_policy)
+          : static_cast<const policy::PolicyInterface&>(yolo_policy);
 
-  agent::OllamaClient::set_concurrency(ollama_jobs);
-  agent::OllamaClient::configure(model);
+  oc::OllamaClient::set_concurrency(ollama_jobs);
+  oc::OllamaClient::configure(model);
   agent::AgentPool::configure(/*max_agents=*/16, /*max_depth=*/3);
 
-  const agent::VenvBootstrap venv = agent::create_workspace_venv();
-  if (venv.status == agent::VenvBootstrap::Status::Failed) {
+  const tools::VenvBootstrap venv = tools::create_workspace_venv();
+  if (venv.status == tools::VenvBootstrap::Status::Failed) {
     std::cerr << "error: could not create the .m8trixenv virtualenv at "
               << venv.venv_dir << "\n       " << venv.detail << "\n";
     return 1;
@@ -240,9 +240,9 @@ int main(int argc, char** argv) {
 
   std::int64_t window = num_ctx;
   if (window <= 0) {
-    window = agent::OllamaClient::instance().context_length(model);
+    window = oc::OllamaClient::instance().context_length(model);
   }
-  if (window > 0) agent::OllamaClient::set_num_ctx(window);
+  if (window > 0) oc::OllamaClient::set_num_ctx(window);
 
   // --- shared UI state ---------------------------------------------------
   std::mutex ui_mutex;
@@ -287,7 +287,7 @@ int main(int argc, char** argv) {
   prompt_config.ask_tag = settings.prompt_ask_tag.value_or("");
   m8sh::ShellIntegration integration(prompt_config);
 
-  const std::string resolved_shell = agent::resolve_shell(shell_override);
+  const std::string resolved_shell = tools::resolve_shell(shell_override);
   const bool zsh_shell = m8sh::shell_is_zsh(resolved_shell);
   std::vector<std::pair<std::string, std::string>> shell_env;
   if (zsh_shell and integration.ok()) {
@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
 
   // --- the terminal pane ----------------------------------------------------
   m8sh::TerminalEmulator emu(80, 24);
-  agent::ShellSession shell;
+  tools::ShellSession shell;
 
   emu.on_pty_write = [&shell](std::string_view b) { shell.write_bytes(b); };
   emu.on_osc_cwd = [&](std::string p) {
@@ -351,7 +351,7 @@ int main(int argc, char** argv) {
       settings.enable_package_install.value_or(true);
   options.enable_file_tools = true;
   options.enable_web_search = settings.enable_web_search.value_or(false);
-  if (options.enable_web_search and not agent::web_search_available()) {
+  if (options.enable_web_search and not tools::web_search_available()) {
     std::cerr << "warning: ENABLE_WEB_SEARCH is set but no Parallel API key was "
                  "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
                  "websearch calls will fail\n";
@@ -360,16 +360,16 @@ int main(int argc, char** argv) {
   options.memory_path = settings.memory_path.value_or(options.memory_path);
   options.memory_embed_model =
       settings.memory_embed_model.value_or(options.memory_embed_model);
-  agent::OllamaClient::configure_embed(options.memory_embed_model);
+  oc::OllamaClient::configure_embed(options.memory_embed_model);
   if (options.enable_memory) {
     // Two models of the same width would otherwise open, write and rank
     // against each other with nothing to show for it but worse recall.
-    const std::string mismatch = agent::memory_model_mismatch(
+    const std::string mismatch = vdb::memory_model_mismatch(
         options.memory_path, options.memory_embed_model);
     if (not mismatch.empty()) {
       options.enable_memory = false;
       std::cerr << "warning: " << mismatch << " Memory is off for this run.\n";
-    } else if (not agent::memory_available(options.memory_embed_model)) {
+    } else if (not vdb::memory_available(options.memory_embed_model)) {
       std::cerr << "warning: ENABLE_MEMORY is set but '"
                 << options.memory_embed_model
                 << "' is not a pulled embedding model (try `ollama pull "
@@ -420,7 +420,7 @@ int main(int argc, char** argv) {
     return reply;
   };
 
-  agent::Agent root_agent(options, policy, root_id, "", 0);
+  agent::Agent root_agent(options, pol, root_id, "", 0);
   agent_containers[root_id] = &transcript;
 
   // --- observer ---------------------------------------------------------

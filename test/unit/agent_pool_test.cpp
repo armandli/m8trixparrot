@@ -21,23 +21,23 @@
 
 #include <gtest/gtest.h>
 
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/agent_result.h>
-#include <core/ollama_client.h>
-#include <core/policy.h>
-#include <core/tools.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/agent/agent_result.h>
+#include <core/oc/ollama_client.h>
+#include <core/policy/policy.h>
+#include <core/tools/tools.h>
 #include <loopback_server.h>
 
 namespace agent {
 namespace {
 
 struct AgentPoolTest : ::testing::Test {
-  YoloPolicy policy;
+  policy::YoloPolicy pol;
   std::vector<std::string> spawned;
 
   void SetUp() override {
-    OllamaClient::configure("test-model", "http://127.0.0.1:1");
+    oc::OllamaClient::configure("test-model", "http://127.0.0.1:1");
   }
 
   void TearDown() override {
@@ -59,7 +59,7 @@ struct AgentPoolTest : ::testing::Test {
                           const std::string& objective,
                           const AgentOptions& options) {
     const SpawnResult result =
-        AgentPool::instance().spawn(parent, objective, policy, options);
+        AgentPool::instance().spawn(parent, objective, pol, options);
     if (result.ok) spawned.push_back(result.id);
     return result;
   }
@@ -147,11 +147,11 @@ TEST_F(AgentPoolTest, WaitForReturnsTheResult) {
 // by an agent that fails instantly, which would not notice if spawn() stopped
 // running turns at all.
 TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"counted 42 files"},"done":true,"prompt_eval_count":11,"eval_count":3})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   struct Seen {
     std::mutex mutex;
@@ -179,9 +179,9 @@ TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
   ASSERT_TRUE(spawn.ok) << spawn.error;
 
   // Through the tool the model actually calls, not through the pool directly.
-  ToolArgs args;
+  tools::ToolArgs args;
   args["id"] = spawn.id;
-  const ToolResult waited = SubagentWaitTool{}.execute(args);
+  const tools::ToolResult waited = SubagentWaitTool{}.execute(args);
 
   ASSERT_TRUE(waited.ok) << waited.error;
   EXPECT_NE(waited.output.find("counted 42 files"), std::string::npos)
@@ -202,11 +202,11 @@ TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
 // serves the whole tree. If this ever stopped holding, every app's subagents
 // would silently fall back to core's default_system_prompt().
 TEST_F(AgentPoolTest, ASpawnedAgentInheritsItsParentsPromptBuilder) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"ok"},"done":true,"prompt_eval_count":7,"eval_count":2})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   struct Calls {
     std::mutex mutex;

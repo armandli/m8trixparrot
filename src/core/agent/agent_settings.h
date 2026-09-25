@@ -1,0 +1,74 @@
+#ifndef M8_AGENT_AGENT_SETTINGS_H
+#define M8_AGENT_AGENT_SETTINGS_H
+
+#include <optional>
+#include <string>
+
+namespace agent {
+
+// Where m8trixparrot's startup settings file lives, relative to the working
+// directory. Read once at process startup (see load_startup_settings); nothing
+// in the agent core re-reads it during a run.
+inline constexpr const char* kAgentSettingsPath = ".m8trix/settings.json";
+
+// m8trixsh keeps its config out of the workspace, in a home-directory dotfile
+// in shell-env format (see load_shellrc_settings). Callers join it with $HOME.
+inline constexpr const char* kShellRcFilename = ".m8shrc";
+
+// The subset of startup configuration a caller can pin from a config file: the
+// model and permission policy, plus the app-relevant fields of AgentOptions.
+// Every field is optional so a caller can layer "unset -> keep whatever default
+// was already in force" without this struct knowing what those defaults are; a
+// command line flag applied after loading these settings should still win.
+struct StartupSettings {
+  std::optional<std::string> model;
+  std::optional<std::string> policy;
+  std::optional<int> max_steps;
+  std::optional<int> max_depth;
+  std::optional<int> max_agents;
+  std::optional<int> num_ctx;
+  std::optional<int> summarize_at;
+  std::optional<int> ollama_jobs;
+  std::optional<std::string> skills_dir;
+  std::optional<bool> enable_skills;
+  std::optional<bool> enable_subagents;
+  std::optional<bool> enable_package_install;
+  std::optional<bool> enable_web_search;
+  std::optional<bool> enable_memory;
+  std::optional<std::string> memory_path;
+  std::optional<std::string> memory_embed_model;
+
+  // m8trixsh only; the other apps ignore these.
+  std::optional<std::string> shell;            // the shell to run in the PTY pane
+  std::optional<std::string> mode_switch_key;  // toggles shell/ai mode
+  std::optional<std::string> prompt_format;    // the prompt m8trixsh installs
+  std::optional<std::string> prompt_shell_tag;  // %tag in shell mode
+  std::optional<std::string> prompt_ai_tag;     // %tag in ai mode
+  std::optional<std::string> prompt_ask_tag;    // %tag while the agent is asking
+};
+
+// Reads `path` as a StartupSettings if it exists. A missing file is the
+// normal case (no settings file has been created yet): returns a
+// StartupSettings with every field unset and leaves `warning` untouched. A
+// file that exists but can't be read, isn't valid JSON, or whose top level
+// isn't a JSON object is reported through `warning` (also returning an
+// all-unset StartupSettings) rather than aborting the caller. A key that is
+// absent or holds an unexpected type is left unset rather than erroring —
+// same fallback philosophy as json_util's *_field() readers.
+StartupSettings load_startup_settings(const std::string& path,
+                                      std::string& warning);
+
+// Reads `path` as a shell-env-style config: one `KEY=VALUE` per line, `#`
+// comments, an optional leading `export `, optional surrounding quotes on the
+// value. Keys are the upper-case field names (MODEL, POLICY, MAX_STEPS,
+// ENABLE_WEB_SEARCH, ENABLE_MEMORY, ...); unknown keys and lines without `=`
+// are ignored.
+// Same fallback philosophy as load_startup_settings: a missing file returns an
+// all-unset StartupSettings and leaves `warning` untouched; a file that exists
+// but can't be read is reported through `warning`.
+StartupSettings load_shellrc_settings(const std::string& path,
+                                      std::string& warning);
+
+}  // namespace agent
+
+#endif  // M8_AGENT_AGENT_SETTINGS_H

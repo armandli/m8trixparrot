@@ -1,4 +1,4 @@
-#include <core/agent_settings.h>
+#include <core/agent/agent_settings.h>
 
 #include <gtest/gtest.h>
 
@@ -7,7 +7,7 @@
 namespace agent {
 namespace {
 
-struct AgentSettingsTest : test::ToolTest {};
+struct AgentSettingsTest : m8test::ToolTest {};
 
 TEST_F(AgentSettingsTest, MissingFileLeavesEverythingUnsetAndNoWarning) {
   std::string warning;
@@ -109,7 +109,7 @@ TEST_F(AgentSettingsTest, NonObjectTopLevelWarnsAndLeavesEverythingUnset) {
 // load_shellrc_settings — m8trixsh's ~/.m8shrc, a shell-env-style file.
 // ---------------------------------------------------------------------------
 
-struct ShellRcTest : test::ToolTest {};
+struct ShellRcTest : m8test::ToolTest {};
 
 TEST_F(ShellRcTest, MissingFileLeavesEverythingUnsetAndNoWarning) {
   std::string warning;

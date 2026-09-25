@@ -10,17 +10,17 @@
 
 #include <gtest/gtest.h>
 
-#include <core/agent.h>
-#include <core/agent_pool.h>
-#include <core/ollama_client.h>
-#include <core/policy.h>
+#include <core/agent/agent.h>
+#include <core/agent/agent_pool.h>
+#include <core/oc/ollama_client.h>
+#include <core/policy/policy.h>
 #include <loopback_server.h>
 
 namespace agent {
 namespace {
 
 TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       // call 1: a tool call keeps the loop going; prompt_eval_count is huge.
       R"json({"message":{"role":"assistant","content":"working","tool_calls":[{"function":{"name":"python","arguments":{"script":"print(1)"}}}]},"done":true,"prompt_eval_count":999999,"eval_count":5})json",
       // call 2: the summary.
@@ -28,8 +28,8 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
       // call 3: a final answer ends the turn.
       R"json({"message":{"role":"assistant","content":"all done"},"done":true,"prompt_eval_count":50,"eval_count":8})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   std::vector<AgentEvent::Kind> kinds;
   AgentPool::instance().set_observer(
@@ -40,9 +40,9 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
   options.context_summarize_at_tokens = 100;  // call 1's 999999 trips it
   options.context_window_tokens = 0;
 
-  const YoloPolicy policy;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  Agent root(options, policy, id, "", 0);
+  Agent root(options, pol, id, "", 0);
 
   const AgentResult result = root.run_turn("do the thing");
 
@@ -59,7 +59,7 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
   // The transcript was compacted: short, and it holds the summary text.
   EXPECT_LT(root.transcript().size(), 4u);
   bool has_summary = false;
-  for (const ChatMessage& message : root.transcript()) {
+  for (const oc::ChatMessage& message : root.transcript()) {
     if (message.content.find("COMPACTED STATE") != std::string::npos) {
       has_summary = true;
     }
@@ -68,11 +68,11 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
 }
 
 TEST(AgentContextTest, NoSummarizeBelowThreshold) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"here is the answer"},"done":true,"prompt_eval_count":500,"eval_count":4})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   std::vector<AgentEvent::Kind> kinds;
   AgentPool::instance().set_observer(
@@ -83,9 +83,9 @@ TEST(AgentContextTest, NoSummarizeBelowThreshold) {
   options.context_summarize_at_tokens = 200000;
   options.context_window_tokens = 0;
 
-  const YoloPolicy policy;
+  const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  Agent root(options, policy, id, "", 0);
+  Agent root(options, pol, id, "", 0);
 
   const AgentResult result = root.run_turn("answer me");
 

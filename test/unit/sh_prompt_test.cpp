@@ -8,7 +8,8 @@
 
 #include <gtest/gtest.h>
 
-#include <core/system_prompt.h>
+#include <core/agent/system_prompt.h>
+#include <core/agent/workspace_context.h>
 
 #include <sh_prompt.h>
 
@@ -32,6 +33,15 @@ agent::PromptFacts base_facts() {
   facts.enable_package_install = true;
   facts.enable_file_tools = true;
   facts.ask_user_offered = true;
+
+  // Pin the workspace. workspace_block() embeds this repo's live `git status`,
+  // so without this the prompt carries whatever files happen to be modified —
+  // and an assertion that some word is absent fails for reasons that have
+  // nothing to do with the prompt. (A modified src/core/tools_subagent.cpp is
+  // enough to put "subagent" in the text.)
+  facts.workspace_cache =
+      agent::WorkspaceContext{"/home/ada/work", "/home/ada/work", "main", "",
+                              true};
   return facts;
 }
 

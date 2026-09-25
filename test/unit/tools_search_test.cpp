@@ -9,10 +9,10 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct FindTest : ToolTest {};
@@ -36,12 +36,12 @@ void build_tree(const ToolTest& env) {
 TEST_F(FindTest, PatternsMatchRelativePathsSoStarDoesNotCrossDirectories) {
   build_tree(*this);
 
-  const ToolResult shallow = FindTool().execute(args({{"pattern", str("*.cpp")}}));
+  const tools::ToolResult shallow = tools::FindTool().execute(args({{"pattern", str("*.cpp")}}));
   EXPECT_TRUE(shallow.ok);
   EXPECT_EQ(shallow.output, "top.cpp\n");
 
-  const ToolResult recursive =
-      FindTool().execute(args({{"pattern", str("**/*.cpp")}}));
+  const tools::ToolResult recursive =
+      tools::FindTool().execute(args({{"pattern", str("**/*.cpp")}}));
   EXPECT_TRUE(recursive.ok);
   EXPECT_EQ(recursive.output, "src/deep/deeper.cpp\nsrc/inner.cpp\ntop.cpp\n");
 }
@@ -51,8 +51,8 @@ TEST_F(FindTest, PatternsMatchRelativePathsSoStarDoesNotCrossDirectories) {
 TEST_F(FindTest, DoubleStarSlashMatchesZeroLeadingDirectories) {
   build_tree(*this);
 
-  const ToolResult result =
-      FindTool().execute(args({{"pattern", str("**/top.cpp")}}));
+  const tools::ToolResult result =
+      tools::FindTool().execute(args({{"pattern", str("**/top.cpp")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "top.cpp\n");
@@ -62,7 +62,7 @@ TEST_F(FindTest, QuestionMarkMatchesOneCharacterWithinASegment) {
   write_file("a1.txt", "");
   write_file("a12.txt", "");
 
-  const ToolResult result = FindTool().execute(args({{"pattern", str("a?.txt")}}));
+  const tools::ToolResult result = tools::FindTool().execute(args({{"pattern", str("a?.txt")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "a1.txt\n");
@@ -71,7 +71,7 @@ TEST_F(FindTest, QuestionMarkMatchesOneCharacterWithinASegment) {
 TEST_F(FindTest, ResultsAreSortedAndPathsAreRelativeToTheSearchDir) {
   build_tree(*this);
 
-  const ToolResult result = FindTool().execute(
+  const tools::ToolResult result = tools::FindTool().execute(
       args({{"pattern", str("**/*.cpp")}, {"path", str("src")}}));
 
   EXPECT_TRUE(result.ok);
@@ -87,7 +87,7 @@ TEST_F(FindTest, GitignoredPathsAreSkippedInsideARepository) {
   write_file("noisy.log", "");
   write_file("build/generated.cpp", "");
 
-  const ToolResult result = FindTool().execute(args({{"pattern", str("**/*")}}));
+  const tools::ToolResult result = tools::FindTool().execute(args({{"pattern", str("**/*")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_NE(result.output.find("keep.cpp"), std::string::npos);
@@ -102,7 +102,7 @@ TEST_F(FindTest, OutsideARepositoryAGitignoreFileHasNoEffect) {
   write_file(".gitignore", "*.log\n");
   write_file("noisy.log", "");
 
-  const ToolResult result = FindTool().execute(args({{"pattern", str("**/*.log")}}));
+  const tools::ToolResult result = tools::FindTool().execute(args({{"pattern", str("**/*.log")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "noisy.log\n");
@@ -113,7 +113,7 @@ TEST_F(FindTest, ExceedingTheLimitCapsResultsAndFlagsTruncation) {
     write_file("file" + std::to_string(i) + ".txt", "");
   }
 
-  const ToolResult result = FindTool().execute(
+  const tools::ToolResult result = tools::FindTool().execute(
       args({{"pattern", str("*.txt")}, {"limit", num(2)}}));
 
   EXPECT_TRUE(result.ok);
@@ -130,8 +130,8 @@ TEST_F(FindTest, ExceedingTheLimitCapsResultsAndFlagsTruncation) {
 TEST_F(FindTest, AGlobThatWouldBeABrokenRegexIsTreatedAsLiteralText) {
   write_file("[unclosed", "");
 
-  const ToolResult result =
-      FindTool().execute(args({{"pattern", str("[unclosed")}}));
+  const tools::ToolResult result =
+      tools::FindTool().execute(args({{"pattern", str("[unclosed")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "[unclosed\n");
@@ -140,14 +140,14 @@ TEST_F(FindTest, AGlobThatWouldBeABrokenRegexIsTreatedAsLiteralText) {
 TEST_F(FindTest, NoMatchesYieldsEmptyOutputRatherThanAnError) {
   build_tree(*this);
 
-  const ToolResult result = FindTool().execute(args({{"pattern", str("*.rs")}}));
+  const tools::ToolResult result = tools::FindTool().execute(args({{"pattern", str("*.rs")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "");
 }
 
 TEST_F(FindTest, MissingPatternIsAnError) {
-  const ToolResult result = FindTool().execute(args({}));
+  const tools::ToolResult result = tools::FindTool().execute(args({}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "find: missing required string argument 'pattern'");
@@ -160,7 +160,7 @@ TEST_F(FindTest, MissingPatternIsAnError) {
 TEST_F(GrepTest, MatchedLinesUseAColonAndCarryFileAndLineNumber) {
   write_file("a.txt", "first\nneedle here\nlast\n");
 
-  const ToolResult result = GrepTool().execute(args({{"pattern", str("needle")}}));
+  const tools::ToolResult result = tools::GrepTool().execute(args({{"pattern", str("needle")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "a.txt:2:needle here\n");
@@ -169,13 +169,13 @@ TEST_F(GrepTest, MatchedLinesUseAColonAndCarryFileAndLineNumber) {
 TEST_F(GrepTest, ThePatternIsARegexUnlessLiteralIsSet) {
   write_file("a.txt", "value = 42\nliteral a.c here\n");
 
-  const ToolResult as_regex =
-      GrepTool().execute(args({{"pattern", str("[0-9]+")}}));
+  const tools::ToolResult as_regex =
+      tools::GrepTool().execute(args({{"pattern", str("[0-9]+")}}));
   EXPECT_EQ(as_regex.output, "a.txt:1:value = 42\n");
 
   // As a regex, "a.c" matches "a c", "abc", ... ; as a literal it matches only
   // the three characters.
-  const ToolResult as_literal = GrepTool().execute(
+  const tools::ToolResult as_literal = tools::GrepTool().execute(
       args({{"pattern", str("a.c")}, {"literal", flag(true)}}));
   EXPECT_EQ(as_literal.output, "a.txt:2:literal a.c here\n");
 }
@@ -183,12 +183,12 @@ TEST_F(GrepTest, ThePatternIsARegexUnlessLiteralIsSet) {
 TEST_F(GrepTest, IgnoreCaseAppliesToBothRegexAndLiteralMatching) {
   write_file("a.txt", "MixedCase\n");
 
-  const ToolResult regex_mode = GrepTool().execute(
+  const tools::ToolResult regex_mode = tools::GrepTool().execute(
       args({{"pattern", str("mixedcase")}, {"ignoreCase", flag(true)}}));
   EXPECT_EQ(regex_mode.output, "a.txt:1:MixedCase\n");
 
-  const ToolResult literal_mode =
-      GrepTool().execute(args({{"pattern", str("mixedcase")},
+  const tools::ToolResult literal_mode =
+      tools::GrepTool().execute(args({{"pattern", str("mixedcase")},
                                {"literal", flag(true)},
                                {"ignoreCase", flag(true)}}));
   EXPECT_EQ(literal_mode.output, "a.txt:1:MixedCase\n");
@@ -199,7 +199,7 @@ TEST_F(GrepTest, IgnoreCaseAppliesToBothRegexAndLiteralMatching) {
 TEST_F(GrepTest, ContextLinesAreMarkedWithADashInsteadOfAColon) {
   write_file("a.txt", "one\ntwo\nneedle\nfour\nfive\n");
 
-  const ToolResult result = GrepTool().execute(
+  const tools::ToolResult result = tools::GrepTool().execute(
       args({{"pattern", str("needle")}, {"context", num(1)}}));
 
   EXPECT_TRUE(result.ok);
@@ -210,7 +210,7 @@ TEST_F(GrepTest, PathMayNameASingleFileInsteadOfADirectory) {
   write_file("a.txt", "needle\n");
   write_file("b.txt", "needle\n");
 
-  const ToolResult result = GrepTool().execute(
+  const tools::ToolResult result = tools::GrepTool().execute(
       args({{"pattern", str("needle")}, {"path", str("a.txt")}}));
 
   EXPECT_TRUE(result.ok);
@@ -224,11 +224,11 @@ TEST_F(GrepTest, TheGlobFilterUsesTheSameRelativePathRuleAsFind) {
   write_file("sub/inner.txt", "needle\n");
   write_file("sub/inner.md", "needle\n");
 
-  const ToolResult shallow = GrepTool().execute(
+  const tools::ToolResult shallow = tools::GrepTool().execute(
       args({{"pattern", str("needle")}, {"glob", str("*.txt")}}));
   EXPECT_EQ(shallow.output, "top.txt:1:needle\n");
 
-  const ToolResult recursive = GrepTool().execute(
+  const tools::ToolResult recursive = tools::GrepTool().execute(
       args({{"pattern", str("needle")}, {"glob", str("**/*.txt")}}));
   EXPECT_NE(recursive.output.find("sub/inner.txt:1:needle"), std::string::npos);
   EXPECT_EQ(recursive.output.find("inner.md"), std::string::npos);
@@ -237,7 +237,7 @@ TEST_F(GrepTest, TheGlobFilterUsesTheSameRelativePathRuleAsFind) {
 TEST_F(GrepTest, NoMatchesIsReportedAsNoMatchesRatherThanEmptyOutput) {
   write_file("a.txt", "nothing here\n");
 
-  const ToolResult result = GrepTool().execute(args({{"pattern", str("needle")}}));
+  const tools::ToolResult result = tools::GrepTool().execute(args({{"pattern", str("needle")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "[no matches]");
@@ -246,7 +246,7 @@ TEST_F(GrepTest, NoMatchesIsReportedAsNoMatchesRatherThanEmptyOutput) {
 TEST_F(GrepTest, ReachingTheMatchLimitStopsTheSearchAndSaysSo) {
   write_file("a.txt", "needle\nneedle\nneedle\nneedle\n");
 
-  const ToolResult result = GrepTool().execute(
+  const tools::ToolResult result = tools::GrepTool().execute(
       args({{"pattern", str("needle")}, {"limit", num(2)}}));
 
   EXPECT_TRUE(result.ok);
@@ -260,8 +260,8 @@ TEST_F(GrepTest, ReachingTheMatchLimitStopsTheSearchAndSaysSo) {
 TEST_F(GrepTest, ACarriageReturnAtEndOfLineIsStrippedBeforeMatching) {
   write_file("crlf.txt", "needle\r\n");
 
-  const ToolResult result =
-      GrepTool().execute(args({{"pattern", str("needle$")}}));
+  const tools::ToolResult result =
+      tools::GrepTool().execute(args({{"pattern", str("needle$")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "crlf.txt:1:needle\n");
@@ -272,8 +272,8 @@ TEST_F(GrepTest, ACarriageReturnAtEndOfLineIsStrippedBeforeMatching) {
 TEST_F(GrepTest, APatternSpanningANewlineNeverMatches) {
   write_file("a.txt", "alpha\nbeta\n");
 
-  const ToolResult result =
-      GrepTool().execute(args({{"pattern", str("alpha\\nbeta")}}));
+  const tools::ToolResult result =
+      tools::GrepTool().execute(args({{"pattern", str("alpha\\nbeta")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "[no matches]");
@@ -285,7 +285,7 @@ TEST_F(GrepTest, BinaryDetectionOnlyInspectsTheFirstLine) {
   write_file("early.bin", std::string("h\0dr\nneedle\n", 12));
   write_file("late.bin", std::string("header\nneedle\0here\n", 19));
 
-  const ToolResult result = GrepTool().execute(args({{"pattern", str("needle")}}));
+  const tools::ToolResult result = tools::GrepTool().execute(args({{"pattern", str("needle")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output.find("early.bin"), std::string::npos);
@@ -295,18 +295,18 @@ TEST_F(GrepTest, BinaryDetectionOnlyInspectsTheFirstLine) {
 TEST_F(GrepTest, AnInvalidRegexIsReportedAsAnError) {
   write_file("a.txt", "x\n");
 
-  const ToolResult result = GrepTool().execute(args({{"pattern", str("a(b")}}));
+  const tools::ToolResult result = tools::GrepTool().execute(args({{"pattern", str("a(b")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error.rfind("grep: bad regex pattern: ", 0), 0u);
 }
 
 TEST_F(GrepTest, MissingPatternIsAnError) {
-  const ToolResult result = GrepTool().execute(args({}));
+  const tools::ToolResult result = tools::GrepTool().execute(args({}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "grep: missing required string argument 'pattern'");
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

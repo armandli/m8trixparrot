@@ -3,7 +3,7 @@
 
 #include <CLI/CLI.hpp>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 int main(int argc, char** argv) {
   CLI::App app{
@@ -28,12 +28,12 @@ int main(int argc, char** argv) {
 
   CLI11_PARSE(app, argc, argv);
 
-  agent::ToolArgs args;
-  args.emplace("pattern", agent::ToolArgValue{pattern});
-  if (!path.empty()) args.emplace("path", agent::ToolArgValue{path});
-  args.emplace("limit", agent::ToolArgValue{limit});
+  tools::ToolArgs args;
+  args.emplace("pattern", tools::ToolArgValue{pattern});
+  if (!path.empty()) args.emplace("path", tools::ToolArgValue{path});
+  args.emplace("limit", tools::ToolArgValue{limit});
 
-  const agent::ToolResult result = agent::FindTool().execute(args);
+  const tools::ToolResult result = tools::FindTool().execute(args);
 
   if (!result.ok) {
     std::cerr << result.error << "\n";

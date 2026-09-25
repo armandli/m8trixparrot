@@ -10,8 +10,9 @@
 
 #include <gtest/gtest.h>
 
-#include <core/agent_result.h>
-#include <core/session_store.h>
+#include <core/agent/agent_result.h>
+#include <core/agent/session_store.h>
+#include <core/util/uuid.h>
 
 namespace agent {
 namespace {
@@ -21,7 +22,7 @@ struct SessionStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-session-" + generate_uuid_v4());
+          ("m8trix-session-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
   }
 

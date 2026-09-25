@@ -3,7 +3,7 @@
 // the commands written to its master fd. They are timing-tolerant (poll with a
 // deadline) rather than assuming a fixed latency.
 
-#include <core/shell_session.h>
+#include <core/tools/shell_session.h>
 
 #include <chrono>
 #include <mutex>
@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-namespace agent {
+namespace tools {
 namespace {
 
 namespace sc = std::chrono;
@@ -172,4 +172,4 @@ TEST(ShellSessionTest, DestructorTearsDownAStillRunningShell) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace tools

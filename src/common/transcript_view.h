@@ -11,7 +11,7 @@
 
 #include <ftxui/dom/elements.hpp>
 
-#include <core/agent_result.h>
+#include <core/agent/agent_result.h>
 
 // The transcript model and its FTXUI rendering, shared by the agent TUIs
 // (m8trixparrot, m8trixsh). An app owns a `std::list<TranscriptNode>`, mutates

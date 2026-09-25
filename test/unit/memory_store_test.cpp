@@ -13,14 +13,14 @@
 #include <gtest/gtest.h>
 #include <simdjson.h>
 
-#include <core/memory_store.h>
-#include <core/ollama_client.h>
-#include <core/tools.h>
-#include <core/session_store.h>
+#include <core/vdb/memory_store.h>
+#include <core/oc/ollama_client.h>
+#include <core/tools/tools.h>
+#include <core/util/uuid.h>
 
 #include "loopback_server.h"
 
-namespace agent {
+namespace vdb {
 namespace {
 
 inline constexpr uint32_t kDim = 64;
@@ -35,7 +35,7 @@ struct MemoryStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-memory-" + generate_uuid_v4());
+          ("m8trix-memory-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
     path = (dir / "memory.m8db").string();
   }
@@ -536,14 +536,14 @@ TEST_F(MemoryStoreTest, AMissingFileHasNoModelToDisagreeWith) {
 }
 
 TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
-  const test::LoopbackServer server(
+  const m8test::LoopbackServer server(
       200, "application/json",
       R"({"model":"stub","embeddings":[[3.0,4.0,0.0,0.0]]})");
 
   MemoryOptions opts;
   opts.path = path;
   opts.embed_model = "stub";
-  OllamaClient::configure_embed("stub", server.url());
+  oc::OllamaClient::configure_embed("stub", server.url());
   opts.embedder = ollama_embedder("stub");
   opts.recency_weight = 0.0;
   MemoryOpenResult opened = open_store(opts);
@@ -565,10 +565,10 @@ TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
 }
 
 TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnHttpErrorAsAString) {
-  const test::LoopbackServer server(500, "text/plain", "upstream is down");
+  const m8test::LoopbackServer server(500, "text/plain", "upstream is down");
   MemoryOptions opts;
   opts.path = path;
-  OllamaClient::configure_embed("stub", server.url());
+  oc::OllamaClient::configure_embed("stub", server.url());
   opts.embedder = ollama_embedder("stub");
   MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
@@ -579,11 +579,11 @@ TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnHttpErrorAsAString) {
 }
 
 TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnEmptyResponseAsAString) {
-  const test::LoopbackServer server(200, "application/json",
+  const m8test::LoopbackServer server(200, "application/json",
                                     R"({"model":"stub","embeddings":[]})");
   MemoryOptions opts;
   opts.path = path;
-  OllamaClient::configure_embed("stub", server.url());
+  oc::OllamaClient::configure_embed("stub", server.url());
   opts.embedder = ollama_embedder("stub");
   MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
@@ -622,9 +622,9 @@ struct MemoryToolTest : MemoryStoreTest {
     return MemoryTool{opts};
   }
 
-  static ToolArgs args_of(std::initializer_list<
-                          std::pair<std::string, ToolArgValue>> entries) {
-    ToolArgs args;
+  static tools::ToolArgs args_of(std::initializer_list<
+                          std::pair<std::string, tools::ToolArgValue>> entries) {
+    tools::ToolArgs args;
     for (const auto& [key, value] : entries) args.emplace(key, value);
     return args;
   }
@@ -645,7 +645,7 @@ TEST_F(MemoryToolTest, TheSchemaIsValidJsonAndNamesTheTool) {
 
 TEST_F(MemoryToolTest, RemembersAndRecallsThroughTheToolInterface) {
   const MemoryTool memory = tool();
-  const ToolResult stored = memory.execute(args_of({
+  const tools::ToolResult stored = memory.execute(args_of({
       {"action", std::string("remember")},
       {"content", std::string("the user lives in Lisbon")},
       {"type", std::string("semantic")},
@@ -656,7 +656,7 @@ TEST_F(MemoryToolTest, RemembersAndRecallsThroughTheToolInterface) {
   EXPECT_NE(stored.output.find("Remembered as memory"), std::string::npos)
       << stored.output;
 
-  const ToolResult recalled = memory.execute(args_of({
+  const tools::ToolResult recalled = memory.execute(args_of({
       {"action", std::string("recall")},
       {"query", std::string("where does the user live")},
       {"k", static_cast<int64_t>(3)},
@@ -681,7 +681,7 @@ TEST_F(MemoryToolTest, ATagArgumentReachesTheFilter) {
                                     {"tags", std::vector<std::string>{"drop"}}}))
                   .ok);
 
-  const ToolResult recalled = memory.execute(args_of({
+  const tools::ToolResult recalled = memory.execute(args_of({
       {"action", std::string("recall")},
       {"query", std::string("a tagged note")},
       {"tags", std::vector<std::string>{"keep"}},
@@ -693,18 +693,18 @@ TEST_F(MemoryToolTest, ATagArgumentReachesTheFilter) {
 
 TEST_F(MemoryToolTest, ForgetRemovesTheMemory) {
   const MemoryTool memory = tool();
-  const ToolResult stored = memory.execute(
+  const tools::ToolResult stored = memory.execute(
       args_of({{"action", std::string("remember")},
                {"content", std::string("temporary")}}));
   ASSERT_TRUE(stored.ok) << stored.error;
   const size_t open_bracket = stored.output.find_last_of(' ');
   const int64_t id = std::stoll(stored.output.substr(open_bracket + 1));
 
-  const ToolResult forgotten = memory.execute(
+  const tools::ToolResult forgotten = memory.execute(
       args_of({{"action", std::string("forget")}, {"id", id}}));
   ASSERT_TRUE(forgotten.ok) << forgotten.error;
 
-  const ToolResult recalled = memory.execute(args_of({
+  const tools::ToolResult recalled = memory.execute(args_of({
       {"action", std::string("recall")},
       {"query", std::string("temporary")},
   }));
@@ -715,7 +715,7 @@ TEST_F(MemoryToolTest, ForgetRemovesTheMemory) {
 
 TEST_F(MemoryToolTest, EveryArgumentErrorNamesTheToolAndTheArgument) {
   const MemoryTool memory = tool();
-  const std::vector<std::pair<ToolArgs, std::string>> cases = {
+  const std::vector<std::pair<tools::ToolArgs, std::string>> cases = {
       {args_of({}), "action"},
       {args_of({{"action", std::string("remember")}}), "content"},
       {args_of({{"action", std::string("recall")}}), "query"},
@@ -723,7 +723,7 @@ TEST_F(MemoryToolTest, EveryArgumentErrorNamesTheToolAndTheArgument) {
       {args_of({{"action", std::string("levitate")}}), "unknown action"},
   };
   for (const auto& [args, expected] : cases) {
-    const ToolResult result = memory.execute(args);
+    const tools::ToolResult result = memory.execute(args);
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.error.rfind("memory: ", 0), 0u) << result.error;
     EXPECT_NE(result.error.find(expected), std::string::npos) << result.error;
@@ -736,7 +736,7 @@ TEST_F(MemoryToolTest, AMalformedFiltersArgumentIsAnError) {
                   .execute(args_of({{"action", std::string("remember")},
                                     {"content", std::string("x")}}))
                   .ok);
-  const ToolResult recalled = memory.execute(args_of({
+  const tools::ToolResult recalled = memory.execute(args_of({
       {"action", std::string("recall")},
       {"query", std::string("x")},
       {"filters", std::string("{broken")},
@@ -747,7 +747,7 @@ TEST_F(MemoryToolTest, AMalformedFiltersArgumentIsAnError) {
 }
 
 TEST_F(MemoryToolTest, RecallingBeforeAnythingIsRememberedSaysSo) {
-  const ToolResult recalled = tool().execute(args_of({
+  const tools::ToolResult recalled = tool().execute(args_of({
       {"action", std::string("recall")},
       {"query", std::string("anything at all")},
   }));
@@ -757,4 +757,4 @@ TEST_F(MemoryToolTest, RecallingBeforeAnythingIsRememberedSaysSo) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace vdb
