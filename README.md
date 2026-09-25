@@ -260,9 +260,25 @@ to park the agent thread until the operator answers.
 `sp` is a natural-language shell assistant: describe a task in plain English
 and it runs the shell commands to carry it out. Its whole tool set is
 `bash_repl` — one shell that stays alive across calls, so a variable it sets or
-a directory it `cd`s into is still there on the next one — plus `bash_search`.
-No python, no subagents, no skills. It **never deletes anything**: unwanted
-files are moved to `~/.local/share/Trash/files`.
+a directory it `cd`s into is still there on the next one — plus `bash_search`,
+`memory`, and the two subagent tools. No python, no skills. It **never deletes
+anything**: unwanted files are moved to `$XDG_DATA_HOME/sp/trash/`.
+
+`sp` delegates. A task that splits into parts which don't need each other's
+output — three directories to audit, four archives to verify — is handed to
+subagents with `subagent_create`, one per part, and collected with
+`subagent_wait`. Each subagent is another `sp` agent with **its own `bash_repl`
+shell** and **its own chat history**, so it cannot see the parent's variables,
+its `cd`, or anything the parent said; the objective string is all it gets,
+which is why the prompt insists every path in one be absolute. A subagent may
+delegate in turn, up to `--max-depth` (default 3), with `--max-agents` (default
+8) live at once. `--no-subagents` turns the whole thing off.
+
+All the agents share one `memory` database, but only the root writes to it: a
+subagent recalls freely and reports anything worth keeping as a `MEMORY:` line
+in its final message, which the root then stores. Several agents writing
+concurrently could not keep the one-memory-per-subject rule, because none of
+them can see what the others just stored.
 
 When a task produces something worth keeping, sp installs it as a real command:
 executable, named without an extension, with a `--help` and arguments instead
@@ -308,15 +324,25 @@ build/sp -i                  # interactive TUI
 build/sp                     # same — no prompt means interactive
 ```
 
-Single-shot mode prints the agent's text to stdout and one `[tool: summary]`
-progress line per call to stderr, so a script can pipe it. Interactive mode is
-the same transcript view the other TUIs use, with `/help`, `/reset` and
-`/quit`.
+Single-shot mode prints **the root agent's** text to stdout and one
+`[tool: summary]` progress line per call to stderr, so a script can pipe it.
+Subagent activity is stderr only, indented by depth and tagged `[d1 …]`, with a
+`[subagent <id> started|done]` line around each one — so a delegating task still
+leaves nothing but the answer on stdout.
+
+Interactive mode is the same transcript view the other TUIs use, with `/help`,
+`/reset` and `/quit`. While subagents are running the transcript is replaced by
+a grid of live panes, one per subagent, and the header reads
+`subagents: 2/8  |  ctx: 12k/160k`; `Ctrl+G` swaps the grid for the transcript
+and back. When the turn ends each subagent folds into a one-line block under the
+agent that spawned it — click it to read what it did, or `Ctrl+T` to fold and
+unfold everything.
 
 Defaults come from `$XDG_CONFIG_HOME/sp/config` — `~/.config/sp/config` — in
 the shell-env format `~/.m8shrc` uses: one `KEY=VALUE` per line, `#` comments;
 keys `MODEL`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`, `OLLAMA_JOBS`,
-`ENABLE_MEMORY`, `MEMORY_PATH`, `MEMORY_EMBED_MODEL`. Then `./.m8trix/settings.json` where one
+`ENABLE_SUBAGENTS`, `MAX_DEPTH`, `MAX_AGENTS`, `ENABLE_MEMORY`, `MEMORY_PATH`,
+`MEMORY_EMBED_MODEL`. Then `./.m8trix/settings.json` where one
 exists, then the command line — each winning over the one before it. `sp` is
 run from wherever the user happens to be standing, so the config file is what
 actually persists a setting. An older `~/.sprc` is moved here on first run.
@@ -329,7 +355,13 @@ process and one turn, so without a database on disk every invocation starts
 knowing nothing about the user.
 
 Its system prompt asks the agent to recall before its first command and to
-store exactly two kinds of thing:
+store exactly two kinds of thing. **Only the root agent stores.** A subagent is
+told to recall as freely as the root but never to call `remember` or `forget`;
+if it learned something worth keeping it ends its final message with a
+`MEMORY:` line, a middle agent passes such a line further up, and the root
+decides what to write. Otherwise eight agents that cannot see each other's
+writes would each store their own near-copy of the same subject, and "one
+memory per subject" below would be unenforceable.
 
 ```
 PREFERENCE (tar): the user always wants tar archives gzipped.
@@ -435,6 +467,13 @@ flight at once. It defaults to **2**, and is set by `--ollama-jobs`,
 `OLLAMA_JOBS` in the shell-env config, or `"ollama_jobs"` in `settings.json`.
 It is read at startup: the pool starts on the first model call and keeps its
 size for the run.
+
+So an agent budget and a concurrency budget are two different numbers. `sp`
+allows 8 live subagents by default, but with `k = 2` only two of them are
+*thinking* at any moment and the rest queue — which is the right trade on one
+local GPU, and not a deadlock, because an agent parked in `subagent_wait` has
+already finished its own request and holds no slot. Raise `OLLAMA_JOBS` if the
+machine has the headroom.
 
 The pool drains two queues, and **embeddings go first**. An embedding is three
 orders of magnitude shorter than a chat, so a recall that costs 50ms of model

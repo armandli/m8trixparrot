@@ -14,11 +14,20 @@ namespace sp {
 // otherwise.
 //
 // Deliberately absent, because none of it applies to sp: the coding-agent
-// preamble, the "You are the root agent (depth 0 of max 1) / 1 of 1 agent
-// slots are free" sentence (sp runs with subagents off), the "you have no
-// subagent tools" rule, and the cwd/git-repo/branch/status workspace block
-// (sp is run from wherever the user is standing, and can run `pwd` when a task
-// actually needs to know).
+// preamble, the "you have no subagent tools" rule, and the
+// cwd/git-repo/branch/status workspace block (sp is run from wherever the user
+// is standing, and can run `pwd` when a task actually needs to know).
+//
+// One builder, two altitudes. AgentOptions — and therefore this builder — is
+// copied by value into every subagent, so `facts.depth > 0` is a case this must
+// handle, not an edge. What is a fact about the machine (the directories, the
+// trash rule, how the persistent shell behaves) is shared; what belongs to the
+// agent talking to the human is not. The root may install commands and is the
+// only agent that writes to memory; a subagent installs nothing, recalls but
+// never writes, and is told that its caller sees only its final message. The
+// "Delegating work" section is gated on facts.can_spawn_subagents rather than
+// on being the root, because a subagent spawning its own subagents is the
+// recursion working as intended.
 //
 // The memory section is omitted entirely when memory is off, so the model is
 // never told to call a tool it was not given.

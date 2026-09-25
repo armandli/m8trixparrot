@@ -122,6 +122,10 @@ bool apply_shellrc_pair(StartupSettings& settings, std::string_view key,
     settings.prompt_ask_tag = std::string(value);
   else if (key == "MAX_STEPS")
     settings.max_steps = parse_int(value);
+  else if (key == "MAX_DEPTH")
+    settings.max_depth = parse_int(value);
+  else if (key == "MAX_AGENTS")
+    settings.max_agents = parse_int(value);
   else if (key == "NUM_CTX")
     settings.num_ctx = parse_int(value);
   else if (key == "OLLAMA_JOBS")

@@ -21,7 +21,7 @@ bool has(const std::string& haystack, const std::string& needle) {
   return haystack.find(needle) != std::string::npos;
 }
 
-// sp's real tool set: bash + bash_search, plus memory when it is on.
+// sp's tool set with subagents off — the `--no-subagents` run.
 agent::PromptFacts facts_for(bool memory) {
   agent::PromptFacts facts;
   facts.depth = 0;
@@ -33,6 +33,22 @@ agent::PromptFacts facts_for(bool memory) {
   facts.enable_bash_search = true;
   facts.enable_bash_repl = true;
   facts.enable_memory = memory;
+  return facts;
+}
+
+// sp's default: subagents on, three deep, eight slots. `depth` picks the
+// altitude, and can_spawn_subagents is computed the way Agent::prompt_facts()
+// computes it so a test can't promise a call the pool would refuse.
+agent::PromptFacts subagent_facts(bool memory, int depth) {
+  agent::PromptFacts facts = facts_for(memory);
+  facts.depth = depth;
+  facts.max_depth = 3;
+  facts.max_agents = 8;
+  facts.free_agent_slots = 8;
+  facts.enable_subagents = true;
+  facts.can_spawn_subagents = depth < facts.max_depth;
+  facts.tool_names.push_back("subagent_create");
+  facts.tool_names.push_back("subagent_wait");
   return facts;
 }
 
@@ -50,6 +66,16 @@ SpPaths paths_on_path() {
 std::string prompt_for(bool memory) {
   const agent::PromptFacts facts = facts_for(memory);
   return make_system_prompt(facts, "ada", "/home/ada", paths_on_path());
+}
+
+std::string root_prompt(bool memory) {
+  return make_system_prompt(subagent_facts(memory, 0), "ada", "/home/ada",
+                            paths_on_path());
+}
+
+std::string worker_prompt(bool memory, int depth = 1) {
+  return make_system_prompt(subagent_facts(memory, depth), "ada", "/home/ada",
+                            paths_on_path());
 }
 
 TEST(SpPromptTest, KeepsTheShellRulesWhicheverWayMemoryGoes) {
@@ -199,11 +225,146 @@ TEST(SpPromptTest, CarriesNoCodingAgentPreamble) {
   EXPECT_EQ(prompt.find("You are"), prompt.rfind("You are shell-parrot"));
 }
 
+// `facts_for` is the --no-subagents run: an agent that was not given the tools
+// must not be told a word about them.
 TEST(SpPromptTest, CarriesNoAgentTreeOrSubagentText) {
   const std::string prompt = prompt_for(true);
   EXPECT_FALSE(has(prompt, "agent slots are free"));
   EXPECT_FALSE(has(prompt, "subagent"));
   EXPECT_FALSE(has(prompt, "depth"));
+}
+
+// ──────────────────────────── delegating ───────────────────────────────────
+
+TEST(SpPromptTest, RootIsToldWhenToDelegateAndWhenNotTo) {
+  const std::string prompt = root_prompt(false);
+  EXPECT_TRUE(has(prompt, "Delegating work:"));
+  EXPECT_TRUE(has(prompt, "8 of 8 agent slots are free"));
+  EXPECT_TRUE(has(prompt, "depth 0 of max 3"));
+  EXPECT_TRUE(has(prompt, "3 more level(s) below you"));
+  EXPECT_TRUE(has(prompt, "Do NOT delegate a single command"));
+  EXPECT_TRUE(has(prompt, "`subagent_create`"));
+  EXPECT_TRUE(has(prompt, "`subagent_wait`"));
+}
+
+// The stall this prevents is invisible from inside the model's loop: the root
+// can finish speaking while save()/assemble_tree still waits on the child.
+TEST(SpPromptTest, RootMustWaitForEverySubagentItCreates) {
+  const std::string prompt = root_prompt(false);
+  EXPECT_TRUE(has(prompt, "ALWAYS `subagent_wait` on every id you created"));
+  EXPECT_TRUE(has(prompt, "holds the turn open"));
+}
+
+// A subagent's shell starts where sp was launched, not where its caller stood,
+// and none of the caller's variables exist in it.
+TEST(SpPromptTest, RootIsToldObjectivesCarryAbsolutePaths) {
+  const std::string prompt = root_prompt(false);
+  EXPECT_TRUE(has(prompt, "spell out ABSOLUTE paths"));
+  EXPECT_TRUE(has(prompt, "the directory we were just in"));
+  EXPECT_TRUE(has(prompt, "shares nothing with you"));
+}
+
+TEST(SpPromptTest, PutsDelegatingAfterTheShellRulesAndBeforeMemory) {
+  const std::string prompt = root_prompt(true);
+  EXPECT_LT(prompt.find("Rules:"), prompt.find("Delegating work:"));
+  EXPECT_LT(prompt.find("Delegating work:"), prompt.find("Memory:"));
+}
+
+// A subagent that can still nest gets the section too — that is the recursion.
+TEST(SpPromptTest, ASubagentThatCanStillNestIsToldHowToDelegate) {
+  const std::string prompt = worker_prompt(false, 1);
+  EXPECT_TRUE(has(prompt, "Delegating work:"));
+  EXPECT_TRUE(has(prompt, "depth 1 of max 3"));
+  EXPECT_TRUE(has(prompt, "2 more level(s) below you"));
+}
+
+// can_spawn_subagents is false at the floor, so nothing promises a call that
+// AgentPool::spawn would refuse.
+TEST(SpPromptTest, SaysNothingAboutDelegatingAtMaxDepth) {
+  const std::string prompt = worker_prompt(false, 3);
+  EXPECT_FALSE(has(prompt, "Delegating work:"));
+  EXPECT_FALSE(has(prompt, "agent slots are free"));
+  // It is still a subagent, and still knows it.
+  EXPECT_TRUE(has(prompt, "subagent at depth 3 of max 3"));
+}
+
+// ──────────────────────── the subagent's own prompt ─────────────────────────
+
+TEST(SpPromptTest, ASubagentKnowsOnlyItsFinalMessageIsRead) {
+  const std::string prompt = worker_prompt(false);
+  EXPECT_TRUE(has(prompt, "You are a shell-parrot subagent at depth 1"));
+  EXPECT_TRUE(has(prompt, "Your caller sees ONLY your final message"));
+  EXPECT_TRUE(has(prompt, "ABSOLUTE path of every file"));
+  EXPECT_TRUE(has(prompt, "has thrown the whole task away"));
+  // One role definition, not the root's as well.
+  EXPECT_FALSE(has(prompt, "You are shell-parrot (sp), a natural-language"));
+}
+
+TEST(SpPromptTest, ASubagentIsNotToldToInstallScripts) {
+  const std::string prompt = worker_prompt(false);
+  EXPECT_FALSE(has(prompt, "Writing a reusable script:"));
+  EXPECT_FALSE(has(prompt, "Telling the user about a script:"));
+  EXPECT_FALSE(has(prompt, "chmod +x"));
+  EXPECT_FALSE(has(prompt, "<<'EOF'"));
+  EXPECT_TRUE(has(prompt, "Do NOT install commands"));
+}
+
+// Everything factual about the machine survives the altitude change.
+TEST(SpPromptTest, ASubagentKeepsTheTrashRuleAndGetsItsOwnShell) {
+  const std::string prompt = worker_prompt(false);
+  EXPECT_TRUE(has(prompt, "NEVER use rm"));
+  EXPECT_TRUE(has(prompt, "/home/ada/.local/share/sp/trash"));
+  EXPECT_TRUE(has(prompt, "ONE shell that stays alive"));
+  EXPECT_TRUE(has(prompt, "Your shell is yours alone"));
+  EXPECT_TRUE(has(prompt, "NOT wherever your caller had `cd`'d to"));
+}
+
+// Concurrent writers cannot keep "one memory per subject" — none of them can
+// see what the others just stored.
+TEST(SpPromptTest, ASubagentRecallsMemoryButNeverWritesIt) {
+  const std::string prompt = worker_prompt(true);
+  EXPECT_TRUE(has(prompt, "action='recall'"));
+  EXPECT_TRUE(has(prompt, "NEVER call action='remember'"));
+  EXPECT_TRUE(has(prompt, "starting with MEMORY:"));
+  // The root's writing rules are the root's alone.
+  EXPECT_FALSE(has(prompt, "PREFERENCE (<subject>):"));
+  EXPECT_FALSE(has(prompt, "type='semantic'"));
+  EXPECT_FALSE(has(prompt, "Never use type='episodic'"));
+}
+
+// A MEMORY: line from depth 2 would otherwise die at depth 1.
+TEST(SpPromptTest, AMiddleSubagentForwardsWhatItsChildrenReport) {
+  const std::string prompt = worker_prompt(true, 1);
+  EXPECT_TRUE(has(prompt, "pass it up"));
+
+  // The floor has no children to forward for.
+  const std::string floor_prompt = worker_prompt(true, 3);
+  EXPECT_FALSE(has(floor_prompt, "pass it up"));
+}
+
+TEST(SpPromptTest, RootStoresWhatItsSubagentsReport) {
+  const std::string prompt = root_prompt(true);
+  EXPECT_TRUE(has(prompt, "Your subagents are not allowed to store memories"));
+  EXPECT_TRUE(has(prompt, "line starting MEMORY:"));
+  // Nothing to harvest when there are no subagents.
+  EXPECT_FALSE(has(prompt_for(true), "MEMORY:"));
+}
+
+TEST(SpPromptTest, ASubagentWithMemoryOffIsToldNothingAboutIt) {
+  const std::string prompt = worker_prompt(false);
+  EXPECT_FALSE(has(prompt, "action='recall'"));
+  EXPECT_FALSE(has(prompt, "MEMORY:"));
+}
+
+// The lazy-workspace guarantee has to hold at every depth, not just the root.
+TEST(SpPromptTest, ASubagentNeverTouchesTheWorkspaceEither) {
+  const agent::PromptFacts facts = subagent_facts(true, 1);
+  const std::string prompt =
+      make_system_prompt(facts, "ada", "/home/ada", paths_on_path());
+
+  EXPECT_FALSE(has(prompt, "Workspace:"));
+  EXPECT_FALSE(has(prompt, "git repo"));
+  EXPECT_FALSE(facts.workspace_cache.has_value());
 }
 
 // The lazy-workspace guarantee: sp's builder never asks for the workspace, so

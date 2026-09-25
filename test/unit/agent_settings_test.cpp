@@ -137,6 +137,23 @@ TEST_F(ShellRcTest, KeyValueLinesArePickedUpByTheirUppercaseNames) {
   EXPECT_EQ(settings.mode_switch_key, "ctrl-o");
 }
 
+// The two subagent caps only reached the JSON loader for a long time, so a
+// MAX_DEPTH in a shellrc-format config was silently reported as a typo.
+TEST_F(ShellRcTest, SubagentCapsArePickedUpAlongsideTheEnableFlag) {
+  write_file(".m8shrc",
+             "ENABLE_SUBAGENTS=true\n"
+             "MAX_DEPTH=2\n"
+             "MAX_AGENTS=4\n");
+
+  std::string warning;
+  const StartupSettings settings = load_shellrc_settings(".m8shrc", warning);
+
+  EXPECT_TRUE(warning.empty()) << warning;
+  EXPECT_EQ(settings.enable_subagents, true);
+  EXPECT_EQ(settings.max_depth, 2);
+  EXPECT_EQ(settings.max_agents, 4);
+}
+
 TEST_F(ShellRcTest, TruthyEnableValuesAreTrueAndEverythingElseIsFalse) {
   write_file(".m8shrc",
              "ENABLE_WEB_SEARCH=1\n"
