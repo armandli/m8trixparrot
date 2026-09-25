@@ -5,7 +5,7 @@
 
 #include <core/agent_pool.h>
 #include <core/util/json_util.h>
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 
@@ -13,10 +13,10 @@ std::string SubagentCreateTool::description() {
   return R"json({"name":"subagent_create","description":"Spawn a subagent to work on an independent objective on its own thread. Returns immediately with an id; call subagent_wait with that id to collect its conclusion. Refused when the depth or agent-count limit is reached - in that case, do the work yourself.","parameters":{"type":"object","properties":{"objective":{"type":"string","description":"The self-contained objective for the subagent"}},"required":["objective"]}})json";
 }
 
-ToolResult SubagentCreateTool::execute(const ToolArgs& args) const {
-  ToolResult result;
+tools::ToolResult SubagentCreateTool::execute(const tools::ToolArgs& args) const {
+  tools::ToolResult result;
 
-  const std::optional<std::string> objective = string_arg(args, "objective");
+  const std::optional<std::string> objective = tools::string_arg(args, "objective");
   if (not objective or objective->empty()) {
     result.error =
         "subagent_create: missing required string argument 'objective'";
@@ -45,10 +45,10 @@ std::string SubagentWaitTool::description() {
   return R"json({"name":"subagent_wait","description":"Block until the subagent with the given id finishes, then return its result. The result contains ok, objective, conclusion, error, and steps fields.","parameters":{"type":"object","properties":{"id":{"type":"string","description":"Subagent id returned by subagent_create"}},"required":["id"]}})json";
 }
 
-ToolResult SubagentWaitTool::execute(const ToolArgs& args) const {
-  ToolResult result;
+tools::ToolResult SubagentWaitTool::execute(const tools::ToolArgs& args) const {
+  tools::ToolResult result;
 
-  const std::optional<std::string> id = string_arg(args, "id");
+  const std::optional<std::string> id = tools::string_arg(args, "id");
   if (not id or id->empty()) {
     result.error = "subagent_wait: missing required string argument 'id'";
     return result;

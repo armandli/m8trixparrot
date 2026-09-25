@@ -1,11 +1,11 @@
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <optional>
 #include <string>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
-namespace agent {
+namespace tools {
 
 std::string AskUserTool::description() const {
   return R"json({"name":"ask_user","description":"Ask the operator a question and wait for their reply. Use it to get approval for a plan or a script before acting, or to resolve a genuine ambiguity you cannot settle yourself. The operator's answer is returned verbatim as the tool result. Blocks until they respond.","parameters":{"type":"object","properties":{"prompt":{"type":"string","description":"The question to show the operator. Keep it short - they answer in a small input box."}},"required":["prompt"]}})json";
@@ -30,4 +30,4 @@ ToolResult AskUserTool::execute(const ToolArgs& args) const {
   return result;
 }
 
-}  // namespace agent
+}  // namespace tools

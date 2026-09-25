@@ -1,12 +1,12 @@
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <optional>
 #include <string>
 
-#include <core/bash_repl.h>
-#include <core/tools_util.h>
+#include <core/tools/bash_repl.h>
+#include <core/tools/tools_util.h>
 
-namespace agent {
+namespace tools {
 
 std::string BashReplTool::description() {
   return R"json({"name":"bash_repl","description":"Run a bash command in a persistent shell. Unlike a one-shot shell, state survives between calls: variables, the working directory, exported environment, and shell functions are all still there on your next call, so you can build work up step by step instead of repeating setup. Background jobs with & are supported, but redirect their output to a file (cmd > /tmp/log 2>&1 &) or it will appear in a later call's output. Because it is one shell, a bare `exit` ends the session rather than the command; use (exit N) in a subshell if you need a non-zero status. Set restart to true to throw the shell away and start clean. Output truncated to 5000 lines/100KB; full output saved to a temp file if truncated.","parameters":{"type":"object","properties":{"command":{"type":"string","description":"Command to execute"},"timeout":{"type":"number","description":"Timeout in seconds"},"restart":{"type":"boolean","description":"Discard the shell and its state before running; with no command, just resets"}},"required":[]}})json";
@@ -75,4 +75,4 @@ ToolResult BashReplTool::execute(const ToolArgs& args) const {
   return result;
 }
 
-}  // namespace agent
+}  // namespace tools

@@ -9,7 +9,7 @@
 #include <vector>
 
 #include <core/oc/basic_ollama_client.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 namespace agent {
 
@@ -79,12 +79,12 @@ struct SkillTool {
   const SkillCatalog& catalog;
 
   static std::string description();
-  ToolResult execute(const ToolArgs& args) const;
+  tools::ToolResult execute(const tools::ToolArgs& args) const;
 
 protected:
-  ToolResult load(const SkillInfo& skill,
+  tools::ToolResult load(const SkillInfo& skill,
                   const std::optional<std::string>& file) const;
-  ToolResult unload(const SkillInfo& skill) const;
+  tools::ToolResult unload(const SkillInfo& skill) const;
 };
 
 }  // namespace agent

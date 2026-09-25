@@ -36,8 +36,8 @@
 #include <core/agent_settings.h>
 #include <core/policy.h>
 #include <core/sane_policy.h>
-#include <core/shell_session.h>
-#include <core/tools.h>
+#include <core/tools/shell_session.h>
+#include <core/tools/tools.h>
 #include <sh_prompt.h>
 #include <shell_integration.h>
 #include <terminal_emulator.h>
@@ -231,8 +231,8 @@ int main(int argc, char** argv) {
   oc::OllamaClient::configure(model);
   agent::AgentPool::configure(/*max_agents=*/16, /*max_depth=*/3);
 
-  const agent::VenvBootstrap venv = agent::create_workspace_venv();
-  if (venv.status == agent::VenvBootstrap::Status::Failed) {
+  const tools::VenvBootstrap venv = tools::create_workspace_venv();
+  if (venv.status == tools::VenvBootstrap::Status::Failed) {
     std::cerr << "error: could not create the .m8trixenv virtualenv at "
               << venv.venv_dir << "\n       " << venv.detail << "\n";
     return 1;
@@ -287,7 +287,7 @@ int main(int argc, char** argv) {
   prompt_config.ask_tag = settings.prompt_ask_tag.value_or("");
   m8sh::ShellIntegration integration(prompt_config);
 
-  const std::string resolved_shell = agent::resolve_shell(shell_override);
+  const std::string resolved_shell = tools::resolve_shell(shell_override);
   const bool zsh_shell = m8sh::shell_is_zsh(resolved_shell);
   std::vector<std::pair<std::string, std::string>> shell_env;
   if (zsh_shell and integration.ok()) {
@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
 
   // --- the terminal pane ----------------------------------------------------
   m8sh::TerminalEmulator emu(80, 24);
-  agent::ShellSession shell;
+  tools::ShellSession shell;
 
   emu.on_pty_write = [&shell](std::string_view b) { shell.write_bytes(b); };
   emu.on_osc_cwd = [&](std::string p) {
@@ -351,7 +351,7 @@ int main(int argc, char** argv) {
       settings.enable_package_install.value_or(true);
   options.enable_file_tools = true;
   options.enable_web_search = settings.enable_web_search.value_or(false);
-  if (options.enable_web_search and not agent::web_search_available()) {
+  if (options.enable_web_search and not tools::web_search_available()) {
     std::cerr << "warning: ENABLE_WEB_SEARCH is set but no Parallel API key was "
                  "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
                  "websearch calls will fail\n";

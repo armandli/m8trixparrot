@@ -3,7 +3,7 @@
 
 #include <CLI/CLI.hpp>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 int main(int argc, char** argv) {
   CLI::App app{
@@ -21,10 +21,10 @@ int main(int argc, char** argv) {
 
   CLI11_PARSE(app, argc, argv);
 
-  agent::ToolArgs args;
-  args.emplace("url", agent::ToolArgValue{url});
+  tools::ToolArgs args;
+  args.emplace("url", tools::ToolArgValue{url});
 
-  const agent::ToolResult result = agent::WebFetchTool().execute(args);
+  const tools::ToolResult result = tools::WebFetchTool().execute(args);
 
   if (!result.ok) {
     std::cerr << result.error << "\n";

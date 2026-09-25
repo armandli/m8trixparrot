@@ -10,13 +10,13 @@
 #include <vector>
 
 #include <core/agent_result.h>
-#include <core/bash_repl.h>
+#include <core/tools/bash_repl.h>
 #include <core/oc/ollama_client.h>
 #include <core/policy.h>
 #include <core/session_store.h>
 #include <core/skills.h>
 #include <core/system_prompt.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 namespace agent {
 
@@ -186,12 +186,12 @@ struct SubagentCreateTool {
   const AgentOptions& options;
 
   static std::string description();
-  ToolResult execute(const ToolArgs& args) const;
+  tools::ToolResult execute(const tools::ToolArgs& args) const;
 };
 
 struct SubagentWaitTool {
   static std::string description();
-  ToolResult execute(const ToolArgs& args) const;
+  tools::ToolResult execute(const tools::ToolArgs& args) const;
 };
 
 // A coding agent: the model calls tools, the tools run under a permission
@@ -273,7 +273,7 @@ protected:
   // Runs one tool call, policy first. Never throws and never reports failure as
   // anything but a ToolResult: a tool that fails is information the model
   // needs, not a reason to abandon the turn.
-  ToolResult dispatch(const std::string& tool_name, const ToolArgs& args);
+  tools::ToolResult dispatch(const std::string& tool_name, const tools::ToolArgs& args);
 
 private:
   // Stamps the event with this agent's id/parent/depth/label and forwards it
@@ -302,13 +302,13 @@ private:
   // This agent's persistent shell, started on the first `bash_repl` call. One
   // per Agent rather than one per process: a subagent must get its own shell
   // instead of racing its parent's.
-  BashReplSession& shell();
+  tools::BashReplSession& shell();
 
   // The skill a finished tool call's result should be tagged with (for
   // `skill unload`): the loaded skill name for a `skill load`, or the skill
   // whose directory a `python` script read from. "" otherwise.
-  std::string skill_label_for(const oc::ToolCall& call, const ToolArgs& args,
-                              const ToolResult& result) const;
+  std::string skill_label_for(const oc::ToolCall& call, const tools::ToolArgs& args,
+                              const tools::ToolResult& result) const;
 
   AgentOptions mOptions;
   const PolicyInterface& mPolicy;
@@ -321,7 +321,7 @@ private:
   std::string mLabel;
   std::atomic<int64_t> mContextTokens{0};
   mutable std::optional<SkillCatalog> mCatalog;
-  std::unique_ptr<BashReplSession> mShell;
+  std::unique_ptr<tools::BashReplSession> mShell;
 };
 
 }  // namespace agent

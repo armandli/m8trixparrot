@@ -1,5 +1,5 @@
-#ifndef PACKAGE_INSTALLER_H
-#define PACKAGE_INSTALLER_H
+#ifndef M8_TOOLS_PACKAGE_INSTALLER_H
+#define M8_TOOLS_PACKAGE_INSTALLER_H
 
 #include <condition_variable>
 #include <deque>
@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace agent {
+namespace tools {
 
 // Outcome of one install request. `already_installed` distinguishes "nothing
 // to do" from "we ran pip and it worked" so PackageInstallTool can word its
@@ -75,6 +75,6 @@ private:
   bool mShutdown = false;
 };
 
-}  // namespace agent
+}  // namespace tools
 
-#endif  // PACKAGE_INSTALLER_H
+#endif  // M8_TOOLS_PACKAGE_INSTALLER_H

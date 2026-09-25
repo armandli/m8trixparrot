@@ -29,7 +29,7 @@
 #include <core/agent_settings.h>
 #include <core/memory_store.h>
 #include <core/policy.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <sp_memory.h>
 #include <sp_prompt.h>
@@ -892,7 +892,7 @@ int main(int argc, char** argv) {
   }
 
   // sp's own cache, not the shared ~/.m8trix one.
-  agent::set_bash_search_index_path(paths.search_index());
+  tools::set_bash_search_index_path(paths.search_index());
 
   std::string settings_warning;
   agent::StartupSettings settings =

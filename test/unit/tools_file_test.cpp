@@ -10,7 +10,7 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <tool_test_env.h>
 
 namespace agent::test {
@@ -27,7 +27,7 @@ struct EditTest : ToolTest {};
 TEST_F(ReadTest, ReturnsTheWholeFileByDefault) {
   write_file("notes.txt", "alpha\nbeta\ngamma\n");
 
-  const ToolResult result = ReadTool().execute(args({{"path", str("notes.txt")}}));
+  const tools::ToolResult result = tools::ReadTool().execute(args({{"path", str("notes.txt")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output, "alpha\nbeta\ngamma\n");
@@ -37,7 +37,7 @@ TEST_F(ReadTest, ReturnsTheWholeFileByDefault) {
 TEST_F(ReadTest, OffsetIsOneIndexedAndLimitCountsLines) {
   write_file("notes.txt", "one\ntwo\nthree\nfour\nfive\n");
 
-  const ToolResult result = ReadTool().execute(
+  const tools::ToolResult result = tools::ReadTool().execute(
       args({{"path", str("notes.txt")}, {"offset", num(2)}, {"limit", num(2)}}));
 
   EXPECT_TRUE(result.ok);
@@ -47,7 +47,7 @@ TEST_F(ReadTest, OffsetIsOneIndexedAndLimitCountsLines) {
 TEST_F(ReadTest, AnOffsetPastTheEndYieldsEmptyOutputRatherThanAnError) {
   write_file("notes.txt", "one\ntwo\n");
 
-  const ToolResult result = ReadTool().execute(
+  const tools::ToolResult result = tools::ReadTool().execute(
       args({{"path", str("notes.txt")}, {"offset", num(99)}}));
 
   EXPECT_TRUE(result.ok);
@@ -60,11 +60,11 @@ TEST_F(ReadTest, AnOffsetPastTheEndYieldsEmptyOutputRatherThanAnError) {
 TEST_F(ReadTest, AnExplicitSliceAppendsATrailingNewlineTheFileMayNotHaveHad) {
   write_file("no_newline.txt", "only line");
 
-  const ToolResult whole =
-      ReadTool().execute(args({{"path", str("no_newline.txt")}}));
+  const tools::ToolResult whole =
+      tools::ReadTool().execute(args({{"path", str("no_newline.txt")}}));
   EXPECT_EQ(whole.output, "only line");
 
-  const ToolResult sliced = ReadTool().execute(
+  const tools::ToolResult sliced = tools::ReadTool().execute(
       args({{"path", str("no_newline.txt")}, {"limit", num(1)}}));
   EXPECT_EQ(sliced.output, "only line\n");
 }
@@ -75,8 +75,8 @@ TEST_F(ReadTest, AnExplicitSliceAppendsATrailingNewlineTheFileMayNotHaveHad) {
 TEST_F(ReadTest, ImageDispatchIsByExtensionAndNeverLooksAtTheBytes) {
   write_file("not_really.png", "this is plain text");
 
-  const ToolResult result =
-      ReadTool().execute(args({{"path", str("not_really.png")}}));
+  const tools::ToolResult result =
+      tools::ReadTool().execute(args({{"path", str("not_really.png")}}));
 
   EXPECT_TRUE(result.ok);
   // "this is plain text" base64-encoded.
@@ -86,7 +86,7 @@ TEST_F(ReadTest, ImageDispatchIsByExtensionAndNeverLooksAtTheBytes) {
 TEST_F(ReadTest, RecognizedImageExtensionsAreCaseInsensitive) {
   write_file("photo.JPG", "x");
 
-  const ToolResult result = ReadTool().execute(args({{"path", str("photo.JPG")}}));
+  const tools::ToolResult result = tools::ReadTool().execute(args({{"path", str("photo.JPG")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_NE(result.output.find("[image/jpeg; base64]"), std::string::npos);
@@ -95,7 +95,7 @@ TEST_F(ReadTest, RecognizedImageExtensionsAreCaseInsensitive) {
 TEST_F(ReadTest, AFileWithANulByteIsRefusedAsBinary) {
   write_file("blob.dat", std::string("text\0more", 9));
 
-  const ToolResult result = ReadTool().execute(args({{"path", str("blob.dat")}}));
+  const tools::ToolResult result = tools::ReadTool().execute(args({{"path", str("blob.dat")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "read: blob.dat looks like a binary file");
@@ -108,8 +108,8 @@ TEST_F(ReadTest, ANulByteAfterTheFirstEightKilobytesIsNotDetected) {
   contents += '\0';
   write_file("late_nul.txt", contents);
 
-  const ToolResult result =
-      ReadTool().execute(args({{"path", str("late_nul.txt")}}));
+  const tools::ToolResult result =
+      tools::ReadTool().execute(args({{"path", str("late_nul.txt")}}));
 
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.output.size(), contents.size());
@@ -118,17 +118,17 @@ TEST_F(ReadTest, ANulByteAfterTheFirstEightKilobytesIsNotDetected) {
 TEST_F(ReadTest, MissingFileDirectoryAndMissingPathHaveDistinctErrors) {
   std::filesystem::create_directory(dir() / "subdir");
 
-  const ToolResult absent =
-      ReadTool().execute(args({{"path", str("nope.txt")}}));
+  const tools::ToolResult absent =
+      tools::ReadTool().execute(args({{"path", str("nope.txt")}}));
   EXPECT_FALSE(absent.ok);
   EXPECT_EQ(absent.error, "read: no such file: nope.txt");
 
-  const ToolResult directory =
-      ReadTool().execute(args({{"path", str("subdir")}}));
+  const tools::ToolResult directory =
+      tools::ReadTool().execute(args({{"path", str("subdir")}}));
   EXPECT_FALSE(directory.ok);
   EXPECT_EQ(directory.error, "read: path is a directory: subdir");
 
-  const ToolResult missing = ReadTool().execute(args({}));
+  const tools::ToolResult missing = tools::ReadTool().execute(args({}));
   EXPECT_FALSE(missing.ok);
   EXPECT_EQ(missing.error, "read: missing required string argument 'path'");
 }
@@ -138,7 +138,7 @@ TEST_F(ReadTest, MissingFileDirectoryAndMissingPathHaveDistinctErrors) {
 // ---------------------------------------------------------------------------
 
 TEST_F(WriteTest, CreatesAFileAndReportsTheByteCount) {
-  const ToolResult result = WriteTool().execute(
+  const tools::ToolResult result = tools::WriteTool().execute(
       args({{"path", str("out.txt")}, {"content", str("hello")}}));
 
   EXPECT_TRUE(result.ok);
@@ -147,7 +147,7 @@ TEST_F(WriteTest, CreatesAFileAndReportsTheByteCount) {
 }
 
 TEST_F(WriteTest, CreatesMissingParentDirectories) {
-  const ToolResult result = WriteTool().execute(
+  const tools::ToolResult result = tools::WriteTool().execute(
       args({{"path", str("a/b/c/deep.txt")}, {"content", str("x")}}));
 
   EXPECT_TRUE(result.ok);
@@ -159,7 +159,7 @@ TEST_F(WriteTest, CreatesMissingParentDirectories) {
 TEST_F(WriteTest, OverwritesAnExistingFileEntirely) {
   write_file("out.txt", "a much longer original body");
 
-  const ToolResult result = WriteTool().execute(
+  const tools::ToolResult result = tools::WriteTool().execute(
       args({{"path", str("out.txt")}, {"content", str("short")}}));
 
   EXPECT_TRUE(result.ok);
@@ -171,7 +171,7 @@ TEST_F(WriteTest, OverwritesAnExistingFileEntirely) {
 TEST_F(WriteTest, EmptyContentTruncatesTheFileAndIsNotAnError) {
   write_file("out.txt", "something");
 
-  const ToolResult result = WriteTool().execute(
+  const tools::ToolResult result = tools::WriteTool().execute(
       args({{"path", str("out.txt")}, {"content", str("")}}));
 
   EXPECT_TRUE(result.ok);
@@ -180,13 +180,13 @@ TEST_F(WriteTest, EmptyContentTruncatesTheFileAndIsNotAnError) {
 }
 
 TEST_F(WriteTest, MissingPathOrContentIsAnError) {
-  const ToolResult no_path =
-      WriteTool().execute(args({{"content", str("x")}}));
+  const tools::ToolResult no_path =
+      tools::WriteTool().execute(args({{"content", str("x")}}));
   EXPECT_FALSE(no_path.ok);
   EXPECT_EQ(no_path.error, "write: missing required string argument 'path'");
 
-  const ToolResult no_content =
-      WriteTool().execute(args({{"path", str("out.txt")}}));
+  const tools::ToolResult no_content =
+      tools::WriteTool().execute(args({{"path", str("out.txt")}}));
   EXPECT_FALSE(no_content.ok);
   EXPECT_EQ(no_content.error, "write: missing required string argument 'content'");
   EXPECT_FALSE(exists("out.txt"));
@@ -199,7 +199,7 @@ TEST_F(WriteTest, MissingPathOrContentIsAnError) {
 TEST_F(EditTest, ReplacesAUniqueStretchOfText) {
   write_file("code.txt", "alpha\nbeta\ngamma\n");
 
-  const ToolResult result = EditTool().execute(
+  const tools::ToolResult result = tools::EditTool().execute(
       args({{"path", str("code.txt")}, {"edits", edits({{"beta", "BETA"}})}}));
 
   EXPECT_TRUE(result.ok);
@@ -212,7 +212,7 @@ TEST_F(EditTest, ReplacesAUniqueStretchOfText) {
 TEST_F(EditTest, SeveralEditsApplyInPositionOrderRegardlessOfArrayOrder) {
   write_file("code.txt", "one\ntwo\nthree\n");
 
-  const ToolResult result = EditTool().execute(
+  const tools::ToolResult result = tools::EditTool().execute(
       args({{"path", str("code.txt")},
             {"edits", edits({{"three", "3"}, {"one", "1"}})}}));
 
@@ -223,7 +223,7 @@ TEST_F(EditTest, SeveralEditsApplyInPositionOrderRegardlessOfArrayOrder) {
 TEST_F(EditTest, AnEmptyNewTextDeletesTheMatchedText) {
   write_file("code.txt", "keep\nDROP\nkeep\n");
 
-  const ToolResult result = EditTool().execute(
+  const tools::ToolResult result = tools::EditTool().execute(
       args({{"path", str("code.txt")}, {"edits", edits({{"DROP\n", ""}})}}));
 
   EXPECT_TRUE(result.ok);
@@ -235,7 +235,7 @@ TEST_F(EditTest, AnEmptyNewTextDeletesTheMatchedText) {
 TEST_F(EditTest, TextThatAppearsTwiceIsRefusedAsNotUnique) {
   write_file("code.txt", "x = 1\ny = 1\n");
 
-  const ToolResult result = EditTool().execute(
+  const tools::ToolResult result = tools::EditTool().execute(
       args({{"path", str("code.txt")}, {"edits", edits({{"1", "2"}})}}));
 
   EXPECT_FALSE(result.ok);
@@ -245,7 +245,7 @@ TEST_F(EditTest, TextThatAppearsTwiceIsRefusedAsNotUnique) {
 TEST_F(EditTest, TextThatIsNotPresentIsRefused) {
   write_file("code.txt", "alpha\n");
 
-  const ToolResult result = EditTool().execute(
+  const tools::ToolResult result = tools::EditTool().execute(
       args({{"path", str("code.txt")}, {"edits", edits({{"omega", "x"}})}}));
 
   EXPECT_FALSE(result.ok);
@@ -255,7 +255,7 @@ TEST_F(EditTest, TextThatIsNotPresentIsRefused) {
 TEST_F(EditTest, AnEmptyOldTextIsRefused) {
   write_file("code.txt", "alpha\n");
 
-  const ToolResult result = EditTool().execute(
+  const tools::ToolResult result = tools::EditTool().execute(
       args({{"path", str("code.txt")}, {"edits", edits({{"", "x"}})}}));
 
   EXPECT_FALSE(result.ok);
@@ -265,8 +265,8 @@ TEST_F(EditTest, AnEmptyOldTextIsRefused) {
 TEST_F(EditTest, EditsThatOverlapEachOtherAreRefused) {
   write_file("code.txt", "abcdef\n");
 
-  const ToolResult result =
-      EditTool().execute(args({{"path", str("code.txt")},
+  const tools::ToolResult result =
+      tools::EditTool().execute(args({{"path", str("code.txt")},
                                {"edits", edits({{"abcd", "x"}, {"cdef", "y"}})}}));
 
   EXPECT_FALSE(result.ok);
@@ -280,7 +280,7 @@ TEST_F(EditTest, AFailedEditLeavesTheFileCompletelyUntouched) {
   const std::string original = "alpha\nbeta\ngamma\n";
   write_file("code.txt", original);
 
-  const ToolResult result = EditTool().execute(
+  const tools::ToolResult result = tools::EditTool().execute(
       args({{"path", str("code.txt")},
             {"edits", edits({{"alpha", "ALPHA"}, {"nowhere", "x"}})}}));
 
@@ -293,24 +293,24 @@ TEST_F(EditTest, AFailedEditLeavesTheFileCompletelyUntouched) {
 TEST_F(EditTest, MatchingIsRawBytesWithNoRegexOrWhitespaceTolerance) {
   write_file("code.txt", "  indented line\n");
 
-  const ToolResult regex_attempt = EditTool().execute(
+  const tools::ToolResult regex_attempt = tools::EditTool().execute(
       args({{"path", str("code.txt")}, {"edits", edits({{".*line", "x"}})}}));
   EXPECT_FALSE(regex_attempt.ok);
 
-  const ToolResult whitespace_attempt = EditTool().execute(
+  const tools::ToolResult whitespace_attempt = tools::EditTool().execute(
       args({{"path", str("code.txt")}, {"edits", edits({{"indented line", "x"}})}}));
   EXPECT_TRUE(whitespace_attempt.ok);
   EXPECT_EQ(read_back("code.txt"), "  x\n");
 }
 
 TEST_F(EditTest, MissingFileOrMissingEditsIsAnError) {
-  const ToolResult absent = EditTool().execute(
+  const tools::ToolResult absent = tools::EditTool().execute(
       args({{"path", str("nope.txt")}, {"edits", edits({{"a", "b"}})}}));
   EXPECT_FALSE(absent.ok);
   EXPECT_EQ(absent.error, "edit: failed to read nope.txt");
 
   write_file("code.txt", "alpha\n");
-  const ToolResult no_edits = EditTool().execute(args({{"path", str("code.txt")}}));
+  const tools::ToolResult no_edits = tools::EditTool().execute(args({{"path", str("code.txt")}}));
   EXPECT_FALSE(no_edits.ok);
   EXPECT_EQ(no_edits.error,
             "edit: missing required argument 'edits' (array of {oldText, newText})");

@@ -1,12 +1,12 @@
-#ifndef BASH_REPL_H
-#define BASH_REPL_H
+#ifndef M8_TOOLS_BASH_REPL_H
+#define M8_TOOLS_BASH_REPL_H
 
 #include <sys/types.h>
 
 #include <cstdint>
 #include <string>
 
-namespace agent {
+namespace tools {
 
 // One long-lived `bash` talking over pipes, so state survives between calls:
 // variables, cwd, exported environment, shell functions, background jobs. That
@@ -75,6 +75,6 @@ private:
   std::string mPending;   // Bytes read but not yet consumed by a run().
 };
 
-}  // namespace agent
+}  // namespace tools
 
-#endif  // BASH_REPL_H
+#endif  // M8_TOOLS_BASH_REPL_H

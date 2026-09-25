@@ -1,4 +1,4 @@
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <cctype>
 #include <cstdint>
@@ -13,9 +13,9 @@
 #include <system_error>
 #include <vector>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
-namespace agent {
+namespace tools {
 
 namespace {
 
@@ -308,4 +308,4 @@ ToolResult EditTool::execute(const ToolArgs& args) const {
   return result;
 }
 
-}  // namespace agent
+}  // namespace tools

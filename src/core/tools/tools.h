@@ -1,5 +1,5 @@
-#ifndef TOOLS_H
-#define TOOLS_H
+#ifndef M8_TOOLS_TOOLS_H
+#define M8_TOOLS_TOOLS_H
 
 #include <cstdint>
 #include <functional>
@@ -9,7 +9,7 @@
 #include <variant>
 #include <vector>
 
-namespace agent {
+namespace tools {
 
 // Owned by the Agent and borrowed by BashReplTool; see bash_repl.h.
 struct BashReplSession;
@@ -238,6 +238,6 @@ struct BashSearchTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
-}  // namespace agent
+}  // namespace tools
 
-#endif  // TOOLS_H
+#endif  // M8_TOOLS_TOOLS_H

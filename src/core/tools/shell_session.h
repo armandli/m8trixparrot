@@ -1,5 +1,5 @@
-#ifndef SHELL_SESSION_H
-#define SHELL_SESSION_H
+#ifndef M8_TOOLS_SHELL_SESSION_H
+#define M8_TOOLS_SHELL_SESSION_H
 
 #include <sys/types.h>
 
@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace agent {
+namespace tools {
 
 // The shell start() will exec: `shell_override` when non-empty, otherwise
 // $SHELL, then the first of /bin/zsh, /bin/bash, /bin/sh that is executable.
@@ -77,6 +77,6 @@ private:
   std::atomic<int> mExitStatus{-1};
 };
 
-}  // namespace agent
+}  // namespace tools
 
-#endif  // SHELL_SESSION_H
+#endif  // M8_TOOLS_SHELL_SESSION_H

@@ -1,4 +1,4 @@
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 #include <atomic>
 #include <chrono>
@@ -11,7 +11,7 @@
 #include <git2.h>
 #include <simdjson.h>
 
-namespace agent {
+namespace tools {
 
 std::string shell_quote(std::string_view text) {
   std::string quoted = "'";
@@ -418,4 +418,4 @@ std::optional<std::string> read_file(const std::string& path) {
   return buffer.str();
 }
 
-}  // namespace agent
+}  // namespace tools

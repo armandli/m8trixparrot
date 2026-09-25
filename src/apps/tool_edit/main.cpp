@@ -7,7 +7,7 @@
 #include <CLI/CLI.hpp>
 #include <simdjson.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 // Reads the edits JSON array from stdin and populates `pairs`.
 // The expected format is:
@@ -107,11 +107,11 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  agent::ToolArgs args;
-  args.emplace("path",  agent::ToolArgValue{path});
-  args.emplace("edits", agent::ToolArgValue{std::move(pairs)});
+  tools::ToolArgs args;
+  args.emplace("path",  tools::ToolArgValue{path});
+  args.emplace("edits", tools::ToolArgValue{std::move(pairs)});
 
-  const agent::ToolResult result = agent::EditTool().execute(args);
+  const tools::ToolResult result = tools::EditTool().execute(args);
 
   if (!result.ok) {
     std::cerr << result.error << "\n";

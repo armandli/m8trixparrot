@@ -26,7 +26,7 @@
 #include <core/agent_result.h>
 #include <core/oc/ollama_client.h>
 #include <core/policy.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <loopback_server.h>
 
 namespace agent {
@@ -179,9 +179,9 @@ TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
   ASSERT_TRUE(spawn.ok) << spawn.error;
 
   // Through the tool the model actually calls, not through the pool directly.
-  ToolArgs args;
+  tools::ToolArgs args;
   args["id"] = spawn.id;
-  const ToolResult waited = SubagentWaitTool{}.execute(args);
+  const tools::ToolResult waited = SubagentWaitTool{}.execute(args);
 
   ASSERT_TRUE(waited.ok) << waited.error;
   EXPECT_NE(waited.output.find("counted 42 files"), std::string::npos)

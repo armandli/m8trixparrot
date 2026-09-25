@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <parallel_key.h>
 
@@ -29,11 +29,11 @@ TEST(WebSearchIntegrationTest, RealParallelSearchReturnsResultsWithUrls) {
                     ".m8trix/parallel_api_key to run this test";
   }
 
-  ToolArgs args;
+  tools::ToolArgs args;
   args["query"] = std::string("Parallel Web Systems company");
   args["limit"] = static_cast<int64_t>(3);
 
-  const ToolResult result = WebSearchTool().execute(args);
+  const tools::ToolResult result = tools::WebSearchTool().execute(args);
 
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_NE(result.output.find("http"), std::string::npos) << result.output;
@@ -54,9 +54,9 @@ TEST(WebSearchIntegrationTest, AnInvalidKeyIsRejectedByParallelWithItsMessage) {
   const std::string saved = had_prior ? prior : "";
   ::setenv("PARALLEL_API_KEY", "definitely-not-a-real-key", 1);
 
-  ToolArgs args;
+  tools::ToolArgs args;
   args["query"] = std::string("anything at all");
-  const ToolResult result = WebSearchTool().execute(args);
+  const tools::ToolResult result = tools::WebSearchTool().execute(args);
 
   if (had_prior) {
     ::setenv("PARALLEL_API_KEY", saved.c_str(), 1);

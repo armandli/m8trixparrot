@@ -3,7 +3,7 @@
 // the commands written to its master fd. They are timing-tolerant (poll with a
 // deadline) rather than assuming a fixed latency.
 
-#include <core/shell_session.h>
+#include <core/tools/shell_session.h>
 
 #include <chrono>
 #include <mutex>
@@ -51,7 +51,7 @@ bool ends_with(const std::string& s, const std::string& suffix) {
 
 TEST(ShellSessionTest, RunsACommandAndStreamsItsOutput) {
   Collector c;
-  ShellSession sh;
+  tools::ShellSession sh;
   sh.on_bytes = [&c](std::string_view b) { c.bytes(b); };
 
   std::string error;
@@ -63,7 +63,7 @@ TEST(ShellSessionTest, RunsACommandAndStreamsItsOutput) {
 
 TEST(ShellSessionTest, CwdTracksTheShellsChdir) {
   Collector c;
-  ShellSession sh;
+  tools::ShellSession sh;
   sh.on_bytes = [&c](std::string_view b) { c.bytes(b); };
 
   std::string error;
@@ -86,7 +86,7 @@ TEST(ShellSessionTest, CwdTracksTheShellsChdir) {
 
 TEST(ShellSessionTest, StaysResponsiveAfterCtrlC) {
   Collector c;
-  ShellSession sh;
+  tools::ShellSession sh;
   sh.on_bytes = [&c](std::string_view b) { c.bytes(b); };
 
   std::string error;
@@ -103,7 +103,7 @@ TEST(ShellSessionTest, StaysResponsiveAfterCtrlC) {
 
 TEST(ShellSessionTest, ExtraEnvReachesTheShell) {
   Collector c;
-  ShellSession sh;
+  tools::ShellSession sh;
   sh.on_bytes = [&c](std::string_view b) { c.bytes(b); };
 
   std::string error;
@@ -117,7 +117,7 @@ TEST(ShellSessionTest, ExtraEnvReachesTheShell) {
 
 TEST(ShellSessionTest, ResizePropagatesToTheChild) {
   Collector c;
-  ShellSession sh;
+  tools::ShellSession sh;
   sh.on_bytes = [&c](std::string_view b) { c.bytes(b); };
 
   std::string error;
@@ -132,7 +132,7 @@ TEST(ShellSessionTest, ResizePropagatesToTheChild) {
 
 TEST(ShellSessionTest, OnExitFiresWhenTheShellQuits) {
   Collector c;
-  ShellSession sh;
+  tools::ShellSession sh;
   sh.on_bytes = [&c](std::string_view b) { c.bytes(b); };
   sh.on_exit = [&c](int status) {
     std::lock_guard<std::mutex> lock(c.mutex);
@@ -161,7 +161,7 @@ TEST(ShellSessionTest, OnExitFiresWhenTheShellQuits) {
 
 TEST(ShellSessionTest, DestructorTearsDownAStillRunningShell) {
   {
-    ShellSession sh;
+    tools::ShellSession sh;
     std::string error;
     ASSERT_TRUE(sh.start(80, 24, "", &error)) << error;
     sh.write_bytes("sleep 60\n");

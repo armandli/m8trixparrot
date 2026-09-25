@@ -1,5 +1,5 @@
-#ifndef TOOLS_UTIL_H
-#define TOOLS_UTIL_H
+#ifndef M8_TOOLS_TOOLS_UTIL_H
+#define M8_TOOLS_TOOLS_UTIL_H
 
 #include <cstddef>
 #include <cstdint>
@@ -10,12 +10,12 @@
 #include <utility>
 #include <vector>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 // libgit2's own type, forward-declared so <git2.h> stays out of this header.
 struct git_repository;
 
-namespace agent {
+namespace tools {
 
 // The output caps every tool's schema promises: 5000 lines / 100KB.
 inline constexpr size_t kMaxOutputLines = 5000;
@@ -150,6 +150,6 @@ bool is_binary(std::string_view head);
 // Reads a whole file into a string. Returns nullopt if it can't be opened.
 std::optional<std::string> read_file(const std::string& path);
 
-}  // namespace agent
+}  // namespace tools
 
-#endif  // TOOLS_UTIL_H
+#endif  // M8_TOOLS_TOOLS_UTIL_H

@@ -11,7 +11,7 @@
 #include <core/agent_pool.h>
 #include <core/memory_store.h>
 #include <core/system_prompt.h>
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 
@@ -24,7 +24,7 @@ constexpr size_t kMaxToolResultBytes = 16000;
 
 // A one-line rendering of the arguments that matter for display, so the UI can
 // show "grep pattern=\"teh\"" rather than the whole JSON object.
-std::string summarize(const std::string& tool_name, const ToolArgs& args) {
+std::string summarize(const std::string& tool_name, const tools::ToolArgs& args) {
   static const char* kInteresting[] = {"command",   "path",   "pattern",
                                        "query",     "url",    "content",
                                        "objective", "id",     "action",
@@ -32,7 +32,7 @@ std::string summarize(const std::string& tool_name, const ToolArgs& args) {
 
   std::string summary;
   for (const char* key : kInteresting) {
-    const std::optional<std::string> value = string_arg(args, key);
+    const std::optional<std::string> value = tools::string_arg(args, key);
     if (not value) continue;
     if (not summary.empty()) summary += "  ";
     summary += std::string(key) + "=";
@@ -100,25 +100,25 @@ bool Agent::ask_user_offered() const {
 
 std::vector<std::string> Agent::tool_schemas() const {
   std::vector<std::string> schemas;
-  if (mOptions.enable_python) schemas.push_back(PythonTool().description());
+  if (mOptions.enable_python) schemas.push_back(tools::PythonTool().description());
   if (mOptions.enable_bash_repl) {
-    schemas.push_back(BashReplTool::description());
+    schemas.push_back(tools::BashReplTool::description());
   } else {
-    schemas.push_back(BashTool().description());
+    schemas.push_back(tools::BashTool().description());
   }
   if (mOptions.enable_file_tools) {
-    schemas.push_back(ReadTool().description());
-    schemas.push_back(WriteTool().description());
-    schemas.push_back(EditTool().description());
+    schemas.push_back(tools::ReadTool().description());
+    schemas.push_back(tools::WriteTool().description());
+    schemas.push_back(tools::EditTool().description());
   }
   if (mOptions.enable_package_install) {
-    schemas.push_back(PackageInstallTool().description());
+    schemas.push_back(tools::PackageInstallTool().description());
   }
   if (mOptions.enable_web_search) {
-    schemas.push_back(WebSearchTool().description());
+    schemas.push_back(tools::WebSearchTool().description());
   }
   if (mOptions.enable_bash_search) {
-    schemas.push_back(BashSearchTool().description());
+    schemas.push_back(tools::BashSearchTool().description());
   }
   if (mOptions.enable_memory) schemas.push_back(MemoryTool::description());
   if (skills_offered()) schemas.push_back(SkillTool::description());
@@ -127,7 +127,7 @@ std::vector<std::string> Agent::tool_schemas() const {
     schemas.push_back(SubagentWaitTool::description());
   }
   if (ask_user_offered()) {
-    schemas.push_back(AskUserTool{mOptions.ask_user_handler}.description());
+    schemas.push_back(tools::AskUserTool{mOptions.ask_user_handler}.description());
   }
   return schemas;
 }
@@ -165,13 +165,13 @@ void Agent::reload_skills() {
   mCatalog = SkillCatalog::discover(mOptions.skills_dir);
 }
 
-std::string Agent::skill_label_for(const oc::ToolCall& call, const ToolArgs& args,
-                                   const ToolResult& result) const {
+std::string Agent::skill_label_for(const oc::ToolCall& call, const tools::ToolArgs& args,
+                                   const tools::ToolResult& result) const {
   if (not mOptions.enable_skills) return std::string();
   if (call.name == "skill") {
     if (not result.ok) return std::string();
-    const std::optional<std::string> action = string_arg(args, "action");
-    const std::optional<std::string> name = string_arg(args, "name");
+    const std::optional<std::string> action = tools::string_arg(args, "action");
+    const std::optional<std::string> name = tools::string_arg(args, "name");
     if (action and name and *action == "load") return *name;
     return std::string();
   }
@@ -179,8 +179,8 @@ std::string Agent::skill_label_for(const oc::ToolCall& call, const ToolArgs& arg
   return std::string();
 }
 
-BashReplSession& Agent::shell() {
-  if (not mShell) mShell = std::make_unique<BashReplSession>();
+tools::BashReplSession& Agent::shell() {
+  if (not mShell) mShell = std::make_unique<tools::BashReplSession>();
   return *mShell;
 }
 
@@ -312,25 +312,25 @@ std::string Agent::system_prompt() const {
              : default_system_prompt(facts);
 }
 
-ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
+tools::ToolResult Agent::dispatch(const std::string& tool_name, const tools::ToolArgs& args) {
   if (mOptions.enable_python and tool_name == "python")
-    return PythonTool().execute(args);
+    return tools::PythonTool().execute(args);
   if (mOptions.enable_bash_repl and tool_name == "bash_repl")
-    return BashReplTool{shell()}.execute(args);
+    return tools::BashReplTool{shell()}.execute(args);
   if (not mOptions.enable_bash_repl and tool_name == "bash")
-    return BashTool().execute(args);
+    return tools::BashTool().execute(args);
   if (mOptions.enable_file_tools and tool_name == "read")
-    return ReadTool().execute(args);
+    return tools::ReadTool().execute(args);
   if (mOptions.enable_file_tools and tool_name == "write")
-    return WriteTool().execute(args);
+    return tools::WriteTool().execute(args);
   if (mOptions.enable_file_tools and tool_name == "edit")
-    return EditTool().execute(args);
+    return tools::EditTool().execute(args);
   if (mOptions.enable_package_install and tool_name == "package_install")
-    return PackageInstallTool().execute(args);
+    return tools::PackageInstallTool().execute(args);
   if (mOptions.enable_web_search and tool_name == "websearch")
-    return WebSearchTool().execute(args);
+    return tools::WebSearchTool().execute(args);
   if (mOptions.enable_bash_search and tool_name == "bash_search")
-    return BashSearchTool().execute(args);
+    return tools::BashSearchTool().execute(args);
   if (mOptions.enable_memory and tool_name == "memory") {
     MemoryOptions memory;
     memory.path = mOptions.memory_path;
@@ -338,7 +338,7 @@ ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
     return MemoryTool{std::move(memory)}.execute(args);
   }
   if (ask_user_offered() and tool_name == "ask_user")
-    return AskUserTool{mOptions.ask_user_handler}.execute(args);
+    return tools::AskUserTool{mOptions.ask_user_handler}.execute(args);
   if (mOptions.enable_skills and tool_name == "skill")
     return SkillTool{mTranscript, mContextTokens, catalog()}.execute(args);
   if (mOptions.enable_subagents and tool_name == "subagent_create")
@@ -346,7 +346,7 @@ ToolResult Agent::dispatch(const std::string& tool_name, const ToolArgs& args) {
   if (mOptions.enable_subagents and tool_name == "subagent_wait")
     return SubagentWaitTool{}.execute(args);
 
-  ToolResult unknown;
+  tools::ToolResult unknown;
   unknown.error = "no tool named '" + tool_name +
                   "' exists; call one of the tools you were given";
   return unknown;
@@ -438,7 +438,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
 
     for (const oc::ToolCall& call : reply.tool_calls) {
       std::string parse_error;
-      const ToolArgs args = args_from_json(call.arguments, parse_error);
+      const tools::ToolArgs args = tools::args_from_json(call.arguments, parse_error);
       const std::string summary = summarize(call.name, args);
 
       emit({AgentEvent::Kind::ToolCall, "", call.name, summary});
@@ -463,7 +463,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
         continue;
       }
 
-      const ToolResult executed = dispatch(call.name, args);
+      const tools::ToolResult executed = dispatch(call.name, args);
       std::string content = executed.ok ? executed.output : executed.error;
       // A tool can legitimately produce nothing (ls of an empty directory,
       // grep with no hits). Saying so beats sending an empty message.
@@ -471,7 +471,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
 
       emit({AgentEvent::Kind::ToolResult, content, call.name, ""});
       oc::ChatMessage tool_message{"tool",
-                               clip_text(content, kMaxToolResultBytes),
+                               tools::clip_text(content, kMaxToolResultBytes),
                                {}, call.name};
       tool_message.skill_label = skill_label_for(call, args, executed);
       mTranscript.push_back(std::move(tool_message));

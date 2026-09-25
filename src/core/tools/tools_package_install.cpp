@@ -1,13 +1,13 @@
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <optional>
 #include <string>
 #include <utility>
 
-#include <core/package_installer.h>
-#include <core/tools_util.h>
+#include <core/tools/package_installer.h>
+#include <core/tools/tools_util.h>
 
-namespace agent {
+namespace tools {
 
 std::string PackageInstallTool::description() const {
   return R"json({"name":"package_install","description":"Install a single Python package so it becomes importable from the python tool. Requests are deduplicated across concurrent callers: a package that is already installed, or already being installed by another in-flight request, is not installed a second time — the call simply waits for that outcome.","parameters":{"type":"object","properties":{"package":{"type":"string","description":"The package name to install, exactly as pip expects it (e.g. \"numpy\" or \"requests==2.31.0\")"}},"required":["package"]}})json";
@@ -48,4 +48,4 @@ ToolResult PackageInstallTool::execute(const ToolArgs& args) const {
   return result;
 }
 
-}  // namespace agent
+}  // namespace tools

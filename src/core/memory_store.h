@@ -12,7 +12,7 @@
 #include <vector>
 
 #include <core/oc/basic_ollama_client.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <core/vector_store.h>
 
 namespace agent {
@@ -226,7 +226,7 @@ struct MemoryTool {
 
   static std::string description();
   // action (string, required): "remember" | "recall" | "forget"
-  ToolResult execute(const ToolArgs& args) const;
+  tools::ToolResult execute(const tools::ToolArgs& args) const;
 };
 
 // True when the memory tool has an embedding model it can reach. Mirrors

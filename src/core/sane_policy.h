@@ -7,7 +7,7 @@
 #include <vector>
 
 #include <core/policy.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 namespace agent {
 
@@ -40,7 +40,7 @@ struct SanePolicy : PolicyInterface {
 
   std::string name() const override;
   PolicyResult verify(std::string_view tool_name,
-                      const ToolArgs& args) const override;
+                      const tools::ToolArgs& args) const override;
 
   // The roots writes are confined to, resolved and absolute.
   const std::vector<std::filesystem::path>& write_roots() const {

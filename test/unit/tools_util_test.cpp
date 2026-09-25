@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 namespace {
@@ -22,7 +22,7 @@ double elapsed_seconds(Clock::time_point start) {
 
 TEST(RunShellCaptureTimeout, FastCommandReturnsWithoutWaitingOutTheDeadline) {
   const auto start = Clock::now();
-  const std::string output = run_shell_capture("echo hello", 60);
+  const std::string output = tools::run_shell_capture("echo hello", 60);
 
   EXPECT_EQ(output, "hello\n");
   // A watchdog left holding the capture pipe would stall this for its full
@@ -36,7 +36,7 @@ TEST(RunShellCaptureTimeout, SlowCommandIsKilledAndPartialOutputKept) {
   // holding the capture pipe open, so the read blocks for the full sleep.
   const auto start = Clock::now();
   const std::string output =
-      run_shell_capture("echo before; sleep 90; echo after", 2);
+      tools::run_shell_capture("echo before; sleep 90; echo after", 2);
 
   EXPECT_LT(elapsed_seconds(start), 30.0);
   EXPECT_NE(output.find("before"), std::string::npos);
@@ -46,7 +46,7 @@ TEST(RunShellCaptureTimeout, SlowCommandIsKilledAndPartialOutputKept) {
 TEST(RunShellCaptureTimeout, CommandStderrStillReachesItsOwnRedirection) {
   // The wrapper silences its own stderr; the command's must survive, or a
   // caller's `2>&1` would quietly capture nothing.
-  EXPECT_EQ(run_shell_capture("{ echo oops >&2; } 2>&1", 60), "oops\n");
+  EXPECT_EQ(tools::run_shell_capture("{ echo oops >&2; } 2>&1", 60), "oops\n");
 }
 
 TEST(RunShellCaptureTimeout, WatchdogIsGoneOnceTheCommandFinishes) {
@@ -58,17 +58,17 @@ TEST(RunShellCaptureTimeout, WatchdogIsGoneOnceTheCommandFinishes) {
   // 91 is just an unusual enough sleep length to look for afterwards, and the
   // bracket in the pattern keeps pgrep from matching its own command line.
   constexpr int kDistinctiveTimeout = 91;
-  EXPECT_EQ(run_shell_capture("echo quick", kDistinctiveTimeout), "quick\n");
+  EXPECT_EQ(tools::run_shell_capture("echo quick", kDistinctiveTimeout), "quick\n");
 
   const std::string leftover =
-      run_shell_capture("pgrep -f 'sl[e]ep 91' 2>/dev/null | wc -l | tr -d ' \n'");
+      tools::run_shell_capture("pgrep -f 'sl[e]ep 91' 2>/dev/null | wc -l | tr -d ' \n'");
   // "0" whether nothing matched or the system has no pgrep at all.
   EXPECT_EQ(leftover, "0") << "a watchdog sleep outlived its capture";
 }
 
 TEST(RunShellCaptureTimeout, NonPositiveTimeoutMeansNoLimit) {
-  EXPECT_EQ(run_shell_capture("echo hello", 0), "hello\n");
-  EXPECT_EQ(run_shell_capture("echo hello", -1), "hello\n");
+  EXPECT_EQ(tools::run_shell_capture("echo hello", 0), "hello\n");
+  EXPECT_EQ(tools::run_shell_capture("echo hello", -1), "hello\n");
 }
 
 }  // namespace

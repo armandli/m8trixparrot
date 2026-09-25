@@ -13,7 +13,7 @@
 
 #include <simdjson.h>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 
@@ -157,7 +157,7 @@ StartupSettings load_startup_settings(const std::string& path,
                                       std::string& warning) {
   StartupSettings settings;
 
-  const std::optional<std::string> text = read_file(path);
+  const std::optional<std::string> text = tools::read_file(path);
   if (not text) return settings;  // No file yet — not a warning.
 
   simdjson::ondemand::parser parser;
@@ -203,7 +203,7 @@ StartupSettings load_shellrc_settings(const std::string& path,
                                       std::string& warning) {
   StartupSettings settings;
 
-  const std::optional<std::string> text = read_file(path);
+  const std::optional<std::string> text = tools::read_file(path);
   if (not text) return settings;  // No file yet — not a warning.
 
   std::vector<std::string> unknown;

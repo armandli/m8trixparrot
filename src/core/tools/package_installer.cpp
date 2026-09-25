@@ -1,12 +1,12 @@
-#include <core/package_installer.h>
+#include <core/tools/package_installer.h>
 
 #include <cstdlib>
 #include <filesystem>
 
-#include <core/tools.h>       // kVenvDir, find_workspace_root(), ensure_python_ready()
-#include <core/tools_util.h>  // shell_quote(), run_shell_capture()
+#include <core/tools/tools.h>       // kVenvDir, find_workspace_root(), ensure_python_ready()
+#include <core/tools/tools_util.h>  // shell_quote(), run_shell_capture()
 
-namespace agent {
+namespace tools {
 
 namespace {
 
@@ -143,4 +143,4 @@ void PackageInstaller::worker_loop() {
   }
 }
 
-}  // namespace agent
+}  // namespace tools

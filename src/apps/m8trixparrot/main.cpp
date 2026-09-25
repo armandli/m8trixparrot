@@ -28,7 +28,7 @@
 #include <core/agent_settings.h>
 #include <core/policy.h>
 #include <core/sane_policy.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <parrot_prompt.h>
 
@@ -193,13 +193,13 @@ int main(int argc, char** argv) {
   // build/activate this workspace's .m8trixenv. A hard failure is worth
   // stopping for: the agent would otherwise run against the base interpreter
   // and package_install would be broken.
-  const agent::VenvBootstrap venv = agent::create_workspace_venv();
-  if (venv.status == agent::VenvBootstrap::Status::Failed) {
+  const tools::VenvBootstrap venv = tools::create_workspace_venv();
+  if (venv.status == tools::VenvBootstrap::Status::Failed) {
     std::cerr << "error: could not create the .m8trixenv virtualenv at "
               << venv.venv_dir << "\n       " << venv.detail << "\n";
     return 1;
   }
-  if (venv.status == agent::VenvBootstrap::Status::NotAProject) {
+  if (venv.status == tools::VenvBootstrap::Status::NotAProject) {
     std::cerr << "note: launch directory is not a project (no .git, .m8trix, "
                  "pyproject.toml or requirements.txt here or in any parent); "
                  "skipping .m8trixenv and running against the base Python\n";
@@ -231,7 +231,7 @@ int main(int argc, char** argv) {
       settings.enable_package_install.value_or(options.enable_package_install);
   options.enable_web_search =
       settings.enable_web_search.value_or(options.enable_web_search);
-  if (options.enable_web_search and not agent::web_search_available()) {
+  if (options.enable_web_search and not tools::web_search_available()) {
     std::cerr << "warning: enable_web_search is set but no Parallel API key was "
                  "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
                  "websearch calls will fail\n";
@@ -505,9 +505,9 @@ int main(int argc, char** argv) {
       const std::string command = entered.substr(1);
       push_notice(TranscriptNode::Kind::User, entered);
       std::thread([&push_notice, command] {
-        agent::ToolArgs args;
+        tools::ToolArgs args;
         args["command"] = command;
-        const agent::ToolResult result = agent::BashTool().execute(args);
+        const tools::ToolResult result = tools::BashTool().execute(args);
         if (result.ok) {
           push_notice(TranscriptNode::Kind::Assistant, result.output);
         } else {

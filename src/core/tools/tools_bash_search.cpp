@@ -1,4 +1,4 @@
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <algorithm>
 #include <atomic>
@@ -19,9 +19,9 @@
 #include <simdjson.h>
 
 #include <core/util/json_util.h>
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
-namespace agent {
+namespace tools {
 
 namespace {
 
@@ -971,4 +971,4 @@ void reset_bash_search_index_for_test() {
   BashSearchIndex::instance().reset_for_test();
 }
 
-}  // namespace agent
+}  // namespace tools

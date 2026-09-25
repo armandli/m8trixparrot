@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 namespace agent {
 
@@ -51,7 +51,7 @@ struct PolicyInterface {
   // re-parsing them into a second representation that could disagree with the
   // first.
   virtual PolicyResult verify(std::string_view tool_name,
-                              const ToolArgs& args) const = 0;
+                              const tools::ToolArgs& args) const = 0;
 
 protected:
   // Copying through a base reference would slice. Derived policies remain free
@@ -66,7 +66,7 @@ protected:
 struct YoloPolicy : PolicyInterface {
   std::string name() const override;
   PolicyResult verify(std::string_view tool_name,
-                      const ToolArgs& args) const override;
+                      const tools::ToolArgs& args) const override;
 };
 
 }  // namespace agent

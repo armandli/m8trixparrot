@@ -1,4 +1,4 @@
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -9,11 +9,11 @@
 
 #include <pybind11/embed.h>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace py = pybind11;
 
-namespace agent {
+namespace tools {
 
 namespace {
 
@@ -280,4 +280,4 @@ ToolResult PythonTool::execute(const ToolArgs& args) const {
   return result;
 }
 
-}  // namespace agent
+}  // namespace tools

@@ -6,7 +6,7 @@
 
 #include <core/memory_store.h>
 #include <core/oc/ollama_client.h>
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 
@@ -83,10 +83,10 @@ std::string MemoryTool::description() {
   return R"json({"name":"memory","description":"Long-term memory that survives across turns and sessions. action='remember' stores something with its embedding and returns an id; action='recall' finds the most relevant stored memories for a query, ranked by semantic similarity blended with how recent they are; action='forget' deletes one memory by id. Remember what the user tells you about themselves, decisions that were made, and conclusions you reached. Recall before answering anything that depends on earlier context.","parameters":{"type":"object","properties":{"action":{"type":"string","description":"remember: store a memory; recall: search memories; forget: delete a memory by id"},"content":{"type":"string","description":"For action='remember': the text to remember"},"type":{"type":"string","description":"For action='remember': episodic (something that happened), semantic (a fact), or procedural (how to do something). Default: episodic"},"context_id":{"type":"string","description":"For action='remember' or 'recall': the conversation or task these memories belong to"},"importance":{"type":"number","description":"For action='remember': 0.0 to 1.0, how much this matters. Default: 0.5"},"tags":{"type":"array","items":{"type":"string"},"description":"For action='remember': freeform labels; for action='recall': only memories carrying every one of these tags"},"query":{"type":"string","description":"For action='recall': what to search for"},"k":{"type":"number","description":"For action='recall': how many memories to return. Default: 5"},"min_importance":{"type":"number","description":"For action='recall': skip memories less important than this"},"filters":{"type":"string","description":"For action='recall': a JSON filter over the metadata, e.g. {\"memory_type\":{\"$eq\":\"semantic\"},\"importance\":{\"$gte\":0.7}}"},"recency_weight":{"type":"number","description":"For action='recall': 0.0 to 1.0, how much to favour recent memories over more similar ones. Default: 0.3"},"id":{"type":"number","description":"For action='forget': the memory id that remember returned"}},"required":["action"]}})json";
 }
 
-ToolResult MemoryTool::execute(const ToolArgs& args) const {
-  ToolResult result;
+tools::ToolResult MemoryTool::execute(const tools::ToolArgs& args) const {
+  tools::ToolResult result;
 
-  const std::optional<std::string> action = string_arg(args, "action");
+  const std::optional<std::string> action = tools::string_arg(args, "action");
   if (not action or action->empty()) {
     result.error = "memory: missing required string argument 'action'";
     return result;
@@ -100,18 +100,18 @@ ToolResult MemoryTool::execute(const ToolArgs& args) const {
   }
 
   if (*action == "remember") {
-    const std::optional<std::string> content = string_arg(args, "content");
+    const std::optional<std::string> content = tools::string_arg(args, "content");
     if (not content or content->empty()) {
       result.error = "memory: action='remember' requires a 'content' argument";
       return result;
     }
     Memory memory;
     memory.content = *content;
-    memory.memory_type = string_arg(args, "type").value_or(kMemoryEpisodic);
-    memory.context_id = string_arg(args, "context_id").value_or("default");
+    memory.memory_type = tools::string_arg(args, "type").value_or(kMemoryEpisodic);
+    memory.context_id = tools::string_arg(args, "context_id").value_or("default");
     memory.importance =
-        std::clamp(double_arg(args, "importance").value_or(0.5), 0.0, 1.0);
-    if (const std::vector<std::string>* tags = strings_arg(args, "tags")) {
+        std::clamp(tools::double_arg(args, "importance").value_or(0.5), 0.0, 1.0);
+    if (const std::vector<std::string>* tags = tools::strings_arg(args, "tags")) {
       memory.tags = *tags;
     }
 
@@ -126,32 +126,32 @@ ToolResult MemoryTool::execute(const ToolArgs& args) const {
   }
 
   if (*action == "recall") {
-    const std::optional<std::string> query = string_arg(args, "query");
+    const std::optional<std::string> query = tools::string_arg(args, "query");
     if (not query or query->empty()) {
       result.error = "memory: action='recall' requires a 'query' argument";
       return result;
     }
     RecallQuery recall;
     recall.query = *query;
-    const int64_t k = int_arg(args, "k").value_or(5);
+    const int64_t k = tools::int_arg(args, "k").value_or(5);
     recall.k = static_cast<size_t>(std::clamp<int64_t>(k, 1, 50));
-    if (const std::optional<std::string> type = string_arg(args, "type")) {
+    if (const std::optional<std::string> type = tools::string_arg(args, "type")) {
       recall.memory_type = *type;
     }
     if (const std::optional<std::string> context =
-            string_arg(args, "context_id")) {
+            tools::string_arg(args, "context_id")) {
       recall.context_id = *context;
     }
     if (const std::optional<double> floor =
-            double_arg(args, "min_importance")) {
+            tools::double_arg(args, "min_importance")) {
       recall.min_importance = *floor;
     }
-    if (const std::vector<std::string>* tags = strings_arg(args, "tags")) {
+    if (const std::vector<std::string>* tags = tools::strings_arg(args, "tags")) {
       recall.tags = *tags;
     }
-    recall.filters = string_arg(args, "filters").value_or("");
+    recall.filters = tools::string_arg(args, "filters").value_or("");
     if (const std::optional<double> weight =
-            double_arg(args, "recency_weight")) {
+            tools::double_arg(args, "recency_weight")) {
       recall.recency_weight = std::clamp(*weight, 0.0, 1.0);
     }
 
@@ -170,17 +170,17 @@ ToolResult MemoryTool::execute(const ToolArgs& args) const {
     for (const ScoredMemory& memory : recalled.memories) {
       out += format_memory(memory) + "\n\n";
     }
-    TruncatedOutput truncated = truncate_output(std::move(out), "memory");
+    tools::TruncatedOutput truncated = tools::truncate_output(std::move(out), "memory");
     result.ok = true;
     result.output = std::move(truncated.text);
-    result.output += truncation_note(truncated);
+    result.output += tools::truncation_note(truncated);
     result.truncated = truncated.truncated;
     result.overflow_path = std::move(truncated.overflow_path);
     return result;
   }
 
   if (*action == "forget") {
-    const std::optional<int64_t> id = int_arg(args, "id");
+    const std::optional<int64_t> id = tools::int_arg(args, "id");
     if (not id or *id <= 0) {
       result.error = "memory: action='forget' requires an 'id' argument";
       return result;

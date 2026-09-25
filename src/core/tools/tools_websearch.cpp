@@ -1,4 +1,4 @@
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <cctype>
 #include <cstddef>
@@ -15,9 +15,9 @@
 #include <simdjson.h>
 
 #include <core/util/json_util.h>
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
-namespace agent {
+namespace tools {
 
 namespace {
 
@@ -311,4 +311,4 @@ ToolResult WebSearchTool::execute(const ToolArgs& args) const {
   return result;
 }
 
-}  // namespace agent
+}  // namespace tools

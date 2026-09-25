@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <sstream>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 
@@ -50,7 +50,7 @@ std::string workspace_block(const PromptFacts& facts, size_t status_limit) {
   if (context.git_status.empty()) {
     out << "- status: clean\n";
   } else {
-    out << "- status:\n" << clip_text(context.git_status, status_limit) << "\n";
+    out << "- status:\n" << tools::clip_text(context.git_status, status_limit) << "\n";
   }
   return out.str();
 }
@@ -77,7 +77,7 @@ std::string skills_block(const PromptFacts& facts, size_t limit) {
          "one, call `skill` action \"load\" with its name to read its "
          "SKILL.md, follow it, then call `skill` action \"unload\" with that "
          "name to drop it from context when finished:\n" +
-         clip_text(list.str(), limit);
+         tools::clip_text(list.str(), limit);
 }
 
 std::string tool_guidance_rules(const PromptFacts& facts) {

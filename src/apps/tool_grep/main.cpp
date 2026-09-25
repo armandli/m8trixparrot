@@ -3,7 +3,7 @@
 
 #include <CLI/CLI.hpp>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 int main(int argc, char** argv) {
   CLI::App app{
@@ -46,16 +46,16 @@ int main(int argc, char** argv) {
 
   CLI11_PARSE(app, argc, argv);
 
-  agent::ToolArgs args;
-  args.emplace("pattern", agent::ToolArgValue{pattern});
-  if (!path.empty())   args.emplace("path",       agent::ToolArgValue{path});
-  if (!glob.empty())   args.emplace("glob",        agent::ToolArgValue{glob});
-  if (ignore_case)     args.emplace("ignoreCase",  agent::ToolArgValue{ignore_case});
-  if (literal)         args.emplace("literal",     agent::ToolArgValue{literal});
-  args.emplace("context", agent::ToolArgValue{context});
-  args.emplace("limit",   agent::ToolArgValue{limit});
+  tools::ToolArgs args;
+  args.emplace("pattern", tools::ToolArgValue{pattern});
+  if (!path.empty())   args.emplace("path",       tools::ToolArgValue{path});
+  if (!glob.empty())   args.emplace("glob",        tools::ToolArgValue{glob});
+  if (ignore_case)     args.emplace("ignoreCase",  tools::ToolArgValue{ignore_case});
+  if (literal)         args.emplace("literal",     tools::ToolArgValue{literal});
+  args.emplace("context", tools::ToolArgValue{context});
+  args.emplace("limit",   tools::ToolArgValue{limit});
 
-  const agent::ToolResult result = agent::GrepTool().execute(args);
+  const tools::ToolResult result = tools::GrepTool().execute(args);
 
   if (!result.ok) {
     std::cerr << result.error << "\n";

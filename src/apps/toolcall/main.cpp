@@ -9,8 +9,8 @@
 
 #include <core/util/json_util.h>
 #include <core/memory_store.h>
-#include <core/tools.h>
-#include <core/tools_util.h>
+#include <core/tools/tools.h>
+#include <core/tools/tools_util.h>
 
 namespace {
 
@@ -19,9 +19,9 @@ agent::MemoryOptions memory_options;
 
 std::vector<std::string> tool_schemas() {
   return {
-      agent::PythonTool().description(),
-      agent::PackageInstallTool().description(),
-      agent::WebSearchTool().description(),
+      tools::PythonTool().description(),
+      tools::PackageInstallTool().description(),
+      tools::WebSearchTool().description(),
       agent::MemoryTool::description(),
   };
 }
@@ -42,14 +42,14 @@ void print_schemas() {
   std::cout << out << "\n";
 }
 
-agent::ToolResult dispatch(const std::string& name,
-                           const agent::ToolArgs& args) {
-  if (name == "python") return agent::PythonTool().execute(args);
-  if (name == "package_install") return agent::PackageInstallTool().execute(args);
-  if (name == "websearch") return agent::WebSearchTool().execute(args);
+tools::ToolResult dispatch(const std::string& name,
+                           const tools::ToolArgs& args) {
+  if (name == "python") return tools::PythonTool().execute(args);
+  if (name == "package_install") return tools::PackageInstallTool().execute(args);
+  if (name == "websearch") return tools::WebSearchTool().execute(args);
   if (name == "memory") return agent::MemoryTool{memory_options}.execute(args);
 
-  agent::ToolResult unknown;
+  tools::ToolResult unknown;
   unknown.error = "no tool named '" + name +
                   "' is enabled; run with --help to see the available tools";
   return unknown;
@@ -94,7 +94,7 @@ bool parse_call(const std::string& json, std::string& name,
 // having to guess whether output was clipped. `output` and `error` are always
 // present so they can be indexed unconditionally; `overflow_path` only appears
 // when there is a file to point at.
-void print_result(const agent::ToolResult& result) {
+void print_result(const tools::ToolResult& result) {
   util::JsonWriter writer;
   writer.begin_object()
       .field("ok", result.ok)
@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  const agent::ToolArgs args = agent::args_from_json(arguments, error);
+  const tools::ToolArgs args = tools::args_from_json(arguments, error);
   if (not error.empty()) {
     std::cerr << "error: " << error << "\n";
     return 2;
@@ -166,18 +166,18 @@ int main(int argc, char** argv) {
   // python / package_install target the workspace .m8trixenv; build and
   // activate it the same way the main agent does. websearch needs none of
   // this, but the bootstrap is cheap once the venv exists.
-  const agent::VenvBootstrap venv = agent::create_workspace_venv();
-  if (venv.status == agent::VenvBootstrap::Status::Failed) {
+  const tools::VenvBootstrap venv = tools::create_workspace_venv();
+  if (venv.status == tools::VenvBootstrap::Status::Failed) {
     std::cerr << "error: could not create the .m8trixenv virtualenv at "
               << venv.venv_dir << ": " << venv.detail << "\n";
     return 1;
   }
-  if (venv.status == agent::VenvBootstrap::Status::NotAProject) {
+  if (venv.status == tools::VenvBootstrap::Status::NotAProject) {
     std::cerr << "note: not in a project directory; running against the base "
                  "Python\n";
   }
 
-  const agent::ToolResult result = dispatch(name, args);
+  const tools::ToolResult result = dispatch(name, args);
   print_result(result);
   return result.ok ? 0 : 1;
 }

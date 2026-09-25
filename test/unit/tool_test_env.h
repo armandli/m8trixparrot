@@ -13,7 +13,7 @@
 #include <git2.h>
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 namespace agent::test {
 
@@ -102,19 +102,19 @@ protected:
 // explicit at the call site.
 // ---------------------------------------------------------------------------
 
-inline ToolArgValue str(std::string value) { return ToolArgValue(std::move(value)); }
-inline ToolArgValue num(int64_t value) { return ToolArgValue(value); }
-inline ToolArgValue flag(bool value) { return ToolArgValue(value); }
+inline tools::ToolArgValue str(std::string value) { return tools::ToolArgValue(std::move(value)); }
+inline tools::ToolArgValue num(int64_t value) { return tools::ToolArgValue(value); }
+inline tools::ToolArgValue flag(bool value) { return tools::ToolArgValue(value); }
 
 // The array-of-{oldText,newText} alternative that `edit` takes.
-inline ToolArgValue edits(
+inline tools::ToolArgValue edits(
     std::vector<std::pair<std::string, std::string>> pairs) {
-  return ToolArgValue(std::move(pairs));
+  return tools::ToolArgValue(std::move(pairs));
 }
 
-inline ToolArgs args(
-    std::initializer_list<std::pair<const std::string, ToolArgValue>> entries) {
-  return ToolArgs(entries.begin(), entries.end());
+inline tools::ToolArgs args(
+    std::initializer_list<std::pair<const std::string, tools::ToolArgValue>> entries) {
+  return tools::ToolArgs(entries.begin(), entries.end());
 }
 
 }  // namespace agent::test

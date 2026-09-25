@@ -1,4 +1,4 @@
-#include <core/shell_session.h>
+#include <core/tools/shell_session.h>
 
 #include <fcntl.h>
 #include <poll.h>
@@ -23,7 +23,7 @@
 #include <pty.h>
 #endif
 
-namespace agent {
+namespace tools {
 
 namespace {
 
@@ -218,4 +218,4 @@ void ShellSession::stop_child() {
   if (::waitpid(mChild, &status, 0) == mChild) mExitStatus.store(status);
 }
 
-}  // namespace agent
+}  // namespace tools

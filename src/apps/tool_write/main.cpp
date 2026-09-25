@@ -4,7 +4,7 @@
 
 #include <CLI/CLI.hpp>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 int main(int argc, char** argv) {
   CLI::App app{
@@ -27,11 +27,11 @@ int main(int argc, char** argv) {
   buf << std::cin.rdbuf();
   const std::string content = buf.str();
 
-  agent::ToolArgs args;
-  args.emplace("path",    agent::ToolArgValue{path});
-  args.emplace("content", agent::ToolArgValue{content});
+  tools::ToolArgs args;
+  args.emplace("path",    tools::ToolArgValue{path});
+  args.emplace("content", tools::ToolArgValue{content});
 
-  const agent::ToolResult result = agent::WriteTool().execute(args);
+  const tools::ToolResult result = tools::WriteTool().execute(args);
 
   if (!result.ok) {
     std::cerr << result.error << "\n";

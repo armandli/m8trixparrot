@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <sstream>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 
@@ -127,7 +127,7 @@ SkillCatalog SkillCatalog::discover(const std::string& skills_dir) {
     const std::filesystem::path skill_md = dir / "SKILL.md";
     if (not std::filesystem::is_regular_file(skill_md, ec)) continue;
 
-    const std::optional<std::string> text = read_file(skill_md.string());
+    const std::optional<std::string> text = tools::read_file(skill_md.string());
     if (not text) {
       catalog.notes.push_back("skipped '" + dir_name + "': cannot read SKILL.md");
       continue;
@@ -207,11 +207,11 @@ std::string SkillTool::description() {
   return R"json({"name":"skill","description":"Load a skill's instructions into the conversation, or unload them to reclaim context. Skills are reusable procedures for specific tasks, listed in the system prompt. action=\"load\" reads .m8trix/skills/<name>/SKILL.md (or a file relative to the skill directory when `file` is given); read the skill's other files with `python`. action=\"unload\" removes everything you loaded for that skill from the conversation.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["load","unload"],"description":"load or unload"},"name":{"type":"string","description":"the skill name (its directory under .m8trix/skills/)"},"file":{"type":"string","description":"load only: a path relative to the skill directory, e.g. references/patterns.md; omit for SKILL.md"}},"required":["action","name"]}})json";
 }
 
-ToolResult SkillTool::execute(const ToolArgs& args) const {
-  ToolResult result;
+tools::ToolResult SkillTool::execute(const tools::ToolArgs& args) const {
+  tools::ToolResult result;
 
-  const std::optional<std::string> action = string_arg(args, "action");
-  const std::optional<std::string> name = string_arg(args, "name");
+  const std::optional<std::string> action = tools::string_arg(args, "action");
+  const std::optional<std::string> name = tools::string_arg(args, "name");
   if (not action or not name or name->empty()) {
     result.error =
         "skill: requires string arguments 'action' (load|unload) and 'name'";
@@ -229,7 +229,7 @@ ToolResult SkillTool::execute(const ToolArgs& args) const {
     return result;
   }
 
-  if (*action == "load") return load(*skill, string_arg(args, "file"));
+  if (*action == "load") return load(*skill, tools::string_arg(args, "file"));
   if (*action == "unload") return unload(*skill);
 
   result.error =
@@ -237,9 +237,9 @@ ToolResult SkillTool::execute(const ToolArgs& args) const {
   return result;
 }
 
-ToolResult SkillTool::load(const SkillInfo& skill,
+tools::ToolResult SkillTool::load(const SkillInfo& skill,
                            const std::optional<std::string>& file) const {
-  ToolResult result;
+  tools::ToolResult result;
 
   std::string relative = file.value_or("SKILL.md");
   if (relative.empty()) relative = "SKILL.md";
@@ -252,7 +252,7 @@ ToolResult SkillTool::load(const SkillInfo& skill,
 
   const std::filesystem::path target =
       std::filesystem::path(skill.dir) / relative;
-  const std::optional<std::string> text = read_file(target.string());
+  const std::optional<std::string> text = tools::read_file(target.string());
   if (not text) {
     result.error = "skill: cannot read '" + relative + "' in skill '" +
                    skill.name + "'";
@@ -278,8 +278,8 @@ ToolResult SkillTool::load(const SkillInfo& skill,
   return result;
 }
 
-ToolResult SkillTool::unload(const SkillInfo& skill) const {
-  ToolResult result;
+tools::ToolResult SkillTool::unload(const SkillInfo& skill) const {
+  tools::ToolResult result;
 
   size_t removed = 0;
   size_t freed = 0;

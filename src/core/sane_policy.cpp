@@ -8,7 +8,7 @@
 #include <system_error>
 #include <vector>
 
-#include <core/tools_util.h>
+#include <core/tools/tools_util.h>
 
 namespace agent {
 
@@ -383,12 +383,12 @@ std::string SanePolicy::inspect_command(const std::string& command) const {
 }
 
 PolicyResult SanePolicy::verify(std::string_view tool_name,
-                                const ToolArgs& args) const {
+                                const tools::ToolArgs& args) const {
   // bash_repl runs the same arbitrary shell text as bash, just in a shell that
   // persists — so it needs the same inspection, or enabling it would route
   // around every check below.
   if (tool_name == "bash" or tool_name == "bash_repl") {
-    const std::optional<std::string> command = string_arg(args, "command");
+    const std::optional<std::string> command = tools::string_arg(args, "command");
     if (not command) return PolicyResult::allow();
     const std::string problem = inspect_command(*command);
     if (problem.empty()) return PolicyResult::allow();
@@ -400,7 +400,7 @@ PolicyResult SanePolicy::verify(std::string_view tool_name,
   }
 
   if (tool_name == "write" or tool_name == "edit") {
-    const std::optional<std::string> path = string_arg(args, "path");
+    const std::optional<std::string> path = tools::string_arg(args, "path");
     // No path at all is the tool's own error to report, with a better message
     // than a policy could give.
     if (not path) return PolicyResult::allow();

@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include <core/tools.h>
+#include <core/tools/tools.h>
 #include <loopback_server.h>
 #include <tool_test_env.h>
 
@@ -84,8 +84,8 @@ TEST_F(WebSearchTest, FormatsResultsAsANumberedListWithTitlesUrlsAndExcerpts) {
   ScopedEnv base("PARALLEL_API_BASE", server.url(""));
   ScopedEnv key("PARALLEL_API_KEY", "test-key");
 
-  const ToolResult result =
-      WebSearchTool().execute(args({{"query", str("cats")}}));
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("cats")}}));
 
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_NE(result.output.find("2 results for \"cats\":"), std::string::npos);
@@ -106,8 +106,8 @@ TEST_F(WebSearchTest, PublishDateIsOmittedWhenTheFieldIsNull) {
   ScopedEnv base("PARALLEL_API_BASE", server.url(""));
   ScopedEnv key("PARALLEL_API_KEY", "test-key");
 
-  const ToolResult result =
-      WebSearchTool().execute(args({{"query", str("cats")}}));
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("cats")}}));
 
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_EQ(result.output.find("https://example.com/beta  ("), std::string::npos);
@@ -119,7 +119,7 @@ TEST_F(WebSearchTest, LimitCapsHowManyResultsAreFormatted) {
   ScopedEnv base("PARALLEL_API_BASE", server.url(""));
   ScopedEnv key("PARALLEL_API_KEY", "test-key");
 
-  const ToolResult result = WebSearchTool().execute(
+  const tools::ToolResult result = tools::WebSearchTool().execute(
       args({{"query", str("counting")}, {"limit", num(1)}}));
 
   ASSERT_TRUE(result.ok) << result.error;
@@ -133,8 +133,8 @@ TEST_F(WebSearchTest, AnEmptyResultSetIsReportedAsNoResultsRatherThanAnError) {
   ScopedEnv base("PARALLEL_API_BASE", server.url(""));
   ScopedEnv key("PARALLEL_API_KEY", "test-key");
 
-  const ToolResult result =
-      WebSearchTool().execute(args({{"query", str("ghosts")}}));
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("ghosts")}}));
 
   EXPECT_TRUE(result.ok) << result.error;
   EXPECT_EQ(result.output, "[no results for \"ghosts\"]");
@@ -148,8 +148,8 @@ TEST_F(WebSearchTest, ANonSuccessStatusIsAnErrorNamingTheStatusAndParallelsMessa
   ScopedEnv base("PARALLEL_API_BASE", server.url(""));
   ScopedEnv key("PARALLEL_API_KEY", "test-key");
 
-  const ToolResult result =
-      WebSearchTool().execute(args({{"query", str("anything")}}));
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("anything")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error,
@@ -162,8 +162,8 @@ TEST_F(WebSearchTest, AResponseBodyThatIsNotJsonIsAnError) {
   ScopedEnv base("PARALLEL_API_BASE", server.url(""));
   ScopedEnv key("PARALLEL_API_KEY", "test-key");
 
-  const ToolResult result =
-      WebSearchTool().execute(args({{"query", str("anything")}}));
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("anything")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error.rfind("websearch: ", 0), 0u);
@@ -171,7 +171,7 @@ TEST_F(WebSearchTest, AResponseBodyThatIsNotJsonIsAnError) {
 }
 
 TEST_F(WebSearchTest, MissingQueryIsAnError) {
-  const ToolResult result = WebSearchTool().execute(args({}));
+  const tools::ToolResult result = tools::WebSearchTool().execute(args({}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "websearch: missing required string argument 'query'");
@@ -180,8 +180,8 @@ TEST_F(WebSearchTest, MissingQueryIsAnError) {
 TEST_F(WebSearchTest, AMissingApiKeyIsAnErrorNamingTheEnvVarAndTheKeyFile) {
   ScopedEnv key("PARALLEL_API_KEY");  // ensure it is unset; the temp cwd has no key file
 
-  const ToolResult result =
-      WebSearchTool().execute(args({{"query", str("anything")}}));
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("anything")}}));
 
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.error.find("PARALLEL_API_KEY"), std::string::npos);
@@ -196,8 +196,8 @@ TEST_F(WebSearchTest, TheKeyFileIsUsedWhenTheEnvVarIsAbsent) {
   ScopedEnv key("PARALLEL_API_KEY");  // unset
   write_file(".m8trix/parallel_api_key", "  file-key-123\n");
 
-  const ToolResult result =
-      WebSearchTool().execute(args({{"query", str("counting")}}));
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("counting")}}));
 
   EXPECT_TRUE(result.ok) << result.error;
   EXPECT_NE(result.output.find("1. One"), std::string::npos);

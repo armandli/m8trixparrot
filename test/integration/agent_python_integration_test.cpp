@@ -25,7 +25,7 @@
 #include <core/oc/basic_ollama_client.h>
 #include <core/oc/ollama_client.h>
 #include <core/policy.h>
-#include <core/tools.h>
+#include <core/tools/tools.h>
 
 #include <parallel_key.h>
 #include <tool_test_env.h>
@@ -69,7 +69,7 @@ struct AgentPythonIntegrationTest : test::ToolTest {
     test::ToolTest::SetUp();  // fresh temp dir, chdir into it
     mBaseReady = true;
 
-    ensure_python_ready();  // on the main thread, before any turn
+    tools::ensure_python_ready();  // on the main thread, before any turn
     oc::OllamaClient::configure(mModel, mHost);
     oc::OllamaClient::set_num_ctx(0);
     AgentPool::configure(/*max_agents=*/4, /*max_depth=*/0);

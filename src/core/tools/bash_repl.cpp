@@ -1,4 +1,4 @@
-#include <core/bash_repl.h>
+#include <core/tools/bash_repl.h>
 
 #include <fcntl.h>
 #include <poll.h>
@@ -15,7 +15,7 @@
 
 #include <core/util/uuid.h>
 
-namespace agent {
+namespace tools {
 
 namespace {
 
@@ -361,4 +361,4 @@ BashReplSession::Outcome BashReplSession::run(const std::string& command,
   return outcome;
 }
 
-}  // namespace agent
+}  // namespace tools
