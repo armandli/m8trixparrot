@@ -4,7 +4,7 @@
 #include <string>
 
 #include <core/agent_pool.h>
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 #include <core/tools_util.h>
 
 namespace agent {
@@ -31,7 +31,7 @@ ToolResult SubagentCreateTool::execute(const ToolArgs& args) const {
     return result;
   }
 
-  JsonWriter writer;
+  util::JsonWriter writer;
   writer.begin_object()
       .field("id", spawned.id)
       .field("status", "running")
@@ -61,7 +61,7 @@ ToolResult SubagentWaitTool::execute(const ToolArgs& args) const {
     return result;
   }
 
-  JsonWriter writer;
+  util::JsonWriter writer;
   writer.begin_object()
       .field("ok", finished->ok)
       .field("objective", finished->objective)

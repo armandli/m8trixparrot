@@ -13,7 +13,7 @@
 #include <simdjson.h>
 
 #include <core/byte_io.h>
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 
 namespace agent {
 
@@ -45,7 +45,7 @@ enum struct RecordType : uint8_t {
 // dynamically typed, the volume is small next to the vectors, and it means the
 // file can be eyeballed with a hex dump when something goes wrong.
 
-void write_meta_value(JsonWriter& writer, const MetaValue& value) {
+void write_meta_value(util::JsonWriter& writer, const MetaValue& value) {
   if (std::holds_alternative<std::string>(value)) {
     writer.value(std::get<std::string>(value));
   } else if (std::holds_alternative<int64_t>(value)) {
@@ -62,7 +62,7 @@ void write_meta_value(JsonWriter& writer, const MetaValue& value) {
 }
 
 std::string metadata_to_json(const Metadata& meta) {
-  JsonWriter writer;
+  util::JsonWriter writer;
   writer.begin_object();
   for (const auto& [name, value] : meta) {
     writer.key(name);
@@ -210,7 +210,7 @@ bool Schema::validate(const Metadata& meta, std::string& error) const {
 }
 
 std::string Schema::to_json() const {
-  JsonWriter writer;
+  util::JsonWriter writer;
   writer.begin_array();
   for (const auto& [name, type] : fields) {
     writer.begin_object()

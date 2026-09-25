@@ -1,5 +1,5 @@
-#ifndef JSON_UTIL_H
-#define JSON_UTIL_H
+#ifndef M8_UTIL_JSON_UTIL_H
+#define M8_UTIL_JSON_UTIL_H
 
 #include <cstdint>
 #include <string>
@@ -8,7 +8,7 @@
 
 #include <simdjson.h>
 
-namespace agent {
+namespace util {
 
 // A JSON value held as its verbatim text, for the places where the schema is
 // genuinely dynamic (ollama's `format` is a string or a schema object, `think`
@@ -100,6 +100,6 @@ std::vector<std::string> string_array_field(simdjson::ondemand::object& obj,
 std::string raw_field(simdjson::ondemand::object& obj, std::string_view key,
                       std::string fallback = "");
 
-}  // namespace agent
+}  // namespace util
 
-#endif  // JSON_UTIL_H
+#endif  // M8_UTIL_JSON_UTIL_H

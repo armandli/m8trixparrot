@@ -1,6 +1,6 @@
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 
-namespace agent {
+namespace util {
 
 namespace {
 
@@ -197,4 +197,4 @@ std::string raw_field(simdjson::ondemand::object& obj, std::string_view key,
   return std::string(raw);
 }
 
-}  // namespace agent
+}  // namespace util

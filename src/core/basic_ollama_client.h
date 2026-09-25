@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 
 namespace agent {
 
@@ -56,11 +56,11 @@ struct GenerateOptions {
 
   std::string suffix;
   std::vector<std::string> images;  // Pre-base64-encoded by the caller.
-  RawJson format;                   // string or JSON schema object; empty = unset.
+  util::RawJson format;                   // string or JSON schema object; empty = unset.
   std::string system;
-  RawJson think;                    // bool or string; empty = unset.
+  util::RawJson think;                    // bool or string; empty = unset.
   std::optional<bool> raw;
-  RawJson keep_alive;               // string or number; empty = unset.
+  util::RawJson keep_alive;               // string or number; empty = unset.
   ModelParams model_params;
   std::optional<bool> logprobs;
   std::optional<int64_t> top_logprobs;
@@ -75,7 +75,7 @@ struct GenerateResult {
 struct EmbedOptions {
   std::optional<bool> truncate;  // API default is true; unset omits the field.
   std::optional<int64_t> dimensions;
-  RawJson keep_alive;         // string or number; empty = unset.
+  util::RawJson keep_alive;         // string or number; empty = unset.
   GenerateOptions::ModelParams model_params;
 };
 
@@ -108,7 +108,7 @@ struct ShowResult {
   std::vector<std::string> capabilities;
   ModelDetails details;
   std::string prompt_template;  // JSON key is "template" (a C++ keyword).
-  RawJson model_info;
+  util::RawJson model_info;
   std::string error;
 };
 

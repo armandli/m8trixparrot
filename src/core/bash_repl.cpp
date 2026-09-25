@@ -13,7 +13,7 @@
 #include <filesystem>
 #include <fstream>
 
-#include <core/session_store.h>
+#include <core/util/uuid.h>
 
 namespace agent {
 
@@ -74,7 +74,7 @@ void close_fd(int& fd) {
 }  // namespace
 
 BashReplSession::BashReplSession() {
-  mToken = generate_uuid_v4();
+  mToken = util::generate_uuid_v4();
   mMarker = "\n__M8_END_" + mToken + "__";
 
   std::error_code ec;

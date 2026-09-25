@@ -7,7 +7,7 @@
 
 #include <simdjson.h>
 
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 #include <core/memory_store.h>
 #include <core/tools.h>
 #include <core/tools_util.h>
@@ -78,7 +78,7 @@ bool parse_call(const std::string& json, std::string& name,
     return false;
   }
 
-  name = agent::string_field(object, "name");
+  name = util::string_field(object, "name");
   if (name.empty()) {
     error = "call object has no \"name\" string naming the tool to run";
     return false;
@@ -86,7 +86,7 @@ bool parse_call(const std::string& json, std::string& name,
 
   // An absent "arguments" means the call takes none — valid for `ls`, whose
   // parameters are all optional.
-  arguments = agent::raw_field(object, "arguments", "{}");
+  arguments = util::raw_field(object, "arguments", "{}");
   return true;
 }
 
@@ -95,7 +95,7 @@ bool parse_call(const std::string& json, std::string& name,
 // present so they can be indexed unconditionally; `overflow_path` only appears
 // when there is a file to point at.
 void print_result(const agent::ToolResult& result) {
-  agent::JsonWriter writer;
+  util::JsonWriter writer;
   writer.begin_object()
       .field("ok", result.ok)
       .field("output", result.output)

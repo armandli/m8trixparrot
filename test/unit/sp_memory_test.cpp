@@ -11,7 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <core/memory_store.h>
-#include <core/session_store.h>
+#include <core/util/uuid.h>
 
 #include <sp_memory.h>
 
@@ -80,7 +80,7 @@ struct SpMemoryTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-sp-" + agent::generate_uuid_v4());
+          ("m8trix-sp-" + util::generate_uuid_v4());
     agent::MemoryOptions options;
     options.path = (dir / "memory.m8db").string();
     options.embedder = agent::hash_embedder(kDim);
@@ -157,7 +157,7 @@ TEST_F(SpMemoryTest, ForgettingRemovesItFromLaterSearches) {
 TEST(SpMemoryEmbedderTest, ReportsAnEmbeddingFailureAsAnOrdinaryLine) {
   const std::filesystem::path dir =
       std::filesystem::temp_directory_path() /
-      ("m8trix-sp-" + agent::generate_uuid_v4());
+      ("m8trix-sp-" + util::generate_uuid_v4());
   agent::MemoryOptions options;
   options.path = (dir / "memory.m8db").string();
   options.embed_model = "stub";

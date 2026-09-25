@@ -18,7 +18,7 @@
 
 #include <simdjson.h>
 
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 #include <core/tools_util.h>
 
 namespace agent {
@@ -756,10 +756,10 @@ private:
       simdjson::ondemand::object obj;
       if (item.get_object().get(obj)) continue;
       CommandEntry e;
-      e.name        = string_field(obj, "name");
-      e.description = string_field(obj, "description");
-      e.usage       = string_field(obj, "usage");
-      e.tags        = string_array_field(obj, "tags");
+      e.name        = util::string_field(obj, "name");
+      e.description = util::string_field(obj, "description");
+      e.usage       = util::string_field(obj, "usage");
+      e.tags        = util::string_array_field(obj, "tags");
       // TagExpr::eval binary-searches the tags; assign_tags emits them sorted,
       // but an index file edited by hand need not be.
       std::sort(e.tags.begin(), e.tags.end());
@@ -784,7 +784,7 @@ private:
         std::filesystem::path(path).parent_path(), ec);
     if (ec) return;
 
-    JsonWriter w;
+    util::JsonWriter w;
     w.begin_object().key("commands").begin_array();
     for (const auto& [_, e] : index) {
       w.begin_object()

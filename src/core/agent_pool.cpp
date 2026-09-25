@@ -5,7 +5,7 @@
 #include <utility>
 
 #include <core/agent.h>
-#include <core/session_store.h>  // generate_uuid_v4
+#include <core/util/uuid.h>
 
 namespace agent {
 
@@ -55,7 +55,7 @@ AgentPool::Node* AgentPool::find(const std::string& id) const {
 }
 
 std::string AgentPool::register_root(std::string label) {
-  const std::string id = generate_uuid_v4();
+  const std::string id = util::generate_uuid_v4();
   auto node = std::make_unique<Node>();
   node->id = id;
   node->depth = 0;
@@ -93,7 +93,7 @@ SpawnResult AgentPool::spawn(const std::string& parent_id,
                   ") exhausted; complete this objective yourself"};
     }
 
-    id = generate_uuid_v4();
+    id = util::generate_uuid_v4();
     auto node = std::make_unique<Node>();
     node->id = id;
     node->parent_id = parent_id;

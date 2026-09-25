@@ -5,7 +5,7 @@
 #include <cmath>
 #include <utility>
 
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 #include <core/ollama_client.h>
 
 namespace agent {
@@ -299,7 +299,7 @@ std::optional<Filter> MemoryStore::build_filter(const RecallQuery& query,
   // to one parser, rather than building a FilterNode tree by hand here. One
   // code path means the tool's `filters` argument and its convenience
   // arguments cannot drift apart in what they mean.
-  JsonWriter writer;
+  util::JsonWriter writer;
   writer.begin_object();
   bool any = false;
   if (query.memory_type) {
@@ -326,7 +326,7 @@ std::optional<Filter> MemoryStore::build_filter(const RecallQuery& query,
     parts.push_back(*structured);
   }
   for (const std::string& tag : query.tags) {
-    JsonWriter tag_writer;
+    util::JsonWriter tag_writer;
     tag_writer.begin_object()
         .key(kMemoryFieldTags)
         .begin_object()

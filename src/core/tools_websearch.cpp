@@ -14,7 +14,7 @@
 #include <curl/curl.h>
 #include <simdjson.h>
 
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 #include <core/tools_util.h>
 
 namespace agent {
@@ -123,11 +123,11 @@ std::string api_error_detail(const std::string& body) {
 
     if (simdjson::ondemand::object error;
         not obj["error"].get_object().get(error)) {
-      const std::string message = string_field(error, "message");
+      const std::string message = util::string_field(error, "message");
       if (not message.empty()) return ": " + message;
     }
 
-    const std::string message = string_field(obj, "message");
+    const std::string message = util::string_field(obj, "message");
     return message.empty() ? std::string() : ": " + message;
   } catch (const std::exception&) {
     return std::string();
@@ -161,9 +161,9 @@ std::string format_response(const std::string& body, const std::string& query,
       simdjson::ondemand::object result;
       if (element.get_object().get(result)) continue;
 
-      const std::string url = string_field(result, "url");
-      const std::string title = string_field(result, "title");
-      const std::string date = string_field(result, "publish_date");
+      const std::string url = util::string_field(result, "url");
+      const std::string title = util::string_field(result, "title");
+      const std::string date = util::string_field(result, "publish_date");
 
       std::string excerpt;
       simdjson::ondemand::array excerpts;
@@ -237,7 +237,7 @@ ToolResult WebSearchTool::execute(const ToolArgs& args) const {
     return result;
   }
 
-  JsonWriter body;
+  util::JsonWriter body;
   body.begin_object();
   body.field("objective", *query);
   body.key("search_queries").begin_array().value(*query).end_array();

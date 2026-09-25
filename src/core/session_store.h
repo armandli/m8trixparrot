@@ -7,9 +7,6 @@
 
 namespace agent {
 
-// RFC 4122 version-4 (random) UUID. Thread-safe via thread_local RNG.
-std::string generate_uuid_v4();
-
 // A saved session is exactly the root agent's result tree — objective,
 // conclusion, and every subagent it spawned, nested. The transcript is not
 // persisted, so a loaded session is for display only.

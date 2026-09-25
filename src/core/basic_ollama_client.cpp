@@ -5,7 +5,7 @@
 #include <curl/curl.h>
 #include <simdjson.h>
 
-#include <core/json_util.h>
+#include <core/util/json_util.h>
 
 namespace agent {
 
@@ -100,7 +100,7 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
                                    int64_t num_ctx) const {
   ChatResult result;
 
-  JsonWriter body;
+  util::JsonWriter body;
   body.begin_object();
   body.field("model", model);
   body.field("stream", false);
@@ -118,7 +118,7 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
         body.begin_object();
         body.key("function").begin_object();
         body.field("name", call.name);
-        body.field("arguments", RawJson::of_raw(call.arguments.empty()
+        body.field("arguments", util::RawJson::of_raw(call.arguments.empty()
                                                      ? "{}"
                                                      : call.arguments));
         body.end_object();
@@ -134,7 +134,7 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
     for (const auto& schema : tools) {
       body.begin_object();
       body.field("type", "function");
-      body.field("function", RawJson::of_raw(schema));
+      body.field("function", util::RawJson::of_raw(schema));
       body.end_object();
     }
     body.end_array();
@@ -144,7 +144,7 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
     params.num_ctx = num_ctx;
     const std::string options = model_params_to_json(params);
     if (not options.empty()) {
-      body.field("options", RawJson::of_raw(options));
+      body.field("options", util::RawJson::of_raw(options));
     }
   }
   body.end_object();
@@ -161,7 +161,7 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
     if (obj["message"].get_object().get(message)) return;
     found_message = true;
 
-    result.content = string_field(message, "content");
+    result.content = util::string_field(message, "content");
 
     simdjson::ondemand::array calls;
     if (message["tool_calls"].get_array().get(calls)) return;
@@ -172,8 +172,8 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
       if (call["function"].get_object().get(function)) continue;
 
       ToolCall tool_call;
-      tool_call.name = string_field(function, "name");
-      tool_call.arguments = raw_field(function, "arguments", "{}");
+      tool_call.name = util::string_field(function, "name");
+      tool_call.arguments = util::raw_field(function, "arguments", "{}");
       if (tool_call.name.empty()) continue;
       result.tool_calls.push_back(std::move(tool_call));
     }
@@ -192,8 +192,8 @@ ChatResult BasicOllamaClient::chat(std::string_view model,
   // cursor's position after descending into `message`. Best effort.
   if (result.ok) {
     with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
-      result.prompt_eval_count = int_field(obj, "prompt_eval_count");
-      result.eval_count = int_field(obj, "eval_count");
+      result.prompt_eval_count = util::int_field(obj, "prompt_eval_count");
+      result.eval_count = util::int_field(obj, "eval_count");
     });
   }
 
@@ -223,7 +223,7 @@ std::string BasicOllamaClient::model_params_to_json(
                    params.num_ctx or params.num_predict;
   if (not any) return std::string();
 
-  JsonWriter model_params;
+  util::JsonWriter model_params;
   model_params.begin_object();
   if (params.seed) model_params.field("seed", *params.seed);
   if (params.temperature) model_params.field("temperature", *params.temperature);
@@ -243,7 +243,7 @@ GenerateResult BasicOllamaClient::generate(
     const std::optional<GenerateOptions::ModelParams>& default_params) const {
   GenerateResult result;
 
-  JsonWriter body;
+  util::JsonWriter body;
   body.begin_object();
   body.field("model", model);
   body.field("prompt", prompt);
@@ -263,7 +263,7 @@ GenerateResult BasicOllamaClient::generate(
       merge_model_params(options.model_params, default_params);
   const std::string model_params = model_params_to_json(params);
   if (not model_params.empty()) {
-    body.field("options", RawJson::of_raw(model_params));
+    body.field("options", util::RawJson::of_raw(model_params));
   }
   body.end_object();
 
@@ -298,7 +298,7 @@ EmbedResult BasicOllamaClient::embed(
     const std::optional<GenerateOptions::ModelParams>& default_params) const {
   EmbedResult result;
 
-  JsonWriter body;
+  util::JsonWriter body;
   body.begin_object();
   body.field("model", model);
   body.field("input", input);
@@ -310,7 +310,7 @@ EmbedResult BasicOllamaClient::embed(
       merge_model_params(options.model_params, default_params);
   const std::string model_params = model_params_to_json(params);
   if (not model_params.empty()) {
-    body.field("options", RawJson::of_raw(model_params));
+    body.field("options", util::RawJson::of_raw(model_params));
   }
   body.end_object();
 
@@ -321,7 +321,7 @@ EmbedResult BasicOllamaClient::embed(
   }
 
   result.error = with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
-    result.model = string_field(obj, "model");
+    result.model = util::string_field(obj, "model");
 
     simdjson::ondemand::array rows;
     if (not obj["embeddings"].get_array().get(rows)) {
@@ -338,9 +338,9 @@ EmbedResult BasicOllamaClient::embed(
       }
     }
 
-    result.total_duration = int_field(obj, "total_duration");
-    result.load_duration = int_field(obj, "load_duration");
-    result.prompt_eval_count = int_field(obj, "prompt_eval_count");
+    result.total_duration = util::int_field(obj, "total_duration");
+    result.load_duration = util::int_field(obj, "load_duration");
+    result.prompt_eval_count = util::int_field(obj, "prompt_eval_count");
   });
 
   if (result.error.empty()) result.ok = true;
@@ -383,7 +383,7 @@ int64_t context_length_from_model_info(const std::string& model_info_json) {
 ShowResult BasicOllamaClient::show(std::string_view model, bool verbose) const {
   ShowResult result;
 
-  JsonWriter body;
+  util::JsonWriter body;
   body.begin_object();
   body.field("model", model);
   if (verbose) body.field("verbose", true);
@@ -396,25 +396,25 @@ ShowResult BasicOllamaClient::show(std::string_view model, bool verbose) const {
   }
 
   result.error = with_parsed_object(http.body, [&](simdjson::ondemand::object& obj) {
-    result.license = string_field(obj, "license");
-    result.modified_at = string_field(obj, "modified_at");
-    result.prompt_template = string_field(obj, "template");
-    result.parameters = string_field(obj, "parameters");
+    result.license = util::string_field(obj, "license");
+    result.modified_at = util::string_field(obj, "modified_at");
+    result.prompt_template = util::string_field(obj, "template");
+    result.parameters = util::string_field(obj, "parameters");
     result.model_params = parse_model_params(result.parameters);
 
     simdjson::ondemand::object details;
     if (not obj["details"].get_object().get(details)) {
-      result.details.parent_model = string_field(details, "parent_model");
-      result.details.format = string_field(details, "format");
-      result.details.family = string_field(details, "family");
-      result.details.families = string_array_field(details, "families");
-      result.details.parameter_size = string_field(details, "parameter_size");
+      result.details.parent_model = util::string_field(details, "parent_model");
+      result.details.format = util::string_field(details, "format");
+      result.details.family = util::string_field(details, "family");
+      result.details.families = util::string_array_field(details, "families");
+      result.details.parameter_size = util::string_field(details, "parameter_size");
       result.details.quantization_level =
-          string_field(details, "quantization_level");
+          util::string_field(details, "quantization_level");
     }
 
-    result.model_info = RawJson::of_raw(raw_field(obj, "model_info"));
-    result.capabilities = string_array_field(obj, "capabilities");
+    result.model_info = util::RawJson::of_raw(util::raw_field(obj, "model_info"));
+    result.capabilities = util::string_array_field(obj, "capabilities");
   });
 
   if (result.error.empty()) result.ok = true;

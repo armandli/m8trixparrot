@@ -10,7 +10,8 @@
 
 #include <simdjson.h>
 
-#include <core/json_util.h>
+#include <core/util/json_util.h>
+#include <core/util/uuid.h>
 
 namespace agent {
 
@@ -27,7 +28,7 @@ bool is_valid_session_id(const std::string& id) {
 // `children` last, and load's parse_result() reads them in the same order:
 // simdjson's On-Demand parser has a single forward-only cursor, so the two
 // halves must stay in lockstep.
-void write_result(JsonWriter& body, const AgentResult& result) {
+void write_result(util::JsonWriter& body, const AgentResult& result) {
   body.begin_object();
   body.field("objective", result.objective);
   body.field("conclusion", result.conclusion);
@@ -45,12 +46,12 @@ void write_result(JsonWriter& body, const AgentResult& result) {
 // array is iterated, matching the write order.
 AgentResult parse_result(simdjson::ondemand::object& obj) {
   AgentResult result;
-  result.objective = string_field(obj, "objective");
-  result.conclusion = string_field(obj, "conclusion");
-  result.ok = bool_field(obj, "ok");
-  result.error = string_field(obj, "error");
-  result.steps = static_cast<int>(int_field(obj, "steps"));
-  result.hit_step_limit = bool_field(obj, "hit_step_limit");
+  result.objective = util::string_field(obj, "objective");
+  result.conclusion = util::string_field(obj, "conclusion");
+  result.ok = util::bool_field(obj, "ok");
+  result.error = util::string_field(obj, "error");
+  result.steps = static_cast<int>(util::int_field(obj, "steps"));
+  result.hit_step_limit = util::bool_field(obj, "hit_step_limit");
 
   simdjson::ondemand::array children;
   if (not obj["children"].get_array().get(children)) {
@@ -67,26 +68,6 @@ AgentResult parse_result(simdjson::ondemand::object& obj) {
 
 // RFC 4122 version-4 (random) UUID: 16 random bytes with the version and
 // variant bits overwritten, formatted as the canonical 8-4-4-4-12 hex string.
-std::string generate_uuid_v4() {
-  static thread_local std::mt19937_64 engine(std::random_device{}());
-  std::uniform_int_distribution<uint64_t> dist;
-
-  uint64_t hi = dist(engine);
-  uint64_t lo = dist(engine);
-
-  hi = (hi & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
-  lo = (lo & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
-
-  char buf[37];
-  std::snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx",
-                static_cast<unsigned>(hi >> 32),
-                static_cast<unsigned>((hi >> 16) & 0xFFFFu),
-                static_cast<unsigned>(hi & 0xFFFFu),
-                static_cast<unsigned>(lo >> 48),
-                static_cast<unsigned long long>(lo & 0xFFFFFFFFFFFFULL));
-  return std::string(buf);
-}
-
 SessionStore::SessionStore(std::string root_dir) : mRootDir(std::move(root_dir)) {}
 
 std::string SessionStore::session_file_path(const std::string& session_id) const {
@@ -99,7 +80,7 @@ SessionStoreResult SessionStore::store(const AgentResult& result_tree,
 
   std::string id = session_id;
   if (id.empty()) {
-    id = generate_uuid_v4();
+    id = util::generate_uuid_v4();
   } else if (not is_valid_session_id(id)) {
     result.error = "invalid session id: " + id;
     return result;
@@ -112,7 +93,7 @@ SessionStoreResult SessionStore::store(const AgentResult& result_tree,
     return result;
   }
 
-  JsonWriter body;
+  util::JsonWriter body;
   body.begin_object();
   body.field("session_id", id);
   body.key("result");
@@ -184,7 +165,7 @@ SessionResult SessionStore::load_from_path(const std::string& path) const {
       return result;
     }
 
-    result.session.session_id = string_field(root, "session_id");
+    result.session.session_id = util::string_field(root, "session_id");
 
     // Legacy files (a top-level "interactions" array, no "result") parse to an
     // empty tree rather than an error — the session is just shown as blank.

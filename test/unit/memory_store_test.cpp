@@ -16,7 +16,7 @@
 #include <core/memory_store.h>
 #include <core/ollama_client.h>
 #include <core/tools.h>
-#include <core/session_store.h>
+#include <core/util/uuid.h>
 
 #include "loopback_server.h"
 
@@ -35,7 +35,7 @@ struct MemoryStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-memory-" + generate_uuid_v4());
+          ("m8trix-memory-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
     path = (dir / "memory.m8db").string();
   }
