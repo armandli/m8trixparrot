@@ -80,10 +80,10 @@ std::string human_tokens(int64_t n) {
 
 }  // namespace
 
-Agent::Agent(AgentOptions options, const PolicyInterface& policy, std::string id,
+Agent::Agent(AgentOptions options, const PolicyInterface& pol, std::string id,
              std::string parent_id, int depth)
     : mOptions(std::move(options)),
-      mPolicy(policy),
+      mPolicy(pol),
       mStore(mOptions.session_dir),
       mId(std::move(id)),
       mParentId(std::move(parent_id)),
@@ -381,7 +381,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
 
   mTranscript.push_back(ChatMessage{"user", objective, {}, ""});
 
-  const std::vector<std::string> tools = tool_schemas();
+  const std::vector<std::string> schemas = tool_schemas();
 
   for (int step = 0; step < mOptions.max_steps; ++step) {
     self.steps = step + 1;
@@ -398,7 +398,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
     messages.insert(messages.end(), mTranscript.begin(), mTranscript.end());
 
     const uint64_t ticket =
-        OllamaClient::instance().enqueue_chat(messages, tools);
+        OllamaClient::instance().enqueue_chat(messages, schemas);
     const ChatResult reply = OllamaClient::instance().wait_for(ticket);
     if (not reply.ok) {
       self.ok = false;

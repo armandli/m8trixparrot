@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
   // here and nowhere else.
   const agent::YoloPolicy yolo_policy;
   const agent::SanePolicy sane_policy;
-  const agent::PolicyInterface& policy =
+  const agent::PolicyInterface& pol =
       policy_name == "sane"
           ? static_cast<const agent::PolicyInterface&>(sane_policy)
           : static_cast<const agent::PolicyInterface&>(yolo_policy);
@@ -263,7 +263,7 @@ int main(int argc, char** argv) {
   options.system_prompt_builder = parrot::make_system_prompt;
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
-  agent::Agent root_agent(options, policy, root_id, "", 0);
+  agent::Agent root_agent(options, pol, root_id, "", 0);
 
   std::mutex mutex;
   std::list<TranscriptNode> transcript;
@@ -749,7 +749,7 @@ int main(int argc, char** argv) {
 
     return f::vbox({
                f::text("m8trixparrot  |  model: " + model + "  |  policy: " +
-                       policy.name() + ctx_part + sub_part) |
+                       pol.name() + ctx_part + sub_part) |
                    f::bold | f::center,
                f::separator(),
                std::move(middle),

@@ -40,9 +40,9 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
   options.context_summarize_at_tokens = 100;  // call 1's 999999 trips it
   options.context_window_tokens = 0;
 
-  const YoloPolicy policy;
+  const YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  Agent root(options, policy, id, "", 0);
+  Agent root(options, pol, id, "", 0);
 
   const AgentResult result = root.run_turn("do the thing");
 
@@ -83,9 +83,9 @@ TEST(AgentContextTest, NoSummarizeBelowThreshold) {
   options.context_summarize_at_tokens = 200000;
   options.context_window_tokens = 0;
 
-  const YoloPolicy policy;
+  const YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  Agent root(options, policy, id, "", 0);
+  Agent root(options, pol, id, "", 0);
 
   const AgentResult result = root.run_turn("answer me");
 

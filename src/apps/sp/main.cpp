@@ -1104,10 +1104,10 @@ int main(int argc, char** argv) {
 
   agent::AgentPool::configure(options.max_agents, options.max_depth);
 
-  const agent::YoloPolicy policy;
+  const agent::YoloPolicy pol;
   const std::string root_id =
       agent::AgentPool::instance().register_root("sp");
-  agent::Agent root_agent(options, policy, root_id, "", 0);
+  agent::Agent root_agent(options, pol, root_id, "", 0);
 
   const int status = interactive ? run_interactive(root_agent, model, memory)
                                  : run_single_shot(prompt, root_agent);

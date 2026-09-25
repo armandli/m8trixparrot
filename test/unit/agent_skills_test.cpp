@@ -24,7 +24,7 @@ constexpr const char* kBodyMarker = "ZZZ_SKILL_BODY_MARKER_ZZZ";
 
 struct AgentSkillsTest : ::testing::Test {
   std::filesystem::path root;
-  YoloPolicy policy;
+  YoloPolicy pol;
 
   void SetUp() override {
     root = std::filesystem::temp_directory_path() /
@@ -52,14 +52,14 @@ struct AgentSkillsTest : ::testing::Test {
 
 TEST_F(AgentSkillsTest, ToolNamesAdvertiseSkillWhenCatalogExists) {
   const std::string id = AgentPool::instance().register_root("root");
-  const Agent agent(opts(), policy, id, "", 0);
+  const Agent agent(opts(), pol, id, "", 0);
 
   const std::vector<std::string> names = agent.tool_names();
   EXPECT_NE(std::find(names.begin(), names.end(), "skill"), names.end());
 
   AgentOptions empty = opts();
   empty.skills_dir = (root / "nonexistent").string();
-  const Agent bare(empty, policy, id, "", 0);
+  const Agent bare(empty, pol, id, "", 0);
   const std::vector<std::string> bare_names = bare.tool_names();
   EXPECT_EQ(std::find(bare_names.begin(), bare_names.end(), "skill"),
             bare_names.end());
@@ -85,7 +85,7 @@ TEST_F(AgentSkillsTest, LoadThenUnloadRemovesSkillFromTranscript) {
   });
 
   const std::string id = AgentPool::instance().register_root("root");
-  Agent agent(opts(), policy, id, "", 0);
+  Agent agent(opts(), pol, id, "", 0);
   const AgentResult result = agent.run_turn("use the demo skill");
 
   AgentPool::instance().set_observer({});

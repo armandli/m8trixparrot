@@ -222,7 +222,7 @@ int main(int argc, char** argv) {
 
   const agent::YoloPolicy yolo_policy;
   const agent::SanePolicy sane_policy(launch_dir);
-  const agent::PolicyInterface& policy =
+  const agent::PolicyInterface& pol =
       policy_name == "sane"
           ? static_cast<const agent::PolicyInterface&>(sane_policy)
           : static_cast<const agent::PolicyInterface&>(yolo_policy);
@@ -420,7 +420,7 @@ int main(int argc, char** argv) {
     return reply;
   };
 
-  agent::Agent root_agent(options, policy, root_id, "", 0);
+  agent::Agent root_agent(options, pol, root_id, "", 0);
   agent_containers[root_id] = &transcript;
 
   // --- observer ---------------------------------------------------------

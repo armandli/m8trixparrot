@@ -24,7 +24,7 @@ ToolResult SubagentCreateTool::execute(const ToolArgs& args) const {
   }
 
   const SpawnResult spawned =
-      AgentPool::instance().spawn(parent_id, *objective, policy, options);
+      AgentPool::instance().spawn(parent_id, *objective, pol, options);
   if (not spawned.ok) {
     // A cap was hit; the model reads the reason and does the work itself.
     result.error = spawned.error;

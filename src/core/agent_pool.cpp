@@ -68,7 +68,7 @@ std::string AgentPool::register_root(std::string label) {
 
 SpawnResult AgentPool::spawn(const std::string& parent_id,
                              const std::string& objective,
-                             const PolicyInterface& policy,
+                             const PolicyInterface& pol,
                              AgentOptions options) {
   int parent_depth = 0;
   {
@@ -101,7 +101,7 @@ SpawnResult AgentPool::spawn(const std::string& parent_id,
     node->label = "subagent";
     node->depth = child_depth;
     node->agent =
-        std::make_unique<Agent>(std::move(options), policy, id, parent_id,
+        std::make_unique<Agent>(std::move(options), pol, id, parent_id,
                                 child_depth);
     np = node.get();
     mNodes.emplace(id, std::move(node));

@@ -182,7 +182,7 @@ struct AgentOptions {
 // is built at the dispatch site with the current agent's fields.
 struct SubagentCreateTool {
   std::string parent_id;
-  const PolicyInterface& policy;
+  const PolicyInterface& pol;
   const AgentOptions& options;
 
   static std::string description();
@@ -211,7 +211,7 @@ struct Agent {
   // `policy` is borrowed and must outlive the agent. `id` is the agent's node
   // id in AgentPool; the root passes its register_root() id and an empty
   // parent, subagents are constructed by AgentPool::spawn().
-  Agent(AgentOptions options, const PolicyInterface& policy, std::string id,
+  Agent(AgentOptions options, const PolicyInterface& pol, std::string id,
         std::string parent_id, int depth);
 
   // Runs one turn. `objective` is the task; the return's `conclusion` is the

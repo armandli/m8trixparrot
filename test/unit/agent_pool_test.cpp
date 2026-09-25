@@ -33,7 +33,7 @@ namespace agent {
 namespace {
 
 struct AgentPoolTest : ::testing::Test {
-  YoloPolicy policy;
+  YoloPolicy pol;
   std::vector<std::string> spawned;
 
   void SetUp() override {
@@ -59,7 +59,7 @@ struct AgentPoolTest : ::testing::Test {
                           const std::string& objective,
                           const AgentOptions& options) {
     const SpawnResult result =
-        AgentPool::instance().spawn(parent, objective, policy, options);
+        AgentPool::instance().spawn(parent, objective, pol, options);
     if (result.ok) spawned.push_back(result.id);
     return result;
   }

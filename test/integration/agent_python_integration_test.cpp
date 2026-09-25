@@ -97,9 +97,9 @@ struct AgentPythonIntegrationTest : test::ToolTest {
   }
 
   AgentResult run(const std::string& objective) {
-    const YoloPolicy policy;
+    const YoloPolicy pol;
     const std::string id = AgentPool::instance().register_root("root");
-    Agent agent(opts(), policy, id, "", 0);
+    Agent agent(opts(), pol, id, "", 0);
     return agent.run_turn(objective);
   }
 
