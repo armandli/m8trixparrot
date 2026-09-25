@@ -13,7 +13,7 @@
 #include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 TEST(PackageInstallToolTest, MissingPackageIsAnError) {
@@ -86,4 +86,4 @@ TEST(PackageInstallToolTest, FailedInstallIsAnError) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

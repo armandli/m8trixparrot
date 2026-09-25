@@ -66,7 +66,7 @@ TEST_F(AgentSkillsTest, ToolNamesAdvertiseSkillWhenCatalogExists) {
 }
 
 TEST_F(AgentSkillsTest, LoadThenUnloadRemovesSkillFromTranscript) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       // step 1: load the skill
       R"json({"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"skill","arguments":{"action":"load","name":"demo"}}}]},"done":true,"prompt_eval_count":300,"eval_count":4})json",
       // step 2: unload it

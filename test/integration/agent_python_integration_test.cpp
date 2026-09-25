@@ -50,7 +50,7 @@ bool mentions_number(const std::string& haystack, const std::string& n) {
   return false;
 }
 
-struct AgentPythonIntegrationTest : test::ToolTest {
+struct AgentPythonIntegrationTest : m8test::ToolTest {
   void SetUp() override {
     const char* host_env = std::getenv("OLLAMA_HOST");
     mHost = (host_env != nullptr and *host_env != '\0')
@@ -66,7 +66,7 @@ struct AgentPythonIntegrationTest : test::ToolTest {
                    << "` (or set OLLAMA_HOST / M8_TEST_MODEL) to run this suite.";
     }
 
-    test::ToolTest::SetUp();  // fresh temp dir, chdir into it
+    m8test::ToolTest::SetUp();  // fresh temp dir, chdir into it
     mBaseReady = true;
 
     tools::ensure_python_ready();  // on the main thread, before any turn
@@ -82,7 +82,7 @@ struct AgentPythonIntegrationTest : test::ToolTest {
 
   void TearDown() override {
     AgentPool::instance().set_observer({});
-    if (mBaseReady) test::ToolTest::TearDown();
+    if (mBaseReady) m8test::ToolTest::TearDown();
   }
 
   AgentOptions opts() const {
@@ -243,7 +243,7 @@ TEST_F(AgentPythonIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
 // `websearch` reaches the model only with AgentOptions::enable_web_search set;
 // this also needs a Parallel API key and outbound network.
 TEST_F(AgentPythonIntegrationTest, CallsWebSearchWhenEnabledAndAKeyIsConfigured) {
-  if (not test::parallel_key_available()) {
+  if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
                     ".m8trix/parallel_api_key to run this test";
   }

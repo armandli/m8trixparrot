@@ -147,7 +147,7 @@ TEST_F(AgentPoolTest, WaitForReturnsTheResult) {
 // by an agent that fails instantly, which would not notice if spawn() stopped
 // running turns at all.
 TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"counted 42 files"},"done":true,"prompt_eval_count":11,"eval_count":3})json",
   });
   oc::OllamaClient::configure("test-model", server.url(""));
@@ -202,7 +202,7 @@ TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
 // serves the whole tree. If this ever stopped holding, every app's subagents
 // would silently fall back to core's default_system_prompt().
 TEST_F(AgentPoolTest, ASpawnedAgentInheritsItsParentsPromptBuilder) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"ok"},"done":true,"prompt_eval_count":7,"eval_count":2})json",
   });
   oc::OllamaClient::configure("test-model", server.url(""));

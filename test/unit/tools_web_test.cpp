@@ -12,7 +12,7 @@
 #include <loopback_server.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct WebFetchTest : ToolTest {};
@@ -188,4 +188,4 @@ TEST_F(WebFetchTest, LoopbackAddressesAreFetchedBecauseThereIsNoHostRestriction)
 // src/core/tools_web.cpp.
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

@@ -1,0 +1,15 @@
+1. fix agent system prompt to be separate for each application and can fully reset system prompt to be anything
+2. turn bash tool into a REPL (Read Eval Print Loop) allowing for RLM based system
+3. sp should be allowed to create new scripts under $HOME/bin or $HOME/.local/bin
+4. scripts sp create should be reusable by user
+8. cache the bash search tool scan so it doesn't take seconds to complete
+12. give sp a C++ development directory for C++ tools
+11. allow RLM on sp with subagents
+10. add to README diagram on sp
+5. refactor repository files in core into modular component directories
+
+13. give a subagent its own step budget (AgentOptions::subagent_max_steps,
+    applied in AgentPool::spawn) — a subagent inherits the root's max_steps today
+14. let a root abandon subagents it never waited on, instead of blocking in
+    assemble_tree() at the end of the turn
+6. explore more efficient implementation for local vector database workable on mac

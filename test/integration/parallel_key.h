@@ -6,7 +6,7 @@
 #include <sstream>
 #include <string>
 
-namespace agent::test {
+namespace m8test {
 
 // Makes a Parallel API key visible to WebSearchTool for a live test.
 // PARALLEL_API_KEY if already set; otherwise the trimmed contents of
@@ -38,6 +38,6 @@ inline bool parallel_key_available() {
   return false;
 }
 
-}  // namespace agent::test
+}  // namespace m8test
 
 #endif  // PARALLEL_KEY_H

@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <string>
 
-namespace agent::test {
+namespace m8test {
 
 namespace {
 
@@ -166,4 +166,4 @@ void LoopbackServer::handle(int fd, std::size_t response_index) {
   mInFlight.fetch_sub(1);
 }
 
-}  // namespace agent::test
+}  // namespace m8test

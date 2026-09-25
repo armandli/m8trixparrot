@@ -14,8 +14,9 @@ all: build
 
 configure: $(BUILD_DIR)/CMakeCache.txt
 
-$(BUILD_DIR)/CMakeCache.txt: CMakeLists.txt src/CMakeLists.txt test/CMakeLists.txt \
-                            test/unit/CMakeLists.txt test/integration/CMakeLists.txt
+CMAKE_FILES := $(shell find CMakeLists.txt src test -name CMakeLists.txt 2>/dev/null)
+
+$(BUILD_DIR)/CMakeCache.txt: $(CMAKE_FILES)
 	cmake -S . -B $(BUILD_DIR) $(CMAKE_FLAGS)
 
 build: configure

@@ -13,7 +13,7 @@
 #include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct PythonTest : ToolTest {};
@@ -135,4 +135,4 @@ TEST_F(PythonTest, FindWorkspaceRootFindsMarkerAncestor) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

@@ -15,7 +15,7 @@
 #include <loopback_server.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 // Sets an environment variable for the lifetime of the object and restores the
@@ -204,4 +204,4 @@ TEST_F(WebSearchTest, TheKeyFileIsUsedWhenTheEnvVarIsAbsent) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

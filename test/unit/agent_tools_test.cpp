@@ -146,7 +146,7 @@ TEST(AgentToolsTest, AskUserAdvertisedOnlyWithAHandler) {
 }
 
 TEST(AgentToolsTest, AskUserHandlerReplyIsFedBackToTheModel) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       // call 1: the model asks the operator something.
       R"json({"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"ask_user","arguments":{"prompt":"proceed?"}}}]},"done":true,"prompt_eval_count":10,"eval_count":5})json",
       // call 2: it answers, having seen the reply.
@@ -184,7 +184,7 @@ TEST(AgentToolsTest, AskUserHandlerReplyIsFedBackToTheModel) {
 }
 
 TEST(AgentToolsTest, SubagentCallIsRefusedWhenDisabled) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       // call 1: the model tries a subagent anyway.
       R"json({"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"subagent_create","arguments":{"objective":"do a thing"}}}]},"done":true,"prompt_eval_count":10,"eval_count":5})json",
       // call 2: it gives up and answers directly.

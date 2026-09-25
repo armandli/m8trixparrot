@@ -20,20 +20,20 @@
 
 #include <parallel_key.h>
 
-namespace agent {
+namespace tools {
 namespace {
 
 TEST(WebSearchIntegrationTest, RealParallelSearchReturnsResultsWithUrls) {
-  if (not test::parallel_key_available()) {
+  if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
                     ".m8trix/parallel_api_key to run this test";
   }
 
-  tools::ToolArgs args;
+  ToolArgs args;
   args["query"] = std::string("Parallel Web Systems company");
   args["limit"] = static_cast<int64_t>(3);
 
-  const tools::ToolResult result = tools::WebSearchTool().execute(args);
+  const ToolResult result = WebSearchTool().execute(args);
 
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_NE(result.output.find("http"), std::string::npos) << result.output;
@@ -44,7 +44,7 @@ TEST(WebSearchIntegrationTest, RealParallelSearchReturnsResultsWithUrls) {
 // error carrying Parallel's own message. Gated the same way — it needs the
 // network, and only a live-test environment has that set up.
 TEST(WebSearchIntegrationTest, AnInvalidKeyIsRejectedByParallelWithItsMessage) {
-  if (not test::parallel_key_available()) {
+  if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
                     ".m8trix/parallel_api_key to run this test";
   }
@@ -54,9 +54,9 @@ TEST(WebSearchIntegrationTest, AnInvalidKeyIsRejectedByParallelWithItsMessage) {
   const std::string saved = had_prior ? prior : "";
   ::setenv("PARALLEL_API_KEY", "definitely-not-a-real-key", 1);
 
-  tools::ToolArgs args;
+  ToolArgs args;
   args["query"] = std::string("anything at all");
-  const tools::ToolResult result = tools::WebSearchTool().execute(args);
+  const ToolResult result = WebSearchTool().execute(args);
 
   if (had_prior) {
     ::setenv("PARALLEL_API_KEY", saved.c_str(), 1);
@@ -71,4 +71,4 @@ TEST(WebSearchIntegrationTest, AnInvalidKeyIsRejectedByParallelWithItsMessage) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace tools

@@ -13,7 +13,7 @@
 #include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct BashSearchTest : ToolTest {
@@ -268,4 +268,4 @@ TEST_F(BashSearchTest, SearchWithMalformedQueryIsAnError) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

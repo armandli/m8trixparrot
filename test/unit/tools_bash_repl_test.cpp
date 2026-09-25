@@ -16,7 +16,7 @@
 #include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 namespace sc = std::chrono;
@@ -221,4 +221,4 @@ TEST_F(BashReplTest, LargeOutputIsTruncatedLikeBash) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

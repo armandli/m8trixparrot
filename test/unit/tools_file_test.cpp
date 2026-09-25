@@ -13,7 +13,7 @@
 #include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct ReadTest : ToolTest {};
@@ -317,4 +317,4 @@ TEST_F(EditTest, MissingFileOrMissingEditsIsAnError) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test

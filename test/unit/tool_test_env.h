@@ -15,7 +15,7 @@
 
 #include <core/tools/tools.h>
 
-namespace agent::test {
+namespace m8test {
 
 // Every tool resolves a relative path against the process working directory,
 // and `find`/`grep` default their search root to it outright (default_path(),
@@ -117,6 +117,6 @@ inline tools::ToolArgs args(
   return tools::ToolArgs(entries.begin(), entries.end());
 }
 
-}  // namespace agent::test
+}  // namespace m8test
 
 #endif  // TOOL_TEST_ENV_H

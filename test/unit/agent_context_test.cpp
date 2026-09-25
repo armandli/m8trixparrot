@@ -20,7 +20,7 @@ namespace agent {
 namespace {
 
 TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       // call 1: a tool call keeps the loop going; prompt_eval_count is huge.
       R"json({"message":{"role":"assistant","content":"working","tool_calls":[{"function":{"name":"python","arguments":{"script":"print(1)"}}}]},"done":true,"prompt_eval_count":999999,"eval_count":5})json",
       // call 2: the summary.
@@ -68,7 +68,7 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
 }
 
 TEST(AgentContextTest, NoSummarizeBelowThreshold) {
-  test::LoopbackServer server({
+  m8test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"here is the answer"},"done":true,"prompt_eval_count":500,"eval_count":4})json",
   });
   oc::OllamaClient::configure("test-model", server.url(""));

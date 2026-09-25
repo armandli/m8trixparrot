@@ -62,7 +62,7 @@ TEST(SkillFrontmatterTest, HandlesCarriageReturns) {
   EXPECT_EQ("crlf ok", fm.description);
 }
 
-struct SkillCatalogTest : test::ToolTest {};
+struct SkillCatalogTest : m8test::ToolTest {};
 
 TEST_F(SkillCatalogTest, DiscoversSortsAndSkips) {
   write_file(".m8trix/skills/beta/SKILL.md",

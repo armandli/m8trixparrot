@@ -17,15 +17,15 @@
 
 #include <core/tools/package_installer.h>
 
-namespace agent {
+namespace tools {
 namespace {
 
 TEST(PackageInstallerTest, ConcurrentRequestsForSamePackageDedupToOneRun) {
   std::atomic<int> calls{0};
-  tools::PackageInstaller::set_runner_for_test([&calls](const std::string& package) {
+  PackageInstaller::set_runner_for_test([&calls](const std::string& package) {
     calls.fetch_add(1);
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    tools::PackageInstallResult result;
+    PackageInstallResult result;
     result.ok = true;
     result.output = "installed " + package;
     return result;
@@ -36,8 +36,8 @@ TEST(PackageInstallerTest, ConcurrentRequestsForSamePackageDedupToOneRun) {
   std::atomic<int> successes{0};
   for (int i = 0; i < kCallers; ++i) {
     threads.emplace_back([&] {
-      const tools::PackageInstallResult result =
-          tools::PackageInstaller::instance().install("dedup-test-package");
+      const PackageInstallResult result =
+          PackageInstaller::instance().install("dedup-test-package");
       if (result.ok) successes.fetch_add(1);
     });
   }
@@ -49,17 +49,17 @@ TEST(PackageInstallerTest, ConcurrentRequestsForSamePackageDedupToOneRun) {
 
 TEST(PackageInstallerTest, SecondRequestAfterSuccessSkipsTheRunner) {
   std::atomic<int> calls{0};
-  tools::PackageInstaller::set_runner_for_test([&calls](const std::string&) {
+  PackageInstaller::set_runner_for_test([&calls](const std::string&) {
     calls.fetch_add(1);
-    tools::PackageInstallResult result;
+    PackageInstallResult result;
     result.ok = true;
     return result;
   });
 
-  const tools::PackageInstallResult first =
-      tools::PackageInstaller::instance().install("memoized-test-package");
-  const tools::PackageInstallResult second =
-      tools::PackageInstaller::instance().install("memoized-test-package");
+  const PackageInstallResult first =
+      PackageInstaller::instance().install("memoized-test-package");
+  const PackageInstallResult second =
+      PackageInstaller::instance().install("memoized-test-package");
 
   EXPECT_TRUE(first.ok);
   EXPECT_FALSE(first.already_installed);
@@ -70,17 +70,17 @@ TEST(PackageInstallerTest, SecondRequestAfterSuccessSkipsTheRunner) {
 
 TEST(PackageInstallerTest, DistinctPackagesEachGetTheirOwnRun) {
   std::atomic<int> calls{0};
-  tools::PackageInstaller::set_runner_for_test([&calls](const std::string&) {
+  PackageInstaller::set_runner_for_test([&calls](const std::string&) {
     calls.fetch_add(1);
-    tools::PackageInstallResult result;
+    PackageInstallResult result;
     result.ok = true;
     return result;
   });
 
-  const tools::PackageInstallResult a =
-      tools::PackageInstaller::instance().install("distinct-test-package-a");
-  const tools::PackageInstallResult b =
-      tools::PackageInstaller::instance().install("distinct-test-package-b");
+  const PackageInstallResult a =
+      PackageInstaller::instance().install("distinct-test-package-a");
+  const PackageInstallResult b =
+      PackageInstaller::instance().install("distinct-test-package-b");
 
   EXPECT_TRUE(a.ok);
   EXPECT_TRUE(b.ok);
@@ -89,18 +89,18 @@ TEST(PackageInstallerTest, DistinctPackagesEachGetTheirOwnRun) {
 
 TEST(PackageInstallerTest, FailedInstallIsNotMemoizedAsInstalled) {
   std::atomic<int> calls{0};
-  tools::PackageInstaller::set_runner_for_test([&calls](const std::string&) {
+  PackageInstaller::set_runner_for_test([&calls](const std::string&) {
     calls.fetch_add(1);
-    tools::PackageInstallResult result;
+    PackageInstallResult result;
     result.ok = false;
     result.error = "no such package";
     return result;
   });
 
-  const tools::PackageInstallResult first =
-      tools::PackageInstaller::instance().install("failing-test-package");
-  const tools::PackageInstallResult second =
-      tools::PackageInstaller::instance().install("failing-test-package");
+  const PackageInstallResult first =
+      PackageInstaller::instance().install("failing-test-package");
+  const PackageInstallResult second =
+      PackageInstaller::instance().install("failing-test-package");
 
   EXPECT_FALSE(first.ok);
   EXPECT_FALSE(second.ok);
@@ -108,4 +108,4 @@ TEST(PackageInstallerTest, FailedInstallIsNotMemoizedAsInstalled) {
 }
 
 }  // namespace
-}  // namespace agent
+}  // namespace tools

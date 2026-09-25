@@ -13,7 +13,7 @@
 #include <core/tools/tools.h>
 #include <tool_test_env.h>
 
-namespace agent::test {
+namespace m8test {
 namespace {
 
 struct BashTest : ToolTest {};
@@ -151,4 +151,4 @@ TEST_F(BashTest, OutputBeyondFiveThousandLinesIsTruncatedToATempFile) {
 }
 
 }  // namespace
-}  // namespace agent::test
+}  // namespace m8test
