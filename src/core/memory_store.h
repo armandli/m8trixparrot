@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-#include <core/basic_ollama_client.h>
+#include <core/oc/basic_ollama_client.h>
 #include <core/tools.h>
 #include <core/vector_store.h>
 
@@ -100,7 +100,7 @@ struct ScoredMemory {
 
 struct MemoryOptions {
   std::string path = kMemoryPath;
-  std::string embed_model = kDefaultEmbedModel;
+  std::string embed_model = oc::kDefaultEmbedModel;
   // Empty: ollama_embedder(embed_model) is built on open.
   Embedder embedder;
   // 0 means "discover it from the first embedding" — see MemoryStore::open.

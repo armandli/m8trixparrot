@@ -14,7 +14,7 @@
 #include <simdjson.h>
 
 #include <core/memory_store.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <core/tools.h>
 #include <core/util/uuid.h>
 
@@ -543,7 +543,7 @@ TEST_F(MemoryStoreTest, OllamaEmbedderNarrowsDoublesAndKeepsTheirDirection) {
   MemoryOptions opts;
   opts.path = path;
   opts.embed_model = "stub";
-  OllamaClient::configure_embed("stub", server.url());
+  oc::OllamaClient::configure_embed("stub", server.url());
   opts.embedder = ollama_embedder("stub");
   opts.recency_weight = 0.0;
   MemoryOpenResult opened = open_store(opts);
@@ -568,7 +568,7 @@ TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnHttpErrorAsAString) {
   const test::LoopbackServer server(500, "text/plain", "upstream is down");
   MemoryOptions opts;
   opts.path = path;
-  OllamaClient::configure_embed("stub", server.url());
+  oc::OllamaClient::configure_embed("stub", server.url());
   opts.embedder = ollama_embedder("stub");
   MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;
@@ -583,7 +583,7 @@ TEST_F(MemoryStoreTest, OllamaEmbedderReportsAnEmptyResponseAsAString) {
                                     R"({"model":"stub","embeddings":[]})");
   MemoryOptions opts;
   opts.path = path;
-  OllamaClient::configure_embed("stub", server.url());
+  oc::OllamaClient::configure_embed("stub", server.url());
   opts.embedder = ollama_embedder("stub");
   MemoryOpenResult opened = open_store(opts);
   ASSERT_TRUE(opened.ok) << opened.error;

@@ -433,7 +433,7 @@ int run_interactive(agent::Agent& root_agent, const std::string& model,
       if (not memory.enabled) {
         notice(std::string("Memory is off. Pull an embedding model (ollama "
                            "pull ") +
-               agent::kDefaultEmbedModel + ") or start sp with --memory.");
+               oc::kDefaultEmbedModel + ") or start sp with --memory.");
         return;
       }
       // remember and recall both block on an embedding round trip, so they
@@ -923,8 +923,8 @@ int main(int argc, char** argv) {
   std::string memory_path =
       settings.memory_path.value_or(paths.memory());
   std::string memory_model =
-      settings.memory_embed_model.value_or(agent::kDefaultEmbedModel);
-  int ollama_jobs = settings.ollama_jobs.value_or(agent::kDefaultOllamaJobs);
+      settings.memory_embed_model.value_or(oc::kDefaultEmbedModel);
+  int ollama_jobs = settings.ollama_jobs.value_or(oc::kDefaultOllamaJobs);
   // Unset means "decide from whether an embedding model is pulled"; a flag or
   // a config key makes it a decision the user made, which is honoured either
   // way.
@@ -1000,19 +1000,19 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  agent::OllamaClient::set_concurrency(ollama_jobs);
-  agent::OllamaClient::configure(model);
-  agent::OllamaClient::configure_embed(memory_model);
+  oc::OllamaClient::set_concurrency(ollama_jobs);
+  oc::OllamaClient::configure(model);
+  oc::OllamaClient::configure_embed(memory_model);
 
   int64_t window = num_ctx;
   if (window <= 0) {
-    window = agent::OllamaClient::instance().context_length(model);
+    window = oc::OllamaClient::instance().context_length(model);
     if (window <= 0 and not interactive) {
       std::cerr << "warning: could not detect context length for '" << model
                 << "'; auto-summarizing at a flat " << 200000 << " tokens\n";
     }
   }
-  if (window > 0) agent::OllamaClient::set_num_ctx(window);
+  if (window > 0) oc::OllamaClient::set_num_ctx(window);
 
   // Resolve memory last, because the probe is a call to the same Ollama the
   // model validation above has already shown to be up.

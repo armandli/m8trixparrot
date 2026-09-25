@@ -22,8 +22,8 @@
 
 #include <core/agent.h>
 #include <core/agent_pool.h>
-#include <core/basic_ollama_client.h>
-#include <core/ollama_client.h>
+#include <core/oc/basic_ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <core/policy.h>
 #include <core/tools.h>
 
@@ -60,7 +60,7 @@ struct AgentPythonIntegrationTest : test::ToolTest {
     mModel = (model_env != nullptr and *model_env != '\0') ? model_env
                                                            : "qwen3.8:27b-mlx";
 
-    if (not BasicOllamaClient(mHost).show(mModel).ok) {
+    if (not oc::BasicOllamaClient(mHost).show(mModel).ok) {
       GTEST_SKIP() << "Ollama model '" << mModel << "' not reachable at "
                    << mHost << " — start Ollama and `ollama pull " << mModel
                    << "` (or set OLLAMA_HOST / M8_TEST_MODEL) to run this suite.";
@@ -70,8 +70,8 @@ struct AgentPythonIntegrationTest : test::ToolTest {
     mBaseReady = true;
 
     ensure_python_ready();  // on the main thread, before any turn
-    OllamaClient::configure(mModel, mHost);
-    OllamaClient::set_num_ctx(0);
+    oc::OllamaClient::configure(mModel, mHost);
+    oc::OllamaClient::set_num_ctx(0);
     AgentPool::configure(/*max_agents=*/4, /*max_depth=*/0);
 
     AgentPool::instance().set_observer([this](const AgentEvent& event) {

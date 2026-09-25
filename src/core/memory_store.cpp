@@ -6,7 +6,7 @@
 #include <utility>
 
 #include <core/util/json_util.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 
 namespace agent {
 
@@ -78,9 +78,9 @@ Schema memory_schema() {
 
 Embedder ollama_embedder(std::string model) {
   return [model = std::move(model)](std::string_view text, std::string& error) {
-    OllamaClient& client = OllamaClient::instance();
+    oc::OllamaClient& client = oc::OllamaClient::instance();
     const uint64_t ticket = client.enqueue_embed({std::string(text)}, model);
-    const EmbedResult embedded = client.wait_for_embed(ticket);
+    const oc::EmbedResult embedded = client.wait_for_embed(ticket);
     if (not embedded.ok) {
       error = embedded.error.empty() ? "the embedding request failed"
                                      : embedded.error;

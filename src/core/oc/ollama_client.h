@@ -1,5 +1,5 @@
-#ifndef OLLAMA_CLIENT_H
-#define OLLAMA_CLIENT_H
+#ifndef M8_OC_OLLAMA_CLIENT_H
+#define M8_OC_OLLAMA_CLIENT_H
 
 #include <atomic>
 #include <condition_variable>
@@ -13,9 +13,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include <core/basic_ollama_client.h>
+#include <core/oc/basic_ollama_client.h>
 
-namespace agent {
+namespace oc {
 
 // How many requests may be in flight against Ollama at once, chat and embed
 // together. Ollama is one server on one machine: the point of this whole class
@@ -156,6 +156,6 @@ private:
   std::vector<std::thread> mWorkers;
 };
 
-}  // namespace agent
+}  // namespace oc
 
-#endif  // OLLAMA_CLIENT_H
+#endif  // M8_OC_OLLAMA_CLIENT_H

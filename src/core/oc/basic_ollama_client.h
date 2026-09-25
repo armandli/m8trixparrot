@@ -1,5 +1,5 @@
-#ifndef BASIC_OLLAMA_CLIENT_H
-#define BASIC_OLLAMA_CLIENT_H
+#ifndef M8_OC_BASIC_OLLAMA_CLIENT_H
+#define M8_OC_BASIC_OLLAMA_CLIENT_H
 
 #include <cstdint>
 #include <optional>
@@ -9,7 +9,7 @@
 
 #include <core/util/json_util.h>
 
-namespace agent {
+namespace oc {
 
 // The embedding model every app starts with unless told otherwise. Small
 // enough to stay resident alongside a much larger chat model, which is what
@@ -167,6 +167,6 @@ protected:
       const GenerateOptions::ModelParams& params);
 };
 
-}  // namespace agent
+}  // namespace oc
 
-#endif  // BASIC_OLLAMA_CLIENT_H
+#endif  // M8_OC_BASIC_OLLAMA_CLIENT_H

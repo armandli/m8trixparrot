@@ -12,7 +12,7 @@
 
 #include <core/agent.h>
 #include <core/agent_pool.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <core/policy.h>
 #include <core/util/uuid.h>
 #include <loopback_server.h>
@@ -74,8 +74,8 @@ TEST_F(AgentSkillsTest, LoadThenUnloadRemovesSkillFromTranscript) {
       // step 3: final answer
       R"json({"message":{"role":"assistant","content":"all done"},"done":true,"prompt_eval_count":150,"eval_count":3})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   std::vector<std::string> skill_results;
   AgentPool::instance().set_observer([&](const AgentEvent& e) {
@@ -99,7 +99,7 @@ TEST_F(AgentSkillsTest, LoadThenUnloadRemovesSkillFromTranscript) {
   EXPECT_NE(skill_results[1].find("unloaded skill 'demo'"), std::string::npos)
       << skill_results[1];
 
-  for (const ChatMessage& message : agent.transcript()) {
+  for (const oc::ChatMessage& message : agent.transcript()) {
     EXPECT_EQ(message.content.find(kBodyMarker), std::string::npos)
         << "unload should have removed the skill body from the transcript";
     EXPECT_TRUE(message.skill_label.empty());

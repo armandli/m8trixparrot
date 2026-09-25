@@ -1,9 +1,9 @@
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 
 #include <algorithm>
 #include <optional>
 
-namespace agent {
+namespace oc {
 
 namespace {
 
@@ -215,4 +215,4 @@ void OllamaClient::worker_loop() {
   }
 }
 
-}  // namespace agent
+}  // namespace oc

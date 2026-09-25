@@ -49,9 +49,9 @@ std::string summarize(const std::string& tool_name, const ToolArgs& args) {
 // The transcript flattened to labelled text, for the summarizer to read. A
 // message that is loaded skill content is reduced to a placeholder — the model
 // can reload the skill after summarizing, so its body needn't be re-digested.
-std::string render_transcript(const std::vector<ChatMessage>& transcript) {
+std::string render_transcript(const std::vector<oc::ChatMessage>& transcript) {
   std::ostringstream out;
-  for (const ChatMessage& message : transcript) {
+  for (const oc::ChatMessage& message : transcript) {
     if (not message.skill_label.empty()) {
       out << "[skill '" << message.skill_label
           << "' content was loaded here]\n\n";
@@ -61,7 +61,7 @@ std::string render_transcript(const std::vector<ChatMessage>& transcript) {
     if (not message.tool_name.empty()) out << " " << message.tool_name;
     out << "]\n";
     if (not message.content.empty()) out << message.content << "\n";
-    for (const ToolCall& call : message.tool_calls) {
+    for (const oc::ToolCall& call : message.tool_calls) {
       out << "-> called " << call.name << "(" << call.arguments << ")\n";
     }
     out << "\n";
@@ -165,7 +165,7 @@ void Agent::reload_skills() {
   mCatalog = SkillCatalog::discover(mOptions.skills_dir);
 }
 
-std::string Agent::skill_label_for(const ToolCall& call, const ToolArgs& args,
+std::string Agent::skill_label_for(const oc::ToolCall& call, const ToolArgs& args,
                                    const ToolResult& result) const {
   if (not mOptions.enable_skills) return std::string();
   if (call.name == "skill") {
@@ -227,7 +227,7 @@ void Agent::maybe_summarize_context() {
   // Skills loaded before the summary lose their body (render_transcript drops
   // it); tell the model which they were so it can reload any it still needs.
   std::vector<std::string> loaded;
-  for (const ChatMessage& message : mTranscript) {
+  for (const oc::ChatMessage& message : mTranscript) {
     if (not message.skill_label.empty() and
         std::find(loaded.begin(), loaded.end(), message.skill_label) ==
             loaded.end()) {
@@ -235,16 +235,16 @@ void Agent::maybe_summarize_context() {
     }
   }
 
-  std::vector<ChatMessage> request;
+  std::vector<oc::ChatMessage> request;
   const std::string summary_prompt =
       mOptions.summary_system_prompt.empty()
           ? default_summary_prompt()
           : mOptions.summary_system_prompt;
-  request.push_back(ChatMessage{"system", summary_prompt, {}, ""});
-  request.push_back(ChatMessage{"user", render_transcript(mTranscript), {}, ""});
+  request.push_back(oc::ChatMessage{"system", summary_prompt, {}, ""});
+  request.push_back(oc::ChatMessage{"user", render_transcript(mTranscript), {}, ""});
 
-  const uint64_t ticket = OllamaClient::instance().enqueue_chat(request, {});
-  const ChatResult reply = OllamaClient::instance().wait_for(ticket);
+  const uint64_t ticket = oc::OllamaClient::instance().enqueue_chat(request, {});
+  const oc::ChatResult reply = oc::OllamaClient::instance().wait_for(ticket);
 
   if (not reply.ok or reply.content.empty()) {
     emit({AgentEvent::Kind::Notice,
@@ -266,7 +266,7 @@ void Agent::maybe_summarize_context() {
   }
 
   mTranscript.clear();
-  mTranscript.push_back(ChatMessage{"user", seed, {}, ""});
+  mTranscript.push_back(oc::ChatMessage{"user", seed, {}, ""});
   mContextTokens.store(estimate_transcript_tokens(mTranscript));
 
   AgentEvent summarized;
@@ -379,7 +379,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
   AgentResult self;
   self.objective = objective;
 
-  mTranscript.push_back(ChatMessage{"user", objective, {}, ""});
+  mTranscript.push_back(oc::ChatMessage{"user", objective, {}, ""});
 
   const std::vector<std::string> schemas = tool_schemas();
 
@@ -392,14 +392,14 @@ AgentResult Agent::run_turn(const std::string& objective) {
 
     // The system message is rebuilt every step rather than stored, so a skill
     // load/unload lands in the very next call.
-    std::vector<ChatMessage> messages;
+    std::vector<oc::ChatMessage> messages;
     messages.reserve(mTranscript.size() + 1);
-    messages.push_back(ChatMessage{"system", system_prompt(), {}, ""});
+    messages.push_back(oc::ChatMessage{"system", system_prompt(), {}, ""});
     messages.insert(messages.end(), mTranscript.begin(), mTranscript.end());
 
     const uint64_t ticket =
-        OllamaClient::instance().enqueue_chat(messages, schemas);
-    const ChatResult reply = OllamaClient::instance().wait_for(ticket);
+        oc::OllamaClient::instance().enqueue_chat(messages, schemas);
+    const oc::ChatResult reply = oc::OllamaClient::instance().wait_for(ticket);
     if (not reply.ok) {
       self.ok = false;
       self.error = reply.error;
@@ -413,7 +413,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
     emit_context_usage();
 
     mTranscript.push_back(
-        ChatMessage{"assistant", reply.content, reply.tool_calls, ""});
+        oc::ChatMessage{"assistant", reply.content, reply.tool_calls, ""});
 
     if (not reply.content.empty()) {
       emit({AgentEvent::Kind::Assistant, reply.content, "", ""});
@@ -436,7 +436,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
       return self;
     }
 
-    for (const ToolCall& call : reply.tool_calls) {
+    for (const oc::ToolCall& call : reply.tool_calls) {
       std::string parse_error;
       const ToolArgs args = args_from_json(call.arguments, parse_error);
       const std::string summary = summarize(call.name, args);
@@ -448,7 +448,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
             "could not read the arguments for '" + call.name + "': " +
             parse_error;
         emit({AgentEvent::Kind::ToolResult, message, call.name, ""});
-        mTranscript.push_back(ChatMessage{"tool", message, {}, call.name});
+        mTranscript.push_back(oc::ChatMessage{"tool", message, {}, call.name});
         continue;
       }
 
@@ -459,7 +459,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
         // policies explain themselves.
         emit({AgentEvent::Kind::Denied, verdict.reason, call.name, summary});
         mTranscript.push_back(
-            ChatMessage{"tool", verdict.reason, {}, call.name});
+            oc::ChatMessage{"tool", verdict.reason, {}, call.name});
         continue;
       }
 
@@ -470,7 +470,7 @@ AgentResult Agent::run_turn(const std::string& objective) {
       if (content.empty()) content = "[no output]";
 
       emit({AgentEvent::Kind::ToolResult, content, call.name, ""});
-      ChatMessage tool_message{"tool",
+      oc::ChatMessage tool_message{"tool",
                                clip_text(content, kMaxToolResultBytes),
                                {}, call.name};
       tool_message.skill_label = skill_label_for(call, args, executed);

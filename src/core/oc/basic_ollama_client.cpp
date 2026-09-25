@@ -1,4 +1,4 @@
-#include <core/basic_ollama_client.h>
+#include <core/oc/basic_ollama_client.h>
 
 #include <sstream>
 
@@ -7,7 +7,7 @@
 
 #include <core/util/json_util.h>
 
-namespace agent {
+namespace oc {
 
 namespace {
 
@@ -471,4 +471,4 @@ BasicOllamaClient::HttpResult BasicOllamaClient::post_json(
   return result;
 }
 
-}  // namespace agent
+}  // namespace oc

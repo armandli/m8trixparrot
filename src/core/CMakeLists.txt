@@ -8,9 +8,9 @@ add_library(agentcore STATIC
   util/json_util.cpp
   util/uuid.cpp
   memory_store.cpp
-  basic_ollama_client.cpp
+  oc/basic_ollama_client.cpp
   byte_io.cpp
-  ollama_client.cpp
+  oc/ollama_client.cpp
   package_installer.cpp
   policy.cpp
   session_store.cpp

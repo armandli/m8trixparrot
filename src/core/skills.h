@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-#include <core/basic_ollama_client.h>
+#include <core/oc/basic_ollama_client.h>
 #include <core/tools.h>
 
 namespace agent {
@@ -68,13 +68,13 @@ struct SkillCatalog {
 
 // The `chars / 4 + 1200` transcript-size estimate shared by the summarize
 // trigger and `skill unload`'s post-removal token refresh.
-int64_t estimate_transcript_tokens(const std::vector<ChatMessage>& transcript);
+int64_t estimate_transcript_tokens(const std::vector<oc::ChatMessage>& transcript);
 
 // Loads a skill's instructions into the transcript, or removes them. Constructed
 // at the dispatch site with references into the running Agent, like the subagent
 // tools.
 struct SkillTool {
-  std::vector<ChatMessage>& transcript;
+  std::vector<oc::ChatMessage>& transcript;
   std::atomic<int64_t>& context_tokens;
   const SkillCatalog& catalog;
 

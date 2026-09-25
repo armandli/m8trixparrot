@@ -24,7 +24,7 @@
 #include <core/agent.h>
 #include <core/agent_pool.h>
 #include <core/agent_result.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <core/policy.h>
 #include <core/tools.h>
 #include <loopback_server.h>
@@ -37,7 +37,7 @@ struct AgentPoolTest : ::testing::Test {
   std::vector<std::string> spawned;
 
   void SetUp() override {
-    OllamaClient::configure("test-model", "http://127.0.0.1:1");
+    oc::OllamaClient::configure("test-model", "http://127.0.0.1:1");
   }
 
   void TearDown() override {
@@ -150,8 +150,8 @@ TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
   test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"counted 42 files"},"done":true,"prompt_eval_count":11,"eval_count":3})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   struct Seen {
     std::mutex mutex;
@@ -205,8 +205,8 @@ TEST_F(AgentPoolTest, ASpawnedAgentInheritsItsParentsPromptBuilder) {
   test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"ok"},"done":true,"prompt_eval_count":7,"eval_count":2})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   struct Calls {
     std::mutex mutex;

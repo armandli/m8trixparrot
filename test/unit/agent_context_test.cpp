@@ -12,7 +12,7 @@
 
 #include <core/agent.h>
 #include <core/agent_pool.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <core/policy.h>
 #include <loopback_server.h>
 
@@ -28,8 +28,8 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
       // call 3: a final answer ends the turn.
       R"json({"message":{"role":"assistant","content":"all done"},"done":true,"prompt_eval_count":50,"eval_count":8})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   std::vector<AgentEvent::Kind> kinds;
   AgentPool::instance().set_observer(
@@ -59,7 +59,7 @@ TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
   // The transcript was compacted: short, and it holds the summary text.
   EXPECT_LT(root.transcript().size(), 4u);
   bool has_summary = false;
-  for (const ChatMessage& message : root.transcript()) {
+  for (const oc::ChatMessage& message : root.transcript()) {
     if (message.content.find("COMPACTED STATE") != std::string::npos) {
       has_summary = true;
     }
@@ -71,8 +71,8 @@ TEST(AgentContextTest, NoSummarizeBelowThreshold) {
   test::LoopbackServer server({
       R"json({"message":{"role":"assistant","content":"here is the answer"},"done":true,"prompt_eval_count":500,"eval_count":4})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   std::vector<AgentEvent::Kind> kinds;
   AgentPool::instance().set_observer(

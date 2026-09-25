@@ -188,11 +188,11 @@ std::string SkillCatalog::label_for_text(std::string_view text) const {
   return std::string();
 }
 
-int64_t estimate_transcript_tokens(const std::vector<ChatMessage>& transcript) {
+int64_t estimate_transcript_tokens(const std::vector<oc::ChatMessage>& transcript) {
   size_t chars = 0;
-  for (const ChatMessage& message : transcript) {
+  for (const oc::ChatMessage& message : transcript) {
     chars += message.content.size();
-    for (const ToolCall& call : message.tool_calls) {
+    for (const oc::ToolCall& call : message.tool_calls) {
       chars += call.name.size() + call.arguments.size();
     }
   }
@@ -287,7 +287,7 @@ ToolResult SkillTool::unload(const SkillInfo& skill) const {
   for (long i = static_cast<long>(transcript.size()) - 1; i >= 0; --i) {
     if (transcript[static_cast<size_t>(i)].skill_label != skill.name) continue;
 
-    const ChatMessage& msg = transcript[static_cast<size_t>(i)];
+    const oc::ChatMessage& msg = transcript[static_cast<size_t>(i)];
     freed += msg.content.size();
 
     if (msg.role != "tool") {
@@ -304,7 +304,7 @@ ToolResult SkillTool::unload(const SkillInfo& skill) const {
 
     if (j >= 0 and transcript[static_cast<size_t>(j)].role == "assistant" and
         not transcript[static_cast<size_t>(j)].tool_calls.empty()) {
-      ChatMessage& owner = transcript[static_cast<size_t>(j)];
+      oc::ChatMessage& owner = transcript[static_cast<size_t>(j)];
       const size_t sibling = static_cast<size_t>(i - (j + 1));
       if (sibling < owner.tool_calls.size()) {
         owner.tool_calls.erase(owner.tool_calls.begin() + sibling);

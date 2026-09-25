@@ -11,7 +11,7 @@
 
 #include <core/agent_result.h>
 #include <core/bash_repl.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <core/policy.h>
 #include <core/session_store.h>
 #include <core/skills.h>
@@ -136,7 +136,7 @@ struct AgentOptions {
   // an embedding model does not advertise its vector width.
   bool enable_memory = false;
   std::string memory_path = ".m8trix/memory.m8db";
-  std::string memory_embed_model = kDefaultEmbedModel;
+  std::string memory_embed_model = oc::kDefaultEmbedModel;
 
   // When false, the `python` tool is neither advertised nor dispatchable.
   // Default true for backward compatibility. Shell-only agents (e.g. sp) set
@@ -231,7 +231,7 @@ struct Agent {
   const std::string& session_id() const { return mSessionId; }
   const std::string& id() const { return mId; }
   int depth() const { return mDepth; }
-  const std::vector<ChatMessage>& transcript() const { return mTranscript; }
+  const std::vector<oc::ChatMessage>& transcript() const { return mTranscript; }
 
   // Tokens the model processed on the last call (or an estimate before the
   // first). Thread-safe: the running turn writes it, a UI may read it.
@@ -307,13 +307,13 @@ private:
   // The skill a finished tool call's result should be tagged with (for
   // `skill unload`): the loaded skill name for a `skill load`, or the skill
   // whose directory a `python` script read from. "" otherwise.
-  std::string skill_label_for(const ToolCall& call, const ToolArgs& args,
+  std::string skill_label_for(const oc::ToolCall& call, const ToolArgs& args,
                               const ToolResult& result) const;
 
   AgentOptions mOptions;
   const PolicyInterface& mPolicy;
   SessionStore mStore;
-  std::vector<ChatMessage> mTranscript;
+  std::vector<oc::ChatMessage> mTranscript;
   std::string mSessionId;
   std::string mId;
   std::string mParentId;

@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
   int max_steps = settings.max_steps.value_or(40);
   int num_ctx = settings.num_ctx.value_or(0);
   int summarize_at = settings.summarize_at.value_or(200000);
-  int ollama_jobs = settings.ollama_jobs.value_or(agent::kDefaultOllamaJobs);
+  int ollama_jobs = settings.ollama_jobs.value_or(oc::kDefaultOllamaJobs);
   std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
   bool no_skills = not settings.enable_skills.value_or(true);
   std::string shell_override = settings.shell.value_or("");
@@ -227,8 +227,8 @@ int main(int argc, char** argv) {
           ? static_cast<const agent::PolicyInterface&>(sane_policy)
           : static_cast<const agent::PolicyInterface&>(yolo_policy);
 
-  agent::OllamaClient::set_concurrency(ollama_jobs);
-  agent::OllamaClient::configure(model);
+  oc::OllamaClient::set_concurrency(ollama_jobs);
+  oc::OllamaClient::configure(model);
   agent::AgentPool::configure(/*max_agents=*/16, /*max_depth=*/3);
 
   const agent::VenvBootstrap venv = agent::create_workspace_venv();
@@ -240,9 +240,9 @@ int main(int argc, char** argv) {
 
   std::int64_t window = num_ctx;
   if (window <= 0) {
-    window = agent::OllamaClient::instance().context_length(model);
+    window = oc::OllamaClient::instance().context_length(model);
   }
-  if (window > 0) agent::OllamaClient::set_num_ctx(window);
+  if (window > 0) oc::OllamaClient::set_num_ctx(window);
 
   // --- shared UI state ---------------------------------------------------
   std::mutex ui_mutex;
@@ -360,7 +360,7 @@ int main(int argc, char** argv) {
   options.memory_path = settings.memory_path.value_or(options.memory_path);
   options.memory_embed_model =
       settings.memory_embed_model.value_or(options.memory_embed_model);
-  agent::OllamaClient::configure_embed(options.memory_embed_model);
+  oc::OllamaClient::configure_embed(options.memory_embed_model);
   if (options.enable_memory) {
     // Two models of the same width would otherwise open, write and rank
     // against each other with nothing to show for it but worse recall.

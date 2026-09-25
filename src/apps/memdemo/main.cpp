@@ -12,7 +12,7 @@
 #include <CLI/CLI.hpp>
 
 #include <core/memory_store.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 
 namespace {
 
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
     options.embed_model = model;
     // The host lives on the OllamaClient pool now, not on MemoryOptions: every
     // embedding in the process goes through it.
-    agent::OllamaClient::configure_embed(model, host);
+    oc::OllamaClient::configure_embed(model, host);
     std::printf("Embedder: ollama %s at %s\n", model.c_str(), host.c_str());
   }
 

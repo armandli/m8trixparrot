@@ -12,7 +12,7 @@
 
 #include <core/agent.h>
 #include <core/agent_pool.h>
-#include <core/ollama_client.h>
+#include <core/oc/ollama_client.h>
 #include <core/policy.h>
 #include <loopback_server.h>
 
@@ -152,8 +152,8 @@ TEST(AgentToolsTest, AskUserHandlerReplyIsFedBackToTheModel) {
       // call 2: it answers, having seen the reply.
       R"json({"message":{"role":"assistant","content":"acknowledged"},"done":true,"prompt_eval_count":20,"eval_count":4})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   std::string asked;
   AgentOptions options;
@@ -174,7 +174,7 @@ TEST(AgentToolsTest, AskUserHandlerReplyIsFedBackToTheModel) {
   EXPECT_EQ("proceed?", asked);
 
   bool relayed = false;
-  for (const ChatMessage& message : agent.transcript()) {
+  for (const oc::ChatMessage& message : agent.transcript()) {
     if (message.role == "tool" and message.tool_name == "ask_user" and
         message.content == "approved") {
       relayed = true;
@@ -190,8 +190,8 @@ TEST(AgentToolsTest, SubagentCallIsRefusedWhenDisabled) {
       // call 2: it gives up and answers directly.
       R"json({"message":{"role":"assistant","content":"done it myself"},"done":true,"prompt_eval_count":20,"eval_count":4})json",
   });
-  OllamaClient::configure("test-model", server.url(""));
-  OllamaClient::set_num_ctx(0);
+  oc::OllamaClient::configure("test-model", server.url(""));
+  oc::OllamaClient::set_num_ctx(0);
 
   AgentOptions options;
   options.max_steps = 4;
@@ -207,7 +207,7 @@ TEST(AgentToolsTest, SubagentCallIsRefusedWhenDisabled) {
   EXPECT_EQ("done it myself", result.conclusion);
 
   bool refused = false;
-  for (const ChatMessage& message : agent.transcript()) {
+  for (const oc::ChatMessage& message : agent.transcript()) {
     if (message.role == "tool" and
         message.content.find("no tool named 'subagent_create'") !=
             std::string::npos) {
