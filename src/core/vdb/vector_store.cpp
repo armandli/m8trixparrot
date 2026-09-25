@@ -88,7 +88,12 @@ std::optional<MetaValue> meta_value_from(simdjson::dom::element element) {
       return MetaValue{std::monostate{}};
     case simdjson::dom::element_type::ARRAY: {
       std::vector<std::string> items;
-      for (simdjson::dom::element item : element.get_array().value_unsafe()) {
+      // Store in a named local: calling .value_unsafe() on a temporary
+      // simdjson_result<dom::array> in a range-for initialiser is UB on Linux
+      // (GCC catches it; Apple Clang tolerates it by luck).
+      simdjson::dom::array arr;
+      if (element.get_array().get(arr)) return std::nullopt;
+      for (simdjson::dom::element item : arr) {
         if (item.type() != simdjson::dom::element_type::STRING) return std::nullopt;
         items.emplace_back(item.get_string().value_unsafe());
       }
@@ -414,7 +419,11 @@ bool parse_field_condition(std::string_view field,
     return true;
   }
 
-  for (simdjson::dom::key_value_pair entry : spec.get_object().value_unsafe()) {
+  // Store in a named local: same UB as the array case — temporary
+  // simdjson_result<dom::object> is destroyed before the iterator uses it.
+  simdjson::dom::object spec_obj;
+  if (spec.get_object().get(spec_obj)) return true;
+  for (simdjson::dom::key_value_pair entry : spec_obj) {
     const std::optional<FilterOp> op = comparison_op(entry.key);
     if (not op) {
       error = "filter field '" + std::string(field) +
