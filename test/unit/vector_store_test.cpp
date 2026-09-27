@@ -65,7 +65,7 @@ struct VectorStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-vecstore-" + util::generate_uuid_v4());
+          ("m8-vecstore-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
     path = (dir / "memory.m8db").string();
   }

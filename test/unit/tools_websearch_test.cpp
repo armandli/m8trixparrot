@@ -185,16 +185,16 @@ TEST_F(WebSearchTest, AMissingApiKeyIsAnErrorNamingTheEnvVarAndTheKeyFile) {
 
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.error.find("PARALLEL_API_KEY"), std::string::npos);
-  EXPECT_NE(result.error.find(".m8trix/parallel_api_key"), std::string::npos);
+  EXPECT_NE(result.error.find(".m8/parallel_api_key"), std::string::npos);
 }
 
-// With no env var, the key is read from .m8trix/parallel_api_key relative to the
+// With no env var, the key is read from .m8/parallel_api_key relative to the
 // working directory. Reaching ok == true proves a key was found and sent.
 TEST_F(WebSearchTest, TheKeyFileIsUsedWhenTheEnvVarIsAbsent) {
   LoopbackServer server(200, "application/json", kThreeResults);
   ScopedEnv base("PARALLEL_API_BASE", server.url(""));
   ScopedEnv key("PARALLEL_API_KEY");  // unset
-  write_file(".m8trix/parallel_api_key", "  file-key-123\n");
+  write_file(".m8/parallel_api_key", "  file-key-123\n");
 
   const tools::ToolResult result =
       tools::WebSearchTool().execute(args({{"query", str("counting")}}));

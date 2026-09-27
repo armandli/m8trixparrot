@@ -19,9 +19,15 @@ vdb::MemoryOptions memory_options;
 
 std::vector<std::string> tool_schemas() {
   return {
-      tools::PythonTool().description(),
-      tools::PackageInstallTool().description(),
+      tools::BashTool().description(),
+      tools::ReadTool().description(),
+      tools::WriteTool().description(),
+      tools::EditTool().description(),
+      tools::FindTool().description(),
+      tools::GrepTool().description(),
+      tools::WebFetchTool().description(),
       tools::WebSearchTool().description(),
+      tools::BashSearchTool().description(),
       vdb::MemoryTool::description(),
   };
 }
@@ -44,9 +50,15 @@ void print_schemas() {
 
 tools::ToolResult dispatch(const std::string& name,
                            const tools::ToolArgs& args) {
-  if (name == "python") return tools::PythonTool().execute(args);
-  if (name == "package_install") return tools::PackageInstallTool().execute(args);
+  if (name == "bash") return tools::BashTool().execute(args);
+  if (name == "read") return tools::ReadTool().execute(args);
+  if (name == "write") return tools::WriteTool().execute(args);
+  if (name == "edit") return tools::EditTool().execute(args);
+  if (name == "find") return tools::FindTool().execute(args);
+  if (name == "grep") return tools::GrepTool().execute(args);
+  if (name == "webfetch") return tools::WebFetchTool().execute(args);
   if (name == "websearch") return tools::WebSearchTool().execute(args);
+  if (name == "bash_search") return tools::BashSearchTool().execute(args);
   if (name == "memory") return vdb::MemoryTool{memory_options}.execute(args);
 
   tools::ToolResult unknown;
@@ -113,7 +125,7 @@ void print_result(const tools::ToolResult& result) {
 
 int main(int argc, char** argv) {
   CLI::App app{
-      "m8trixparrot toolcall - run one tool call given as JSON and print the "
+      "m8 toolcall - run one tool call given as JSON and print the "
       "result as JSON"};
 
   // --help prints the enabled tools' schemas as a JSON array and nothing else,
@@ -125,7 +137,7 @@ int main(int argc, char** argv) {
                "Print the enabled tool schemas as a JSON array");
 
   app.add_option("--memory-path", memory_options.path,
-                 "Memory database file (default: .m8trix/memory.m8db)");
+                 "Memory database file (default: .m8/vdb/memory.m8db)");
   app.add_option("--memory-model", memory_options.embed_model,
                  "Ollama embedding model for the memory tool")
       ->capture_default_str();
@@ -161,20 +173,6 @@ int main(int argc, char** argv) {
   if (not error.empty()) {
     std::cerr << "error: " << error << "\n";
     return 2;
-  }
-
-  // python / package_install target the workspace .m8trixenv; build and
-  // activate it the same way the main agent does. websearch needs none of
-  // this, but the bootstrap is cheap once the venv exists.
-  const tools::VenvBootstrap venv = tools::create_workspace_venv();
-  if (venv.status == tools::VenvBootstrap::Status::Failed) {
-    std::cerr << "error: could not create the .m8trixenv virtualenv at "
-              << venv.venv_dir << ": " << venv.detail << "\n";
-    return 1;
-  }
-  if (venv.status == tools::VenvBootstrap::Status::NotAProject) {
-    std::cerr << "note: not in a project directory; running against the base "
-                 "Python\n";
   }
 
   const tools::ToolResult result = dispatch(name, args);

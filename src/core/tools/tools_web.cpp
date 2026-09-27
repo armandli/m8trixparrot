@@ -25,7 +25,7 @@ constexpr size_t kMaxDownloadBytes = 10u * 1024u * 1024u;
 
 // Plenty of sites reject libcurl's default user agent outright.
 constexpr const char* kUserAgent =
-    "Mozilla/5.0 (compatible; m8trixparrot/1.0; +https://github.com/armandli/m8trixparrot)";
+    "Mozilla/5.0 (compatible; m8/1.0; +https://github.com/armandli/m8)";
 
 // curl_global_init() must run once before any handle is used and is not itself
 // thread-safe, so it happens through a function-local static — the same idiom

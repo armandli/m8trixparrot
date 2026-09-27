@@ -1,8 +1,10 @@
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 
 #include <algorithm>
 #include <atomic>
+#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <list>
@@ -30,7 +32,8 @@
 #include <core/policy/sane_policy.h>
 #include <core/tools/tools.h>
 
-#include <parrot_prompt.h>
+#include <m8_paths.h>
+#include <m8_prompt.h>
 
 namespace f = ftxui;
 
@@ -90,21 +93,47 @@ int main(int argc, char** argv) {
   // library; pull the names in for this whole function.
   using namespace agentui;
 
-  CLI::App app{"m8trixparrot - a coding agent over Ollama"};
+  CLI::App app{"m8 - a coding agent over Ollama"};
   app.footer(
       "Defaults for model, policy, and the flags below may also be set in "
-      "<workdir>/.m8trix/settings.json (keys: model, policy, max_steps, "
-      "max_depth, max_agents, num_ctx, summarize_at, skills_dir, "
-      "enable_skills, enable_subagents, enable_package_install, "
-      "enable_web_search); an explicit flag here always overrides it.");
+      "<workspace>/.m8/config.json (keys: model, policy, max_steps, max_depth, "
+      "max_agents, num_ctx, summarize_at, ollama_jobs, skills_dir, "
+      "enable_skills, enable_subagents, enable_bash_repl, enable_bash_search, "
+      "enable_memory, memory_path, memory_embed_model, enable_web_search); an "
+      "explicit flag here always overrides it.");
 
-  // .m8trix/settings.json (if present) supplies defaults for the flags below —
-  // loaded before the flags are declared so CLI11's ->capture_default_str()
-  // reflects it, and an explicit flag on the command line still overwrites
-  // whatever the file set, since CLI11 assigns into the same variable.
+  // Everything m8 keeps lives in <workspace>/.m8, where <workspace> is the
+  // nearest ancestor of the cwd carrying a .git or .m8 marker. Resolved before
+  // anything else so the config path, the skills directory, the session
+  // directory and the memory file are all one decision rather than four.
+  const char* home_env = std::getenv("HOME");
+  const m8::M8Paths paths = m8::resolve_m8_paths(
+      std::filesystem::current_path().string(), home_env ? home_env : "");
+
+  std::string dirs_error;
+  if (not m8::ensure_m8_dirs(paths, dirs_error)) {
+    // Not fatal: m8 runs fine without being able to persist, and saying so once
+    // beats failing on every session write.
+    std::cerr << "warning: " << dirs_error
+              << "; sessions, skills and memory are unavailable\n";
+  } else if (not m8::ensure_default_config(paths, dirs_error)) {
+    std::cerr << "warning: " << dirs_error << "\n";
+  }
+
+  // The bash_search index describes PATH, which belongs to the machine rather
+  // than to this repository, so it stays shared in ~/.m8. With no HOME the
+  // built-in default (which falls back to /tmp) is left alone.
+  if (not paths.search_index().empty()) {
+    tools::set_bash_search_index_path(paths.search_index());
+  }
+
+  // .m8/config.json (if present) supplies defaults for the flags below — loaded
+  // before the flags are declared so CLI11's ->capture_default_str() reflects
+  // it, and an explicit flag on the command line still overwrites whatever the
+  // file set, since CLI11 assigns into the same variable.
   std::string settings_warning;
   const agent::StartupSettings settings =
-      agent::load_startup_settings(agent::kAgentSettingsPath, settings_warning);
+      agent::load_startup_settings(paths.config_file(), settings_warning);
   if (not settings_warning.empty()) {
     std::cerr << "warning: " << settings_warning << "\n";
   }
@@ -118,13 +147,13 @@ int main(int argc, char** argv) {
   int num_ctx = settings.num_ctx.value_or(0);
   int summarize_at = settings.summarize_at.value_or(200000);
   int ollama_jobs = settings.ollama_jobs.value_or(oc::kDefaultOllamaJobs);
-  std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
+  std::string skills_dir = settings.skills_dir.value_or(paths.skills());
   bool no_skills = not settings.enable_skills.value_or(true);
 
   app.add_option("model,-m,--model", model, "Ollama model to run the agent on")
       ->capture_default_str();
   app.add_flag("-r,--resume", resume_latest,
-               "Resume the most recent session in .m8trix/sessions");
+               "Resume the most recent session in .m8/sessions");
   app.add_option("-s,--session", resume_id, "Resume a specific session id");
   app.add_option("--max-steps", max_steps,
                  "Model calls allowed per turn before giving up")
@@ -189,20 +218,29 @@ int main(int argc, char** argv) {
   oc::OllamaClient::configure(model);
   agent::AgentPool::configure(max_agents, max_depth);
 
-  // Bring Python up (main thread, before any agent thread touches it) and
-  // build/activate this workspace's .m8trixenv. A hard failure is worth
-  // stopping for: the agent would otherwise run against the base interpreter
-  // and package_install would be broken.
-  const tools::VenvBootstrap venv = tools::create_workspace_venv();
-  if (venv.status == tools::VenvBootstrap::Status::Failed) {
-    std::cerr << "error: could not create the .m8trixenv virtualenv at "
-              << venv.venv_dir << "\n       " << venv.detail << "\n";
-    return 1;
+  // m8 reads and writes files by running the installed tool_* commands in its
+  // shell, so which of them exist is a startup question, not something to
+  // discover one failed tool call at a time. What is found goes into the system
+  // prompt; what is missing is named once here. Not fatal — the model still has
+  // a whole shell, it just has to make do with cat and sed.
+  std::vector<std::string> wanted_tools;
+  for (const m8::InstalledTool& tool : m8::known_installed_tools()) {
+    wanted_tools.push_back(tool.name);
   }
-  if (venv.status == tools::VenvBootstrap::Status::NotAProject) {
-    std::cerr << "note: launch directory is not a project (no .git, .m8trix, "
-                 "pyproject.toml or requirements.txt here or in any parent); "
-                 "skipping .m8trixenv and running against the base Python\n";
+  const char* path_env = std::getenv("PATH");
+  const std::vector<std::string> installed_tools =
+      m8::find_on_path(wanted_tools, path_env ? path_env : "");
+  if (installed_tools.size() < wanted_tools.size()) {
+    std::string missing;
+    for (const std::string& name : wanted_tools) {
+      if (std::find(installed_tools.begin(), installed_tools.end(), name) ==
+          installed_tools.end()) {
+        missing += (missing.empty() ? "" : ", ") + name;
+      }
+    }
+    std::cerr << "warning: not on PATH: " << missing
+              << "\n         run `make install` (or add the build directory to "
+                 "PATH) so the agent can use them\n";
   }
 
   int64_t window = num_ctx;
@@ -227,17 +265,27 @@ int main(int argc, char** argv) {
   // No CLI flag for these three — settings.json is their only knob.
   options.enable_subagents =
       settings.enable_subagents.value_or(options.enable_subagents);
-  options.enable_package_install =
-      settings.enable_package_install.value_or(options.enable_package_install);
   options.enable_web_search =
       settings.enable_web_search.value_or(options.enable_web_search);
   if (options.enable_web_search and not tools::web_search_available()) {
     std::cerr << "warning: enable_web_search is set but no Parallel API key was "
-                 "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
+                 "found (PARALLEL_API_KEY or .m8/parallel_api_key); "
                  "websearch calls will fail\n";
   }
-  options.enable_memory = settings.enable_memory.value_or(options.enable_memory);
-  options.memory_path = settings.memory_path.value_or(options.memory_path);
+
+  // m8's tool set. bash_repl is the execution substrate and bash_search is how
+  // the model finds what this machine can do; the file and web tools stay off
+  // because m8 reaches those through the installed tool_* binaries instead, so
+  // the shell holds one coherent view of the work rather than two.
+  options.session_dir = paths.sessions();
+  options.enable_bash_repl =
+      settings.enable_bash_repl.value_or(true);
+  options.enable_bash_search =
+      settings.enable_bash_search.value_or(true);
+  options.enable_file_tools = false;
+
+  options.enable_memory = settings.enable_memory.value_or(true);
+  options.memory_path = settings.memory_path.value_or(paths.memory());
   options.memory_embed_model =
       settings.memory_embed_model.value_or(options.memory_embed_model);
   oc::OllamaClient::configure_embed(options.memory_embed_model);
@@ -257,10 +305,13 @@ int main(int argc, char** argv) {
     }
   }
 
-  // m8trixparrot's prompt is its own, like every other application's; core
-  // supplies only the facts it is built from. Subagents inherit this builder
-  // with the rest of AgentOptions.
-  options.system_prompt_builder = parrot::make_system_prompt;
+  // m8's prompt is its own, like every other application's; core supplies only
+  // the facts it is built from. The capture is by value so the builder stays
+  // valid inside every subagent, which gets a copy of AgentOptions.
+  options.system_prompt_builder = [paths, installed_tools](
+                                      const agent::PromptFacts& facts) {
+    return m8::make_system_prompt(facts, paths, installed_tools);
+  };
 
   const std::string root_id = agent::AgentPool::instance().register_root("root");
   agent::Agent root_agent(options, pol, root_id, "", 0);
@@ -748,7 +799,7 @@ int main(int argc, char** argv) {
     }
 
     return f::vbox({
-               f::text("m8trixparrot  |  model: " + model + "  |  policy: " +
+               f::text("m8  |  model: " + model + "  |  policy: " +
                        pol.name() + ctx_part + sub_part) |
                    f::bold | f::center,
                f::separator(),

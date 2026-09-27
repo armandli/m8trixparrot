@@ -225,7 +225,7 @@ const std::map<std::string, std::vector<std::string>, std::less<>> kNameTags{
     // shell-parrot (sp): natural-language shell assistant.
     {"sp",           {"shell", "development"}},
     {"shell-parrot", {"shell", "development"}},
-    // m8trixparrot file tools exposed as standalone CLI utilities.
+    // m8's file and web tools, installed as standalone CLI utilities.
     {"tool_find",    {"file", "search"}},
     {"tool_grep",    {"file", "text", "search", "filter"}},
     {"tool_read",    {"file", "text"}},
@@ -689,11 +689,11 @@ private:
       return override_path;
     }
     const char* home = std::getenv("HOME");
-    return std::string(home ? home : "/tmp") + "/.m8trix/bash_search_index.json";
+    return std::string(home ? home : "/tmp") + "/.m8/bash_search_index.json";
   }
 
   // Snapshotted on the calling thread rather than read inside build_index:
-  // tools_python sets PIP_NO_INDEX and friends process-wide, and getenv
+  // The process environment can change under us (a tool may export), so getenv
   // alongside another thread's setenv is not safe.
   static std::string current_path_env() {
     const char* path_env = std::getenv("PATH");

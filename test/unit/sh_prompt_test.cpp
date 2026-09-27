@@ -20,17 +20,14 @@ bool has(const std::string& haystack, const std::string& needle) {
   return haystack.find(needle) != std::string::npos;
 }
 
-// m8trixsh's real shape: python and file tools on, ask_user wired, subagents
-// off unless ~/.m8shrc says otherwise.
+// m8trixsh's real shape: file tools on, ask_user wired, subagents off unless
+// ~/.m8shrc says otherwise.
 agent::PromptFacts base_facts() {
   agent::PromptFacts facts;
   facts.max_depth = 3;
   facts.max_agents = 16;
   facts.free_agent_slots = 16;
-  facts.tool_names = {"python", "bash",      "read",   "write",
-                      "edit",   "package_install", "ask_user"};
-  facts.enable_python = true;
-  facts.enable_package_install = true;
+  facts.tool_names = {"bash", "read", "write", "edit", "ask_user"};
   facts.enable_file_tools = true;
   facts.ask_user_offered = true;
 

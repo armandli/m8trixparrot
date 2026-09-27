@@ -85,24 +85,10 @@ std::string tool_guidance_rules(const PromptFacts& facts) {
 
   const char* shell = facts.enable_bash_repl ? "`bash_repl`" : "`bash`";
 
-  if (facts.enable_python) {
-    out << "- Use `python` for computation, file I/O, and data "
-           "transformation. Use " << shell
-        << " for shell commands: running programs, git, and anything the "
-           "shell does more directly than Python would. Prefer one of them "
-           "over describing what you would do.\n";
-    if (facts.enable_package_install) {
-      out << "- If a script needs a package that isn't installed, call "
-             "`package_install` with just its name first, then run the "
-             "script. Don't call it again for a package you already installed "
-             "or that already imported successfully.\n";
-    } else {
-      out << "- Only the Python standard library and already-installed "
-             "packages are importable; you cannot install new ones.\n";
-    }
-  } else {
-    out << "- Use " << shell << " for all shell operations.\n";
-  }
+  out << "- Use " << shell
+      << " for everything the machine can do: running programs, git, reading "
+         "and writing files, and computation. Prefer running a command over "
+         "describing what you would run.\n";
 
   // The whole value of a persistent shell is lost on a model that assumes each
   // call starts fresh: it writes self-contained one-liners and re-does its

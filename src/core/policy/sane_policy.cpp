@@ -395,8 +395,8 @@ PolicyResult SanePolicy::verify(std::string_view tool_name,
     return PolicyResult::deny(
         problem +
         ". Files may only be written under the working directory or /tmp, and "
-        "privilege escalation is refused outright. Use `python` for file edits "
-        "inside the workspace.");
+        "privilege escalation is refused outright. Use `tool_write` or "
+        "`tool_edit` for file edits inside the workspace.");
   }
 
   if (tool_name == "write" or tool_name == "edit") {

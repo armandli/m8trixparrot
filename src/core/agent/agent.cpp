@@ -100,7 +100,6 @@ bool Agent::ask_user_offered() const {
 
 std::vector<std::string> Agent::tool_schemas() const {
   std::vector<std::string> schemas;
-  if (mOptions.enable_python) schemas.push_back(tools::PythonTool().description());
   if (mOptions.enable_bash_repl) {
     schemas.push_back(tools::BashReplTool::description());
   } else {
@@ -110,9 +109,6 @@ std::vector<std::string> Agent::tool_schemas() const {
     schemas.push_back(tools::ReadTool().description());
     schemas.push_back(tools::WriteTool().description());
     schemas.push_back(tools::EditTool().description());
-  }
-  if (mOptions.enable_package_install) {
-    schemas.push_back(tools::PackageInstallTool().description());
   }
   if (mOptions.enable_web_search) {
     schemas.push_back(tools::WebSearchTool().description());
@@ -134,14 +130,12 @@ std::vector<std::string> Agent::tool_schemas() const {
 
 std::vector<std::string> Agent::tool_names() const {
   std::vector<std::string> names;
-  if (mOptions.enable_python) names.push_back("python");
   names.push_back(mOptions.enable_bash_repl ? "bash_repl" : "bash");
   if (mOptions.enable_file_tools) {
     names.push_back("read");
     names.push_back("write");
     names.push_back("edit");
   }
-  if (mOptions.enable_package_install) names.push_back("package_install");
   if (mOptions.enable_web_search) names.push_back("websearch");
   if (mOptions.enable_bash_search) names.push_back("bash_search");
   if (mOptions.enable_memory) names.push_back("memory");
@@ -175,7 +169,12 @@ std::string Agent::skill_label_for(const oc::ToolCall& call, const tools::ToolAr
     if (action and name and *action == "load") return *name;
     return std::string();
   }
-  if (call.name == "python") return catalog().label_for_text(call.arguments);
+  // A shell command that reads out of a skill's directory is how the model gets
+  // at a skill's supporting files, so the resulting message is tagged with that
+  // skill and `skill unload` can find it later.
+  if (call.name == "bash_repl" or call.name == "bash") {
+    return catalog().label_for_text(call.arguments);
+  }
   return std::string();
 }
 
@@ -286,9 +285,7 @@ PromptFacts Agent::prompt_facts() const {
       std::max(0, mOptions.max_agents - AgentPool::instance().live_count());
   facts.tool_names = tool_names();
 
-  facts.enable_python = mOptions.enable_python;
   facts.enable_bash_repl = mOptions.enable_bash_repl;
-  facts.enable_package_install = mOptions.enable_package_install;
   facts.enable_file_tools = mOptions.enable_file_tools;
   facts.enable_web_search = mOptions.enable_web_search;
   facts.enable_bash_search = mOptions.enable_bash_search;
@@ -313,8 +310,6 @@ std::string Agent::system_prompt() const {
 }
 
 tools::ToolResult Agent::dispatch(const std::string& tool_name, const tools::ToolArgs& args) {
-  if (mOptions.enable_python and tool_name == "python")
-    return tools::PythonTool().execute(args);
   if (mOptions.enable_bash_repl and tool_name == "bash_repl")
     return tools::BashReplTool{shell()}.execute(args);
   if (not mOptions.enable_bash_repl and tool_name == "bash")
@@ -325,8 +320,6 @@ tools::ToolResult Agent::dispatch(const std::string& tool_name, const tools::Too
     return tools::WriteTool().execute(args);
   if (mOptions.enable_file_tools and tool_name == "edit")
     return tools::EditTool().execute(args);
-  if (mOptions.enable_package_install and tool_name == "package_install")
-    return tools::PackageInstallTool().execute(args);
   if (mOptions.enable_web_search and tool_name == "websearch")
     return tools::WebSearchTool().execute(args);
   if (mOptions.enable_bash_search and tool_name == "bash_search")

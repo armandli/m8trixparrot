@@ -34,7 +34,7 @@ TEST(SystemPromptTest, JoinsToolNamesForProse) {
 }
 
 TEST(SystemPromptTest, DefaultPromptNamesEveryTool) {
-  const PromptFacts facts = facts_with({"python", "bash", "read"});
+  const PromptFacts facts = facts_with({"bash", "read", "grep"});
   const std::string prompt = default_system_prompt(facts);
 
   for (const std::string& name : facts.tool_names) {
@@ -53,7 +53,7 @@ TEST(SystemPromptTest, HasToolAnswersFromTheAdvertisedList) {
   const PromptFacts facts = facts_with({"bash", "memory"});
   EXPECT_TRUE(facts.has_tool("bash"));
   EXPECT_TRUE(facts.has_tool("memory"));
-  EXPECT_FALSE(facts.has_tool("python"));
+  EXPECT_FALSE(facts.has_tool("websearch"));
 }
 
 // Null catalog and an empty one both mean "say nothing", so a prompt never
@@ -110,9 +110,8 @@ TEST(SystemPromptTest, FallsBackToTheDefaultWithoutABuilder) {
 // subagents, so it must see the depth it was constructed at.
 TEST(SystemPromptTest, FactsReportTheAgentsOwnDepthAndTools) {
   AgentOptions options;
-  options.enable_python = false;
-  options.enable_package_install = false;
   options.enable_subagents = false;
+  options.enable_skills = false;
   options.max_depth = 4;
 
   std::vector<std::string> seen;

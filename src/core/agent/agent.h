@@ -21,9 +21,9 @@
 namespace agent {
 
 // Everything the agent keeps lives under here, relative to the working
-// directory: sessions in .m8trix/sessions.
-inline constexpr const char* kAgentRootDir = ".m8trix";
-inline constexpr const char* kAgentSessionDir = ".m8trix/sessions";
+// directory: sessions in .m8/sessions.
+inline constexpr const char* kAgentRootDir = ".m8";
+inline constexpr const char* kAgentSessionDir = ".m8/sessions";
 
 // One thing that happened during a turn, reported as it happens rather than
 // batched at the end — a turn runs several model calls and tool executions, and
@@ -90,41 +90,37 @@ struct AgentOptions {
   int context_summarize_at_tokens = 200000;
 
   // When false, subagent_create / subagent_wait are neither advertised to the
-  // model nor dispatchable — the agent runs python-only, as a single agent.
+  // model nor dispatchable — the agent runs as a single agent.
   bool enable_subagents = true;
 
   // Where the root agent's result tree is written. Relative to the working
   // directory by default, which is right for an agent run inside a project —
   // but wrong for one run from wherever the user is standing, since it drops
-  // a .m8trix directory there. Such an app points this at its own state
+  // a .m8 directory there. Such an app points this at its own state
   // directory instead.
   std::string session_dir = kAgentSessionDir;
 
   // Skills are discovered from <skills_dir>/<name>/SKILL.md (relative to cwd, or
   // absolute). enable_skills gates the system-prompt catalog, the `skill` tool,
   // and the TUI's /<name> command triggers.
-  std::string skills_dir = ".m8trix/skills";
+  std::string skills_dir = ".m8/skills";
   bool enable_skills = true;
 
-  // When false, package_install is neither advertised nor dispatchable — the
-  // python tool is limited to the standard library and whatever is already
-  // installed, as before package_install existed.
-  bool enable_package_install = true;
-
   // When true, the file tools (`read`, `write`, `edit`) are advertised and
-  // dispatchable alongside `python`. Off by default: the python-centric agents
-  // do their file I/O through `python`, and turning these on would change the
-  // tool set every existing caller sees.
+  // dispatchable. Off by default, and m8 deliberately leaves it off: it reads
+  // and writes files by running the installed tool_read / tool_write / tool_edit
+  // commands inside `bash_repl`, so the shell holds one coherent view of the
+  // work. m8trixsh, which has no bash_repl, uses the in-process tools instead.
   bool enable_file_tools = false;
 
   // When true, `websearch` is advertised and dispatchable. Off by default: it
-  // needs a Parallel API key (PARALLEL_API_KEY or .m8trix/parallel_api_key), and
+  // needs a Parallel API key (PARALLEL_API_KEY or .m8/parallel_api_key), and
   // turning it on would change the tool set every existing caller sees. Each app
   // opts in from its own config.
   bool enable_web_search = false;
 
   // When true, `bash_search` is advertised and dispatchable. It scans PATH and
-  // builds a tag index of available shell commands at ~/.m8trix/bash_search_index.json.
+  // builds a tag index of available shell commands at ~/.m8/bash_search_index.json.
   bool enable_bash_search = false;
 
   // When true, `memory` is advertised and dispatchable: long-term memory in a
@@ -135,13 +131,8 @@ struct AgentOptions {
   // created on the first thing the agent remembers, not at startup, because
   // an embedding model does not advertise its vector width.
   bool enable_memory = false;
-  std::string memory_path = ".m8trix/memory.m8db";
+  std::string memory_path = ".m8/vdb/memory.m8db";
   std::string memory_embed_model = oc::kDefaultEmbedModel;
-
-  // When false, the `python` tool is neither advertised nor dispatchable.
-  // Default true for backward compatibility. Shell-only agents (e.g. sp) set
-  // this to false so the model's entire tool set is bash + bash_search.
-  bool enable_python = true;
 
   // When true, `bash_repl` REPLACES `bash`: one long-lived shell per agent, so
   // a variable set in one call is still set in the next and a `cd` sticks.
@@ -306,7 +297,7 @@ private:
 
   // The skill a finished tool call's result should be tagged with (for
   // `skill unload`): the loaded skill name for a `skill load`, or the skill
-  // whose directory a `python` script read from. "" otherwise.
+  // whose directory a shell command read from. "" otherwise.
   std::string skill_label_for(const oc::ToolCall& call, const tools::ToolArgs& args,
                               const tools::ToolResult& result) const;
 

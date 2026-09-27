@@ -10,7 +10,6 @@ add_executable(unit_tests
   tools_bash_repl_test.cpp
   tools_bash_search_test.cpp
   tools_file_test.cpp
-  tools_python_test.cpp
   tools_search_test.cpp
   tools_shell_test.cpp
   tools_util_test.cpp
@@ -42,12 +41,10 @@ add_executable(core_tests
   agent_tools_test.cpp
   system_prompt_test.cpp
   ollama_client_test.cpp
-  package_installer_test.cpp
   session_store_test.cpp
   vector_index_test.cpp
   vector_store_test.cpp
   memory_store_test.cpp
-  tools_package_install_test.cpp
 )
 
 target_include_directories(core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -81,19 +78,35 @@ target_link_libraries(sp_tests
 
 gtest_discover_tests(sp_tests)
 
-# m8trixparrot's and m8trixsh's system prompts. Each prompt is a free function
-# over PromptFacts with no FTXUI, libvterm or network dependency, so they build
-# here regardless of whether their applications do — which is the point of
-# giving each application its own prompt translation unit.
+# m8's system prompt and its workspace-path resolution. Its own binary rather
+# than part of unit_tests for the same reason sp_tests is: the path tests build
+# a directory tree under a temp root and run sequentially.
+add_executable(m8_tests
+  m8_prompt_test.cpp
+  m8_paths_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_prompt.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_paths.cpp
+)
+
+target_include_directories(m8_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8)
+
+target_link_libraries(m8_tests
+  PRIVATE agentcore
+  PRIVATE GTest::gtest_main
+)
+
+gtest_discover_tests(m8_tests)
+
+# m8trixsh's system prompt. A free function over PromptFacts with no FTXUI,
+# libvterm or network dependency, so it builds here regardless of whether its
+# application does — which is the point of giving each application its own
+# prompt translation unit.
 add_executable(prompt_tests
-  parrot_prompt_test.cpp
   sh_prompt_test.cpp
-  ${CMAKE_SOURCE_DIR}/src/apps/m8trixparrot/parrot_prompt.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/m8trixsh/sh_prompt.cpp
 )
 
 target_include_directories(prompt_tests
-  PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8trixparrot
   PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8trixsh
 )
 

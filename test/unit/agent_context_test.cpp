@@ -22,7 +22,7 @@ namespace {
 TEST(AgentContextTest, SummarizesWhenTranscriptExceedsThreshold) {
   m8test::LoopbackServer server({
       // call 1: a tool call keeps the loop going; prompt_eval_count is huge.
-      R"json({"message":{"role":"assistant","content":"working","tool_calls":[{"function":{"name":"python","arguments":{"script":"print(1)"}}}]},"done":true,"prompt_eval_count":999999,"eval_count":5})json",
+      R"json({"message":{"role":"assistant","content":"working","tool_calls":[{"function":{"name":"bash","arguments":{"command":"true"}}}]},"done":true,"prompt_eval_count":999999,"eval_count":5})json",
       // call 2: the summary.
       R"json({"message":{"role":"assistant","content":"COMPACTED STATE: the user asked for the thing; step 1 done"},"done":true,"prompt_eval_count":42,"eval_count":10})json",
       // call 3: a final answer ends the turn.

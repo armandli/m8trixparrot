@@ -14,7 +14,7 @@
 #include <core/agent/agent_result.h>
 
 // The transcript model and its FTXUI rendering, shared by the agent TUIs
-// (m8trixparrot, m8trixsh). An app owns a `std::list<TranscriptNode>`, mutates
+// (m8, m8trixsh). An app owns a `std::list<TranscriptNode>`, mutates
 // it from the AgentPool observer, and renders it with render_node(); the fold
 // state and click hit-testing live on the nodes.
 namespace agentui {

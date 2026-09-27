@@ -31,8 +31,8 @@ constexpr const char* kDefaultApiBase = "https://api.parallel.ai";
 constexpr const char* kSearchPath = "/v1/search";
 
 // The key file, relative to the working directory — a sibling of
-// .m8trix/settings.json and .m8trix/sessions. Gitignored by the .m8trix/* rule.
-constexpr const char* kApiKeyFile = ".m8trix/parallel_api_key";
+// .m8/config.json and .m8/sessions. Gitignored by the .m8/* rule.
+constexpr const char* kApiKeyFile = ".m8/parallel_api_key";
 
 constexpr long kTimeoutSeconds = 30;
 constexpr long kConnectTimeoutSeconds = 10;
@@ -89,7 +89,7 @@ std::string flatten(std::string_view text) {
   return out;
 }
 
-// PARALLEL_API_KEY, or the trimmed contents of .m8trix/parallel_api_key.
+// PARALLEL_API_KEY, or the trimmed contents of .m8/parallel_api_key.
 std::optional<std::string> resolve_api_key() {
   if (const char* env = std::getenv("PARALLEL_API_KEY");
       env != nullptr and *env != '\0') {
@@ -233,7 +233,7 @@ ToolResult WebSearchTool::execute(const ToolArgs& args) const {
   if (not api_key) {
     result.error =
         "websearch: no Parallel API key; set PARALLEL_API_KEY or write the key "
-        "to .m8trix/parallel_api_key";
+        "to .m8/parallel_api_key";
     return result;
   }
 
@@ -273,7 +273,7 @@ ToolResult WebSearchTool::execute(const ToolArgs& args) const {
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, kTimeoutSeconds);
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, kConnectTimeoutSeconds);
-  curl_easy_setopt(curl, CURLOPT_USERAGENT, "m8trixparrot/1.0");
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, "m8/1.0");
 
   const CURLcode code = curl_easy_perform(curl);
   curl_slist_free_all(headers);

@@ -65,15 +65,15 @@ TEST(SkillFrontmatterTest, HandlesCarriageReturns) {
 struct SkillCatalogTest : m8test::ToolTest {};
 
 TEST_F(SkillCatalogTest, DiscoversSortsAndSkips) {
-  write_file(".m8trix/skills/beta/SKILL.md",
+  write_file(".m8/skills/beta/SKILL.md",
              "---\nname: beta\ndescription: second\n---\n");
-  write_file(".m8trix/skills/alpha/SKILL.md",
+  write_file(".m8/skills/alpha/SKILL.md",
              "---\nname: alpha\ndescription: first\n---\n");
-  write_file(".m8trix/skills/gamma/notes.txt", "no SKILL.md here");
-  write_file(".m8trix/skills/delta/SKILL.md",
+  write_file(".m8/skills/gamma/notes.txt", "no SKILL.md here");
+  write_file(".m8/skills/delta/SKILL.md",
              "---\nname: delta\n---\n");  // no description
 
-  const SkillCatalog catalog = SkillCatalog::discover(".m8trix/skills");
+  const SkillCatalog catalog = SkillCatalog::discover(".m8/skills");
 
   ASSERT_EQ(2u, catalog.skills.size());
   EXPECT_EQ("alpha", catalog.skills[0].name);
@@ -91,12 +91,12 @@ TEST_F(SkillCatalogTest, DiscoversSortsAndSkips) {
 
 TEST_F(SkillCatalogTest, ParsesCommandMetadata) {
   write_file(
-      ".m8trix/skills/deploy/SKILL.md",
+      ".m8/skills/deploy/SKILL.md",
       "---\nname: deploy\ndescription: ship it\nmetadata:\n"
       "  command: \"true\"\n  argument-hint: \"[env]\"\n  requires: build test\n"
       "  model-invocable: \"false\"\n---\n");
 
-  const SkillCatalog catalog = SkillCatalog::discover(".m8trix/skills");
+  const SkillCatalog catalog = SkillCatalog::discover(".m8/skills");
   ASSERT_EQ(1u, catalog.skills.size());
   const SkillInfo& s = catalog.skills[0];
   EXPECT_TRUE(s.command);
@@ -106,34 +106,34 @@ TEST_F(SkillCatalogTest, ParsesCommandMetadata) {
 }
 
 TEST_F(SkillCatalogTest, NoteOnNameDirMismatchButStillLoads) {
-  write_file(".m8trix/skills/real-name/SKILL.md",
+  write_file(".m8/skills/real-name/SKILL.md",
              "---\nname: other-name\ndescription: d\n---\n");
 
-  const SkillCatalog catalog = SkillCatalog::discover(".m8trix/skills");
+  const SkillCatalog catalog = SkillCatalog::discover(".m8/skills");
   ASSERT_EQ(1u, catalog.skills.size());
   EXPECT_EQ("real-name", catalog.skills[0].name);  // directory wins
   EXPECT_FALSE(catalog.notes.empty());
 }
 
 TEST_F(SkillCatalogTest, MissingDirectoryIsEmpty) {
-  EXPECT_TRUE(SkillCatalog::discover(".m8trix/skills").skills.empty());
+  EXPECT_TRUE(SkillCatalog::discover(".m8/skills").skills.empty());
   EXPECT_TRUE(SkillCatalog::discover("").skills.empty());
 }
 
 TEST_F(SkillCatalogTest, LabelForTextMatchesSkillDirectory) {
-  write_file(".m8trix/skills/notes/SKILL.md",
+  write_file(".m8/skills/notes/SKILL.md",
              "---\nname: notes\ndescription: d\n---\n");
-  const SkillCatalog catalog = SkillCatalog::discover(".m8trix/skills");
+  const SkillCatalog catalog = SkillCatalog::discover(".m8/skills");
 
   EXPECT_EQ("notes", catalog.label_for_text(
-                         "open('.m8trix/skills/notes/references/x.md')"));
-  EXPECT_EQ("", catalog.label_for_text("print('hello')"));
+                         "tool_read .m8/skills/notes/references/x.md"));
+  EXPECT_EQ("", catalog.label_for_text("echo hello"));
 }
 
 // The example skill checked into the repo must parse and declare its command.
 TEST(BundledSkillsTest, TodoScanIsValid) {
   const SkillCatalog catalog =
-      SkillCatalog::discover(std::string(M8_SOURCE_DIR) + "/.m8trix/skills");
+      SkillCatalog::discover(std::string(M8_SOURCE_DIR) + "/.m8/skills");
 
   const SkillInfo* todo = catalog.find("todo-scan");
   ASSERT_TRUE(todo != nullptr);

@@ -204,7 +204,7 @@ int64_t estimate_transcript_tokens(const std::vector<oc::ChatMessage>& transcrip
 // ---------------------------------------------------------------------------
 
 std::string SkillTool::description() {
-  return R"json({"name":"skill","description":"Load a skill's instructions into the conversation, or unload them to reclaim context. Skills are reusable procedures for specific tasks, listed in the system prompt. action=\"load\" reads .m8trix/skills/<name>/SKILL.md (or a file relative to the skill directory when `file` is given); read the skill's other files with `python`. action=\"unload\" removes everything you loaded for that skill from the conversation.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["load","unload"],"description":"load or unload"},"name":{"type":"string","description":"the skill name (its directory under .m8trix/skills/)"},"file":{"type":"string","description":"load only: a path relative to the skill directory, e.g. references/patterns.md; omit for SKILL.md"}},"required":["action","name"]}})json";
+  return R"json({"name":"skill","description":"Load a skill's instructions into the conversation, or unload them to reclaim context. Skills are reusable procedures for specific tasks, listed in the system prompt. action=\"load\" reads .m8/skills/<name>/SKILL.md (or a file relative to the skill directory when `file` is given); read the skill's other files by running `tool_read` in the shell. action=\"unload\" removes everything you loaded for that skill from the conversation.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["load","unload"],"description":"load or unload"},"name":{"type":"string","description":"the skill name (its directory under .m8/skills/)"},"file":{"type":"string","description":"load only: a path relative to the skill directory, e.g. references/patterns.md; omit for SKILL.md"}},"required":["action","name"]}})json";
 }
 
 tools::ToolResult SkillTool::execute(const tools::ToolArgs& args) const {
@@ -268,7 +268,7 @@ tools::ToolResult SkillTool::load(const SkillInfo& skill,
       for (const std::string& dep : skill.dependencies) out += " " + dep;
       out += " (load those separately if you need them).";
     }
-    out += " Read its other files with `python` or `skill` action \"load\" with "
+    out += " Read its other files with `tool_read` or `skill` action \"load\" with "
            "`file`. Call `skill` action \"unload\" name=\"" +
            skill.name + "\" when finished to reclaim context.]";
   }

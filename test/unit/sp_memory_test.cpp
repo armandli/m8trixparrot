@@ -80,7 +80,7 @@ struct SpMemoryTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-sp-" + util::generate_uuid_v4());
+          ("m8-sp-" + util::generate_uuid_v4());
     vdb::MemoryOptions options;
     options.path = (dir / "memory.m8db").string();
     options.embedder = vdb::hash_embedder(kDim);
@@ -157,7 +157,7 @@ TEST_F(SpMemoryTest, ForgettingRemovesItFromLaterSearches) {
 TEST(SpMemoryEmbedderTest, ReportsAnEmbeddingFailureAsAnOrdinaryLine) {
   const std::filesystem::path dir =
       std::filesystem::temp_directory_path() /
-      ("m8trix-sp-" + util::generate_uuid_v4());
+      ("m8-sp-" + util::generate_uuid_v4());
   vdb::MemoryOptions options;
   options.path = (dir / "memory.m8db").string();
   options.embed_model = "stub";

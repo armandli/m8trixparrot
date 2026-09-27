@@ -29,10 +29,8 @@ struct PromptFacts {
   // The tools advertised to the model, in the order tool_schemas() lists them.
   std::vector<std::string> tool_names;
 
-  bool enable_python = false;
   // `bash_repl` stands in for `bash`: one persistent shell, state included.
   bool enable_bash_repl = false;
-  bool enable_package_install = false;
   bool enable_file_tools = false;
   bool enable_web_search = false;
   bool enable_bash_search = false;
@@ -86,11 +84,12 @@ std::string skills_block(const PromptFacts& facts, size_t limit = 4000);
 // CLI, and tests.
 std::string default_system_prompt(const PromptFacts& facts);
 
-// What each enabled tool is for, as "Working rules:" bullets: the
-// python-vs-bash split, package_install, subagents, websearch, memory. This is
-// tool documentation rather than application identity — a model given `python`
-// needs to be told what `python` is for whoever is asking — so applications
-// share it where the wording fits and write their own where it doesn't.
+// What each enabled tool is for, as "Working rules:" bullets: the shell, the
+// persistent-shell contract, subagents, websearch, memory. This is tool
+// documentation rather than application identity — a model given `bash_repl`
+// needs to be told what a shell that outlives the call is for whoever is
+// asking — so applications share it where the wording fits and write their own
+// where it doesn't.
 std::string tool_guidance_rules(const PromptFacts& facts);
 
 // The rule pair every agent loop depends on, regardless of application: end

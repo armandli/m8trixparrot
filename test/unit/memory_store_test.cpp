@@ -35,7 +35,7 @@ struct MemoryStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-memory-" + util::generate_uuid_v4());
+          ("m8-memory-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
     path = (dir / "memory.m8db").string();
   }

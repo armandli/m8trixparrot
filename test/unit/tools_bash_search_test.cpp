@@ -17,12 +17,12 @@ namespace m8test {
 namespace {
 
 struct BashSearchTest : ToolTest {
-  // The index defaults to ~/.m8trix/bash_search_index.json, and ToolTest only
+  // The index defaults to ~/.m8/bash_search_index.json, and ToolTest only
   // chdirs — it never overrides $HOME. Without this, running the suite
   // rewrites the developer's own index file.
   static std::filesystem::path index_file() {
     return std::filesystem::temp_directory_path() /
-           "m8trixparrot-test-bash-search-index.json";
+           "m8-test-bash-search-index.json";
   }
 
   static void SetUpTestSuite() {
@@ -33,7 +33,7 @@ struct BashSearchTest : ToolTest {
   static void TearDownTestSuite() {
     // A rescan still in flight would write through index_path() *after* the
     // override is cleared — i.e. into the developer's real
-    // ~/.m8trix/bash_search_index.json.
+    // ~/.m8/bash_search_index.json.
     tools::wait_for_bash_search_rescan();
     std::error_code ec;
     std::filesystem::remove(index_file(), ec);

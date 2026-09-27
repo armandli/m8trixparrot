@@ -66,7 +66,7 @@ std::vector<std::string> list_ollama_models(bool& command_ok) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  CLI::App app{"m8trixparrot chat_tui - terminal chat client for Ollama"};
+  CLI::App app{"m8 chat_tui - terminal chat client for Ollama"};
 
   std::string model = "qwen3.8:27b-mlx";
   std::string history_file;
@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
     }
 
     return f::vbox({
-               f::text("m8trixparrot chat  |  model: " + model) | f::bold |
+               f::text("m8 chat  |  model: " + model) | f::bold |
                    f::center,
                f::separator(),
                f::vbox(lines) |

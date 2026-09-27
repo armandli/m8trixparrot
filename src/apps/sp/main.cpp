@@ -1032,7 +1032,7 @@ int main(int argc, char** argv) {
       memory.enabled = true;
     } else if (memory_wanted.has_value()) {
       // Asked for outright: honour it and say why the calls will fail, rather
-      // than silently overruling the user. Same wording as m8trixparrot.
+      // than silently overruling the user. Same wording as m8.
       memory.enabled = true;
       std::cerr << "warning: memory is enabled but '" << memory_model
                 << "' is not a pulled embedding model (try `ollama pull "
@@ -1067,10 +1067,8 @@ int main(int argc, char** argv) {
   }
 
   agent::AgentOptions options;
-  options.enable_python          = false;
   options.enable_subagents       = subagents;
   options.enable_skills          = false;
-  options.enable_package_install = false;
   options.enable_file_tools      = false;
   options.enable_web_search      = false;
   options.enable_bash_search     = true;

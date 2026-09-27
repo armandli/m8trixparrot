@@ -1,8 +1,12 @@
-// AgentOptions tool gates: with subagents off, the agent advertises only the
-// `python` and `bash` tools and refuses a subagent call rather than acting on
-// it. Default options keep five tools; `enable_file_tools` and
-// `enable_web_search` add more when set. tool_names() / tool_schemas() need
-// no network; the refusal path is driven through a scripted LoopbackServer.
+// AgentOptions tool gates: with subagents off, the agent advertises only its
+// shell and refuses a subagent call rather than acting on it. Default options
+// keep three tools; `enable_file_tools`, `enable_web_search`, `enable_bash_search`
+// and `enable_memory` add more when set. tool_names() / tool_schemas() need no
+// network; the refusal path is driven through a scripted LoopbackServer.
+//
+// NOTE: cwd-sensitive. `skills_dir` defaults to .m8/skills, so run from the repo
+// root the `skill` tool appears in every list below. Drive this through ctest,
+// which runs it from the build tree, rather than the bare binary.
 
 #include <algorithm>
 #include <string>
@@ -19,31 +23,31 @@
 namespace agent {
 namespace {
 
-TEST(AgentToolsTest, DefaultOptionsAdvertiseAllFiveTools) {
+TEST(AgentToolsTest, DefaultOptionsAdvertiseTheShellAndSubagents) {
   const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
-  const Agent agent(AgentOptions{}, pol, id, "", 0);
+  AgentOptions options;
+  options.enable_skills = false;  // see the cwd note above
+  const Agent agent(options, pol, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python", "bash", "package_install",
-                                      "subagent_create", "subagent_wait"}),
+  EXPECT_EQ((std::vector<std::string>{"bash", "subagent_create",
+                                      "subagent_wait"}),
             agent.tool_names());
-  EXPECT_EQ(5u, agent.tool_schemas().size());
+  EXPECT_EQ(3u, agent.tool_schemas().size());
 }
 
-TEST(AgentToolsTest, PythonAndBashOnlyWhenSubagentsAndPackageInstallDisabled) {
+TEST(AgentToolsTest, TheShellIsTheOneToolNothingCanTakeAway) {
   AgentOptions options;
   options.enable_subagents = false;
-  options.enable_package_install = false;
+  options.enable_skills = false;
 
   const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python", "bash"}), agent.tool_names());
-  ASSERT_EQ(2u, agent.tool_schemas().size());
-  EXPECT_NE(agent.tool_schemas()[0].find("\"name\":\"python\""),
-            std::string::npos);
-  EXPECT_NE(agent.tool_schemas()[1].find("\"name\":\"bash\""),
+  EXPECT_EQ((std::vector<std::string>{"bash"}), agent.tool_names());
+  ASSERT_EQ(1u, agent.tool_schemas().size());
+  EXPECT_NE(agent.tool_schemas()[0].find("\"name\":\"bash\""),
             std::string::npos);
 }
 
@@ -52,9 +56,8 @@ TEST(AgentToolsTest, PythonAndBashOnlyWhenSubagentsAndPackageInstallDisabled) {
 TEST(AgentToolsTest, BashReplReplacesBashRatherThanAddingToIt) {
   AgentOptions options;
   options.enable_bash_repl = true;
-  options.enable_python = false;
   options.enable_subagents = false;
-  options.enable_package_install = false;
+  options.enable_skills = false;
 
   const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
@@ -69,22 +72,47 @@ TEST(AgentToolsTest, BashReplReplacesBashRatherThanAddingToIt) {
 TEST(AgentToolsTest, BashReplSitsWhereBashDidInTheToolOrder) {
   AgentOptions options;
   options.enable_bash_repl = true;
+  options.enable_skills = false;
 
   const policy::YoloPolicy pol;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python", "bash_repl", "package_install",
+  EXPECT_EQ((std::vector<std::string>{"bash_repl", "subagent_create",
+                                      "subagent_wait"}),
+            agent.tool_names());
+}
+
+// m8's own tool set, asserted as one thing: the shell, command discovery, the
+// two subagent tools and memory. No read/write/edit and no websearch — those are
+// the installed tool_* binaries, run inside bash_repl.
+TEST(AgentToolsTest, M8ToolSet) {
+  AgentOptions options;
+  options.enable_bash_repl = true;
+  options.enable_bash_search = true;
+  options.enable_memory = true;
+  options.enable_file_tools = false;
+  options.enable_web_search = false;
+  options.enable_skills = false;
+
+  const policy::YoloPolicy pol;
+  const std::string id = AgentPool::instance().register_root("root");
+  const Agent agent(options, pol, id, "", 0);
+
+  EXPECT_EQ((std::vector<std::string>{"bash_repl", "bash_search", "memory",
                                       "subagent_create", "subagent_wait"}),
             agent.tool_names());
+  EXPECT_EQ(5u, agent.tool_schemas().size());
 }
 
 TEST(AgentToolsTest, FileToolsAdvertisedOnlyWhenEnabled) {
   const policy::YoloPolicy pol;
 
   {
+    AgentOptions bare;
+    bare.enable_skills = false;
     const std::string id = AgentPool::instance().register_root("root");
-    const Agent agent(AgentOptions{}, pol, id, "", 0);
+    const Agent agent(bare, pol, id, "", 0);
     const std::vector<std::string> names = agent.tool_names();
     EXPECT_EQ(names.end(),
               std::find(names.begin(), names.end(), std::string("read")));
@@ -92,22 +120,24 @@ TEST(AgentToolsTest, FileToolsAdvertisedOnlyWhenEnabled) {
 
   AgentOptions options;
   options.enable_file_tools = true;
+  options.enable_skills = false;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python", "bash", "read", "write", "edit",
-                                      "package_install", "subagent_create",
-                                      "subagent_wait"}),
+  EXPECT_EQ((std::vector<std::string>{"bash", "read", "write", "edit",
+                                      "subagent_create", "subagent_wait"}),
             agent.tool_names());
-  EXPECT_EQ(8u, agent.tool_schemas().size());
+  EXPECT_EQ(6u, agent.tool_schemas().size());
 }
 
 TEST(AgentToolsTest, WebSearchAdvertisedOnlyWhenEnabled) {
   const policy::YoloPolicy pol;
 
   {
+    AgentOptions bare;
+    bare.enable_skills = false;
     const std::string id = AgentPool::instance().register_root("root");
-    const Agent agent(AgentOptions{}, pol, id, "", 0);
+    const Agent agent(bare, pol, id, "", 0);
     const std::vector<std::string> names = agent.tool_names();
     EXPECT_EQ(names.end(),
               std::find(names.begin(), names.end(), std::string("websearch")));
@@ -115,28 +145,31 @@ TEST(AgentToolsTest, WebSearchAdvertisedOnlyWhenEnabled) {
 
   AgentOptions options;
   options.enable_web_search = true;
+  options.enable_skills = false;
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);
 
-  EXPECT_EQ((std::vector<std::string>{"python", "bash", "package_install",
-                                      "websearch", "subagent_create",
+  EXPECT_EQ((std::vector<std::string>{"bash", "websearch", "subagent_create",
                                       "subagent_wait"}),
             agent.tool_names());
-  EXPECT_EQ(6u, agent.tool_schemas().size());
+  EXPECT_EQ(4u, agent.tool_schemas().size());
 }
 
 TEST(AgentToolsTest, AskUserAdvertisedOnlyWithAHandler) {
   const policy::YoloPolicy pol;
 
   {
+    AgentOptions bare;
+    bare.enable_skills = false;
     const std::string id = AgentPool::instance().register_root("root");
-    const Agent agent(AgentOptions{}, pol, id, "", 0);
+    const Agent agent(bare, pol, id, "", 0);
     const std::vector<std::string> names = agent.tool_names();
     EXPECT_EQ(names.end(),
               std::find(names.begin(), names.end(), std::string("ask_user")));
   }
 
   AgentOptions options;
+  options.enable_skills = false;
   options.ask_user_handler = [](const std::string&) { return "sure"; };
   const std::string id = AgentPool::instance().register_root("root");
   const Agent agent(options, pol, id, "", 0);

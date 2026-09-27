@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
       "Defaults for model, policy, and the flags below may also be set in "
       "~/.m8shrc, one KEY=VALUE per line (keys: MODEL, POLICY, MAX_STEPS, "
       "NUM_CTX, SUMMARIZE_AT, SKILLS_DIR, ENABLE_SKILLS, ENABLE_SUBAGENTS, "
-      "ENABLE_PACKAGE_INSTALL, ENABLE_WEB_SEARCH, ENABLE_MEMORY, "
+      "ENABLE_BASH_SEARCH, ENABLE_WEB_SEARCH, ENABLE_MEMORY, "
       "MEMORY_PATH, MEMORY_EMBED_MODEL, SHELL, MODE_SWITCH_KEY, "
       "PROMPT_FORMAT, PROMPT_SHELL_TAG, PROMPT_AI_TAG, PROMPT_ASK_TAG); an "
       "explicit flag here always overrides it.");
@@ -230,13 +230,6 @@ int main(int argc, char** argv) {
   oc::OllamaClient::set_concurrency(ollama_jobs);
   oc::OllamaClient::configure(model);
   agent::AgentPool::configure(/*max_agents=*/16, /*max_depth=*/3);
-
-  const tools::VenvBootstrap venv = tools::create_workspace_venv();
-  if (venv.status == tools::VenvBootstrap::Status::Failed) {
-    std::cerr << "error: could not create the .m8trixenv virtualenv at "
-              << venv.venv_dir << "\n       " << venv.detail << "\n";
-    return 1;
-  }
 
   std::int64_t window = num_ctx;
   if (window <= 0) {
@@ -347,13 +340,11 @@ int main(int argc, char** argv) {
   options.skills_dir = skills_dir;
   options.enable_skills = not no_skills;
   options.enable_subagents = settings.enable_subagents.value_or(false);
-  options.enable_package_install =
-      settings.enable_package_install.value_or(true);
   options.enable_file_tools = true;
   options.enable_web_search = settings.enable_web_search.value_or(false);
   if (options.enable_web_search and not tools::web_search_available()) {
     std::cerr << "warning: ENABLE_WEB_SEARCH is set but no Parallel API key was "
-                 "found (PARALLEL_API_KEY or .m8trix/parallel_api_key); "
+                 "found (PARALLEL_API_KEY or .m8/parallel_api_key); "
                  "websearch calls will fail\n";
   }
   options.enable_memory = settings.enable_memory.value_or(false);

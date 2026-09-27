@@ -33,9 +33,9 @@ inline constexpr const char* kMemoryEpisodic = "episodic";
 inline constexpr const char* kMemorySemantic = "semantic";
 inline constexpr const char* kMemoryProcedural = "procedural";
 
-// Default location. .gitignore already reserves .m8trix/* with the comment
-// "m8trixparrot's per-workspace sessions and memory".
-inline constexpr const char* kMemoryPath = ".m8trix/memory.m8db";
+// Default location. .gitignore already reserves .m8/* with the comment
+// "m8's per-workspace sessions and memory".
+inline constexpr const char* kMemoryPath = ".m8/vdb/memory.m8db";
 
 Schema memory_schema();
 

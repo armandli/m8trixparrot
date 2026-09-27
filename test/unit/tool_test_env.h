@@ -38,7 +38,7 @@ struct ToolTest : ::testing::Test {
                                                 ->random_seed());
 
     mDir = std::filesystem::temp_directory_path() /
-           ("m8trixparrot-test-" + sanitize(name));
+           ("m8-test-" + sanitize(name));
     std::filesystem::remove_all(mDir);
     std::filesystem::create_directories(mDir);
     std::filesystem::current_path(mDir);

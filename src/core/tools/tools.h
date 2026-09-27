@@ -14,9 +14,9 @@ namespace tools {
 // Owned by the Agent and borrowed by BashReplTool; see bash_repl.h.
 struct BashReplSession;
 
-// One tool-call argument value. The alternatives cover every parameter type
-// that appears in config/basic_tools.json: strings, numbers, booleans, and
-// edit's array of {oldText, newText} objects.
+// One tool-call argument value. The alternatives cover every parameter type any
+// tool's schema declares: strings, numbers, booleans, and edit's array of
+// {oldText, newText} objects.
 //
 // JSON numbers reach us as either int64_t or double depending on how the model
 // spelled them, so both are alternatives and int_arg() accepts either.
@@ -28,38 +28,6 @@ using ToolArgValue =
 // argument and the tool applies the default named in its schema. `std::less<>`
 // so a lookup by string_view doesn't allocate.
 using ToolArgs = std::map<std::string, ToolArgValue, std::less<>>;
-
-// The dedicated Python virtual environment create_workspace_venv() builds at
-// the workspace root (find_workspace_root()). python scripts and
-// package_install both target this venv rather than whatever environment the
-// m8trixparrot binary itself happens to be running under, so installs land in
-// a sandbox scoped to this workspace instead of mutating a shared/dev venv.
-inline constexpr const char* kVenvDir = ".m8trixenv";
-
-// The nearest ancestor of the current working directory (inclusive) that
-// carries a project marker — .git, .m8trix, pyproject.toml, or
-// requirements.txt. Empty when the cwd sits under none of them (a bare scratch
-// directory), which is the signal to skip the .m8trixenv bootstrap entirely.
-std::string find_workspace_root();
-
-// The outcome of create_workspace_venv(). `venv_dir` is the path that was or
-// would be created (empty for NotAProject); `detail` explains a Failed result.
-struct VenvBootstrap {
-  enum class Status : int { Created, AlreadyPresent, NotAProject, Failed };
-  Status status = Status::Failed;
-  std::string venv_dir;
-  std::string detail;
-};
-
-// Builds .m8trixenv at find_workspace_root() with a real ABI-compatible base
-// Python (the embedded interpreter's own sys.executable is the host binary, so
-// it can't be used), then activates it for this process — prepends its
-// site-packages to sys.path and exports VIRTUAL_ENV / PATH. Call once from
-// main() right after argv parsing, on the main thread; it brings the
-// interpreter up as a side effect. A Failed result should stop startup with a
-// message; a NotAProject result is normal (scratch dir) and means "carry on
-// against the base interpreter".
-VenvBootstrap create_workspace_venv();
 
 struct ToolResult {
   bool ok = false;
@@ -81,8 +49,7 @@ struct ToolResult {
 // turn a tool_call's argument object into a ToolArgs first.
 //
 // description() returns the tool's schema as a JSON object, in the shape
-// ollama's /api/chat "tools" array expects — the same text as the tool's entry
-// in config/basic_tools.json.
+// ollama's /api/chat "tools" array expects.
 //
 // A missing required argument, or one holding an unexpected type, comes back
 // as ok = false with a message naming the argument. Nothing throws.
@@ -153,7 +120,7 @@ struct WebFetchTool {
 
 // Searches the web through the Parallel Search API (POST /v1/search over
 // libcurl). The API key comes from PARALLEL_API_KEY or, failing that, the
-// .m8trix/parallel_api_key file under the working directory; a missing key is
+// .m8/parallel_api_key file under the working directory; a missing key is
 // reported as a tool error, not a crash. PARALLEL_API_BASE overrides the host.
 // Advertised only when AgentOptions::enable_web_search is set.
 struct WebSearchTool {
@@ -163,39 +130,9 @@ struct WebSearchTool {
 };
 
 // True when WebSearchTool::execute() would find an API key (PARALLEL_API_KEY, or
-// .m8trix/parallel_api_key under the working directory). For an app that wants
+// .m8/parallel_api_key under the working directory). For an app that wants
 // to warn when web search is enabled but unconfigured.
 bool web_search_available();
-
-// Brings the embedded Python interpreter up (idempotent) and, when this
-// workspace already has a .m8trixenv, activates it. Call once from the main
-// thread at startup: an agent runs its tools on its own thread, and the
-// interpreter must be initialised — and its GIL released — from the main thread
-// before any of those threads touch Python. Also sets PIP_NO_INDEX /
-// PIP_NO_INPUT process-wide so a script cannot install packages. Building the
-// venv when it is missing is create_workspace_venv()'s job, not this one's.
-void ensure_python_ready();
-
-// Executes a Python script in-process via pybind11 embedding. stdout and
-// stderr are captured and returned as the tool output; exceptions are caught
-// inside Python and appended to the capture rather than propagated. Safe to
-// call from any thread: the GIL is acquired and a mutex serialises the runs.
-// The standard library and already-installed packages are importable;
-// installing new packages is disabled (see ensure_python_ready).
-struct PythonTool {
-  std::string description() const;
-  // script (string, required).
-  ToolResult execute(const ToolArgs& args) const;
-};
-
-// Installs a single package by name, deduplicated through the process-wide
-// PackageInstaller singleton (package_installer.h) so concurrent subagents
-// asking for the same package produce one `pip install` rather than one each.
-struct PackageInstallTool {
-  std::string description() const;
-  // package (string, required).
-  ToolResult execute(const ToolArgs& args) const;
-};
 
 // Asks the operator a question and blocks until they answer. Stateful, like
 // SkillTool: constructed at the dispatch site with a reference to the handler
@@ -211,7 +148,7 @@ struct AskUserTool {
 
 // Overrides where the bash_search index file lives. Call once at startup,
 // before any agent runs; an empty string restores the default of
-// ~/.m8trix/bash_search_index.json. For an app that keeps its files somewhere
+// ~/.m8/bash_search_index.json. For an app that keeps its files somewhere
 // of its own, and for tests, which would otherwise rewrite the developer's
 // real index.
 void set_bash_search_index_path(std::string path);
@@ -228,7 +165,7 @@ void wait_for_bash_search_rescan();
 void reset_bash_search_index_for_test();
 
 // Searches for shell commands by category tag. Maintains a persistent index —
-// ~/.m8trix/bash_search_index.json unless set_bash_search_index_path() says
+// ~/.m8/bash_search_index.json unless set_bash_search_index_path() says
 // otherwise — built from PATH executables and apropos(1).
 // Three actions: list_tags, search (boolean tag query), scan (rebuild index).
 struct BashSearchTool {
