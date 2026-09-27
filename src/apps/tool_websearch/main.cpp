@@ -9,7 +9,7 @@ int main(int argc, char** argv) {
   CLI::App app{
       "Search the web and return a numbered list of results.\n"
       "Each result includes a title, URL, and a short text snippet.\n"
-      "Requires PARALLEL_API_KEY env var or .m8trix/parallel_api_key file.\n"
+      "Requires PARALLEL_API_KEY env var or .m8/parallel_api_key file.\n"
       "URLs in the output can be passed directly to tool_webfetch.\n"
       "Output is truncated at 100KB; exit 1 on error or missing API key.\n"
       "\n"

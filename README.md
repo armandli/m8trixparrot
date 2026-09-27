@@ -1,4 +1,4 @@
-# m8trixparrot
+# m8
 
 Experiments in building AI agents in C++ on top of local Ollama models,
 with terminal UIs built on [FTXUI](https://github.com/ArthurSonzogni/FTXUI).
@@ -21,6 +21,13 @@ with terminal UIs built on [FTXUI](https://github.com/ArthurSonzogni/FTXUI).
     ├── common/              agentui: the shared FTXUI transcript view
     └── apps/                one subdirectory per agent experiment
         ├── CMakeLists.txt   registers each experiment
+        ├── m8/              the coding agent: TUI, prompt, workspace paths
+        ├── sp/              shell-parrot: the shell assistant
+        ├── m8trixsh/        zsh with an agent in the next pane
+        ├── tool_read/ tool_write/ tool_edit/ tool_find/ tool_grep/
+        ├── tool_webfetch/ tool_websearch/   installed CLI tools m8 runs
+        ├── toolcall/        run one tool call given as JSON
+        ├── memdemo/         the memory store, end to end
         └── chat_tui/        first experiment: minimal FTXUI chat against Ollama
             ├── main.cpp
             └── CMakeLists.txt
@@ -54,7 +61,7 @@ their source lives, so they're easy to find and run.
 Communication with Ollama happens over HTTP via libcurl
 (`src/core/oc/ollama_client.{h,cpp}`), talking to Ollama's REST API
 (`/api/chat`) with JSON bodies parsed via
-[nlohmann/json](https://github.com/nlohmann/json).
+[simdjson](https://github.com/simdjson/simdjson).
 
 ## Adding a new experiment
 
@@ -67,13 +74,14 @@ Communication with Ollama happens over HTTP via libcurl
 
 Dependencies: a C++20 compiler, CMake, `libcurl`, `libgit2`, and (for the
 `m8trixsh` app only) `libvterm` — all system-provided; on macOS
-`brew install libgit2 libvterm`. FTXUI, simdjson, pybind11, and CLI11 are
+`brew install libgit2 libvterm`. FTXUI, simdjson, CLI11 and GoogleTest are
 fetched automatically by CMake via `FetchContent`. When `libvterm` is absent
 the build still works, it just skips `m8trixsh`.
 
 ```sh
 make build       # configure (if needed) + build everything into build/
 make run APP=chat_tui   # build, then run a specific app
+make test         # the hermetic suite
 make clean        # remove the build directory
 make rebuild       # clean + build
 ```
@@ -84,6 +92,36 @@ Or drive CMake directly:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
+
+## Install
+
+`m8` does its file and web work by running `tool_read`, `tool_grep`,
+`tool_write`, `tool_edit`, `tool_find`, `tool_webfetch` and `tool_websearch` in
+its shell rather than through in-process tools, so those commands have to be on
+`PATH`. They install together with the agents:
+
+```sh
+make install                   # -> /usr/local/bin  (needs sudo)
+make install PREFIX=~/.local   # -> ~/.local/bin    (does not)
+```
+
+That installs `m8`, `sp`, `toolcall`, `m8trixsh` and the seven `tool_*`
+commands. `m8` probes for each `tool_*` at startup, names any it cannot find in
+one warning, and lists only the ones it found in its system prompt — so a
+missing command is never something the model is told it has.
+
+## Testing
+
+```sh
+make test              # the hermetic suite, ~410 cases
+make integration-test  # live tests against a real Ollama; each self-skips
+make tsan-test         # the vdb lock-order check under ThreadSanitizer
+```
+
+`make test` excludes the `integration` ctest label; `make integration-test`
+selects it. The live tests need a pulled model (`qwen3.8:27b-mlx` by default,
+override with `M8_TEST_MODEL`) and put this build's `tool_*` binaries on `PATH`
+themselves, so they run without `make install`.
 
 ## Running chat_tui
 
@@ -98,14 +136,70 @@ build/chat_tui --help                         # list all options
 
 Type a message and press Enter to send it; type `/quit` to exit.
 
-## m8trixparrot
+## Running m8
 
-`m8trixparrot` is the coding agent this repo is named after: a single-pane
-FTXUI chat TUI in front of a multi-step Ollama agent that can call tools
-(`bash`, `python`, `read`/`write`/`edit`, `find`/`grep`, `webfetch`,
-`websearch`, `memory`, `package_install`, `skill`, `ask_user`) and spawn subagents for
-independent subtasks. A line starting with `!` bypasses the agent entirely and
-runs as a shell command (e.g. `!ls -al`).
+`m8` is the coding agent this repo is built around: a single-pane FTXUI chat TUI
+in front of a multi-step Ollama agent whose **only execution substrate is a
+persistent shell**.
+
+```sh
+m8                      # in a git repository; creates .m8/ on first run
+m8 --model gemma4:31b-mlx
+m8 --help
+```
+
+Its model-visible tool set is deliberately small:
+
+| Tool | What it is for |
+|---|---|
+| `bash_repl` | One shell that stays alive across calls. A `cd`, a variable, an exported var and a shell function are all still there next call. |
+| `bash_search` | Find commands on this machine by category tag: `file AND text`, `network OR http`. |
+| `subagent_create` / `subagent_wait` | Spawn an independent subtask on its own thread and collect its conclusion. |
+| `skill` | Load a procedure from `.m8/skills/<name>/SKILL.md` into the conversation, or unload it to reclaim context. |
+| `memory` | Long-term memory in `.m8/vdb/memory.m8db`, searched by embedding. |
+| `ask_user` | Ask the operator something and block on the answer. |
+
+Everything else is a **command on PATH**, run inside `bash_repl`: `tool_read`,
+`tool_grep`, `tool_find`, `tool_write`, `tool_edit`, `tool_webfetch`,
+`tool_websearch` (see [Install](#install)). They are worth preferring over `cat`
+and `sed` for reasons the prompt spells out to the model — they respect
+`.gitignore`, cap their own output so it cannot flood the context, and
+`tool_edit` replaces an exact string rather than a pattern, which is what makes
+it safe on source code.
+
+This is a change from how `m8` used to work: it ran an **embedded CPython
+interpreter** (pybind11, a per-workspace `.m8trixenv` venv, `package_install`
+over pip) and did its file I/O through `python`. The shell was already there, the
+machine already had `grep`, and the interpreter cost a main-thread
+initialisation, a re-entrancy hazard in the test suite, and a `PIP_NO_INDEX`
+lockdown that made the venv nearly useless. It is gone.
+
+A line starting with `!` bypasses the agent entirely and runs as a shell command
+(e.g. `!ls -al`).
+
+### The `.m8` directory
+
+Everything `m8` keeps is inside the repository it is working on, found by walking
+up from the current directory to the nearest `.git` or `.m8` — so `m8` run three
+directories deep still uses the repository's state rather than making its own:
+
+```
+.m8/
+  config.json          every knob, written with defaults on first run
+  skills/<name>/       SKILL.md + supporting files  (tracked in git)
+  vdb/memory.m8db      the vector database
+  sessions/<uuid>.json one root result tree per turn
+  parallel_api_key     the websearch key, if you use one  (never committed)
+```
+
+One thing is deliberately *not* in there: `~/.m8/bash_search_index.json`. That
+index describes `PATH`, which is a property of the machine rather than of one
+repository, so it is scanned once per machine instead of once per checkout.
+
+Slash commands: `/help`, `/session`, `/context`, `/skills`, `/reset`, `/quit`,
+and `/remember <text>`, `/memories [query]`, `/forget <id>` for driving memory by
+hand. The memory commands go through the same in-RAM store handle the agent's
+`memory` tool uses, so what you see is what the agent sees.
 
 ### Architecture
 
@@ -122,10 +216,12 @@ flowchart TD
         Pool[AgentPool\nregistry, spawn, event observer]
         Ollama[OllamaClient\nchat+embed work pool, k in flight]
         Policy[PolicyInterface\nYoloPolicy / SanePolicy]
-        Tools[Tools\nbash python read write edit\nfind grep webfetch websearch\nmemory package_install skill ask_user]
-        Skills[SkillCatalog\n.m8trix/skills/*/SKILL.md]
-        Store[SessionStore\n.m8trix/sessions/*.json]
-        Memory[MemoryStore\n.m8trix/memory.m8db\nHNSW + single-file log]
+        Tools[Tools\nbash_repl bash_search\nmemory skill ask_user]
+        Shell[BashReplSession\none persistent bash per agent]
+        Installed[Installed commands\ntool_read tool_grep tool_find\ntool_write tool_edit\ntool_webfetch tool_websearch]
+        Skills[SkillCatalog\n.m8/skills/*/SKILL.md]
+        Store[SessionStore\n.m8/sessions/*.json]
+        Memory[MemoryStore\n.m8/vdb/memory.m8db\nHNSW + single-file log]
         SubAgent[Subagent\nAgent::run_turn on its own thread]
     end
 
@@ -141,6 +237,8 @@ flowchart TD
     Policy -- allow --> Tools
     Tools -- load/unload --> Skills
     Tools -- remember/recall --> Memory
+    Tools -- command --> Shell
+    Shell -- runs --> Installed
     Tools -- result --> Agent
     Agent -- subagent_create --> Pool
     Pool -- spawns --> SubAgent
@@ -162,10 +260,15 @@ sharing the same `OllamaClient` pool, so however many agents are live, no more
 than `k` requests are ever in flight against Ollama — whose events nest under
 the parent in the transcript until `subagent_wait` joins it.
 The root agent's result tree (not the full transcript) is saved to
-`SessionStore` after each turn — to `.m8trix/sessions/` under the working
-directory, except for `sp`, which points `AgentOptions::session_dir` at
+`SessionStore` after each turn — to `.m8/sessions/` under the workspace root,
+except for `sp`, which points `AgentOptions::session_dir` at
 `$XDG_STATE_HOME/sp/sessions/` so that running it from an arbitrary directory
 does not leave files there.
+
+Each agent gets its **own** `BashReplSession`, not a shared one: a subagent
+racing its parent's shell over a `cd` would be unreasonable to debug. That is
+also why a subagent's prompt tells it never to trust a relative path in its
+objective.
 
 ## Running m8trixsh
 
@@ -200,7 +303,7 @@ still work. **The mode tag and ai-mode capture need zsh**; with a non-zsh
 `$SHELL` the pane still works but stays in shell mode. AI-mode lines are never
 added to your shell history.
 
-Unlike `m8trixparrot`, `m8trixsh` reads its defaults from **`~/.m8shrc`** — a
+Unlike `m8`, `m8trixsh` reads its defaults from **`~/.m8shrc`** — a
 shell-env-style file, one `KEY=VALUE` per line (`#` comments, optional `export`
 and surrounding quotes). A CLI flag always overrides it.
 
@@ -249,7 +352,7 @@ flowchart TD
         Agent[Agent::run_turn]
         Ollama[OllamaClient\nchat+embed work pool, k in flight]
         Policy[PolicyInterface\nYoloPolicy / SanePolicy]
-        Tools[Tools\nread write edit bash python\nskill websearch ask_user]
+        Tools[Tools\nread write edit bash\nskill websearch ask_user]
     end
 
     Input --> Mode
@@ -287,7 +390,7 @@ to park the agent thread until the operator answers.
 and it runs the shell commands to carry it out. Its whole tool set is
 `bash_repl` — one shell that stays alive across calls, so a variable it sets or
 a directory it `cd`s into is still there on the next one — plus `bash_search`,
-`memory`, and the two subagent tools. No python, no skills. It **never deletes
+`memory`, and the two subagent tools. No skills. It **never deletes
 anything**: unwanted files are moved to `$XDG_DATA_HOME/sp/trash/`.
 
 `sp` delegates. A task that splits into parts which don't need each other's
@@ -368,7 +471,7 @@ Defaults come from `$XDG_CONFIG_HOME/sp/config` — `~/.config/sp/config` — in
 the shell-env format `~/.m8shrc` uses: one `KEY=VALUE` per line, `#` comments;
 keys `MODEL`, `MAX_STEPS`, `NUM_CTX`, `SUMMARIZE_AT`, `OLLAMA_JOBS`,
 `ENABLE_SUBAGENTS`, `MAX_DEPTH`, `MAX_AGENTS`, `ENABLE_MEMORY`, `MEMORY_PATH`,
-`MEMORY_EMBED_MODEL`. Then `./.m8trix/settings.json` where one
+`MEMORY_EMBED_MODEL`. Then `./.m8/config.json` where one
 exists, then the command line — each winning over the one before it. `sp` is
 run from wherever the user happens to be standing, so the config file is what
 actually persists a setting. An older `~/.sprc` is moved here on first run.
@@ -379,7 +482,7 @@ actually persists a setting. An older `~/.sprc` is moved here on first run.
 flowchart TD
     subgraph Start["main.cpp — startup, in order"]
         Paths["sp::resolve_sp_paths → sp::SpPaths<br/>ensure_sp_dirs · migrate_legacy_paths"]
-        Cfg["~/.config/sp/config, then .m8trix/settings.json,<br/>then the CLI11 flags"]
+        Cfg["~/.config/sp/config, then .m8/config.json,<br/>then the CLI11 flags"]
         Probe["ollama list · context_length<br/>memory_model_mismatch · memory_available"]
         Opts["agent::AgentOptions<br/>bash_repl · bash_search · memory? · subagents?<br/>session_dir · system_prompt_builder"]
     end
@@ -604,7 +707,9 @@ in the app is a free function.
 The rest of `src/apps/sp/` is functions: `resolve_sp_paths`, `ensure_sp_dirs`
 and `migrate_legacy_paths` (`sp_paths.cpp`); `make_system_prompt`, one builder
 serving both altitudes off `facts.is_root()` (`sp_prompt.cpp:7`);
-`parse_command`, `do_remember`, `do_search`, `do_forget` (`sp_memory.cpp`); and
+`parse_command` (`sp_memory.cpp`, which now forwards `do_remember`,
+`do_search` and `do_forget` to `vdb::` in `core/vdb/memory_ops.{h,cpp}` so m8's
+TUI can offer the same three commands over the same store); and
 the two modes, `run_single_shot` (`main.cpp:139`) and `run_interactive`
 (`main.cpp:196`), which are functions rather than classes — all their state is
 locals under one `std::mutex`.
@@ -664,7 +769,7 @@ sp-facing; the three layers below have no idea an agent exists.
 | `vdb::ByteReader`, `crc32c()` | `byte_io.h:54`, `:105` | The `.m8db` record format |
 
 **The view layer** — `src/common/transcript_view.h`, namespace `agentui`,
-shared with `m8trixparrot` and `m8trixsh`.
+shared with `m8` and `m8trixsh`.
 
 | Type | File | Role |
 |---|---|---|
@@ -680,7 +785,7 @@ Beside them are the free functions sp calls: `add_node`, `open_segment`,
 **Settings and JSON**: `agent::StartupSettings` (`agent/agent_settings.h:23`) is an
 all-`std::optional` struct so "unset" layers cleanly; sp loads it twice, once
 through `load_shellrc_settings` for `~/.config/sp/config` and once through
-`load_startup_settings` for `.m8trix/settings.json`. `util::JsonWriter` and
+`load_startup_settings` for `.m8/config.json`. `util::JsonWriter` and
 `RawJson` (`util/json_util.h:37`, `:20`) write every JSON body the tools produce.
 
 #### Three things that are not there
@@ -697,7 +802,7 @@ drift apart.
 **No `TranscriptView` class.** The view layer is free functions over
 `TranscriptNode`; the *app* owns the `std::list<TranscriptNode>`, mutates it
 from the observer, and renders it. Fold state and click hit-testing live on the
-nodes. That is why sp and `m8trixparrot` each carry their own copy of the
+nodes. That is why sp and `m8` each carry their own copy of the
 observer, routing-map and grid wiring around the same shared helpers.
 
 **No code enforces the trash rule.** sp runs `YoloPolicy`, which allows
@@ -711,11 +816,10 @@ to root and subagent alike (`sp_prompt.cpp:51-56`), but it is a prompt rule. An
 `agentcore` is one static library, so `sp` links all of it and the honest
 distinction is reachable at runtime versus never advertised. Dead weight for
 sp, and the clearest statement of how it differs from the other two apps:
-`BashTool` (replaced by `bash_repl`), `PythonTool` with `VenvBootstrap`,
-`tools::create_workspace_venv` and `tools::ensure_python_ready`, `ReadTool` / `WriteTool` /
+`BashTool` (replaced by `bash_repl`), `ReadTool` / `WriteTool` /
 `EditTool`, `FindTool` / `GrepTool` and `IgnoreFilter`, `WebFetchTool` /
 `WebSearchTool`, `AskUserTool` (sp sets no `ask_user_handler`),
-`PackageInstallTool` with `PackageInstaller`, `SkillTool` with `SkillCatalog`,
+`SkillTool` with `SkillCatalog`,
 `SkillInfo` and `SkillFrontmatter`, `SanePolicy`, `WorkspaceContext` (so sp
 never shells out to `git`), and `vdb::hash_embedder`. Also unused: `ShellSession`
 (`shell_session.h:30`), which is m8trixsh's pseudo-terminal and is easy to
@@ -767,14 +871,14 @@ the model:
 
 ## Skills
 
-`m8trixparrot` loads **skills** — reusable procedures for specific tasks — from
-`.m8trix/skills/<name>/SKILL.md`, in the
+`m8` loads **skills** — reusable procedures for specific tasks — from
+`.m8/skills/<name>/SKILL.md`, in the
 [Agent Skills](https://agentskills.io) format (YAML frontmatter with `name` and
 `description`, then a markdown body; supporting files under the skill directory).
 
 Every turn the agent sees a catalog of each skill's name + description. It loads
 one on demand with the `skill` tool (`skill` action `load` — the body enters the
-conversation; read the skill's other files with `python`), and drops it with
+conversation; read the skill's other files with `tool_read`), and drops it with
 `skill` action `unload` to reclaim context.
 
 - `/skills` in the TUI lists the skills (and re-scans the directory).
@@ -784,7 +888,7 @@ conversation; read the skill's other files with `python`), and drops it with
   skills — shown in the catalog, not auto-loaded.
 - `--skills-dir <path>` changes the location; `--no-skills` turns the system off.
 
-`.m8trix/skills/` is tracked by git (unlike the rest of `.m8trix/`); the bundled
+`.m8/skills/` is tracked by git (unlike the rest of `.m8/`); the bundled
 `todo-scan` skill is a working example.
 
 ## Memory
@@ -796,7 +900,7 @@ Recall ranks by semantic similarity blended with how recent a memory is (and,
 optionally, how important), and it can be narrowed by memory type, conversation
 id, importance floor, tags, or a JSON filter over the metadata.
 
-Everything lives in **one file**, by default `<workdir>/.m8trix/memory.m8db`
+Everything lives in **one file**, by default `<workdir>/.m8/vdb/memory.m8db`
 (gitignored). The format is a duplicated header followed by an append-only log
 of checksummed records, with the search index written out as a snapshot on
 flush:
@@ -823,6 +927,57 @@ graph is used, with an exact scan as the backstop whenever a selective filter
 starves it of hits. The whole working set is held in memory — there is no
 buffer pool — which is the deliberate trade that keeps the implementation
 small.
+
+### Concurrency
+
+The root agent and up to `max_agents` subagents share one `MemoryStore` through
+`MemoryStoreRegistry`, which keys a single RAM-resident handle per canonical
+path — two handles on one file would each go stale the moment the other wrote.
+Recall is the operation they all do, so the locking is arranged around making
+recall cheap.
+
+`VectorStore` holds **three** locks, not one:
+
+| Lock | Guards |
+|---|---|
+| `mStructure` (`shared_mutex`) | the HNSW graph, `mEntries`, `mIdToLabel`, `mLiveCount`, `mNextId`, `mFd` |
+| `key_lock(id)` (256 striped `shared_mutex`) | one document's content and metadata |
+| `mLog` (`mutex`) | the file: `mLogEnd`, `mGeneration`, the snapshot offsets, `mGarbage` |
+
+Acquisition order is `mStructure` → `key_lock` → `mLog`, never inverted, and
+never two key locks at once. `search` / `get` / `get_where` take `mStructure`
+shared and each key shared as they touch it, so N readers overlap;
+`update_metadata` takes `mStructure` merely *shared* while mutating one entry,
+which is safe only because the per-key lock serialises writers to the same entry
+and the one thing that reallocates `mEntries` holds `mStructure` exclusive.
+
+`add` and `remove` stay globally exclusive, and that is structural rather than
+something to improve later: they mutate the HNSW graph, which `VectorIndex`
+documents as not thread-safe, and `mEntries` is a `std::vector` whose `push_back`
+invalidates every reference a per-key holder is using.
+
+Striping rather than a `shared_mutex` inside each `Entry` because the locks have
+to outlive that reallocation, and because such a member would make `Entry`
+non-movable. The choice lives behind one function, `key_lock(id)`.
+
+`MemoryStore` layers a `shared_mutex` of its own on top — taken *shared* by
+recall and stats. It guards the store pointer and options rather than the data,
+since `VectorStore` does its own locking underneath. It used to be a plain
+`std::mutex`, which made every memory operation wait for every other one, two
+concurrent recalls included.
+
+One more thing made recall expensive: it bumps `access_count` on every memory it
+returns, and each bump was a log append, a header write and an `fsync` — so a
+`k=5` recall cost five of each just to record that it had read them. The bump
+goes through `VectorStore::update_metadata_deferred` now, which merges into RAM
+and marks the entry dirty; `flush()` walks the dirty entries and pays for **one**
+header write and one `fsync` between them. A recall touches no disk at all. The
+destructor already flushed, so an ordinary exit persists them; a hard abort loses
+only the most recent bumps, which feed ranking rather than being user data.
+
+`make tsan-test` runs the concurrency tests under ThreadSanitizer, including a
+mixed `add`/`search`/`update`/`flush` stress test. It is the only thing that
+actually catches a lock-order inversion.
 
 The vector store itself (`src/core/vdb/vector_store.{h,cpp}`) takes caller-supplied
 `std::vector<float>` and has no network dependency at all; embeddings are the
@@ -867,7 +1022,7 @@ costs no inference capacity.
 embedding model pulled and because turning it on would change the tool set
 every existing caller sees:
 
-- **m8trixparrot** — `"enable_memory": true` in `<workdir>/.m8trix/settings.json`,
+- **m8** — `"enable_memory": true` in `<workdir>/.m8/config.json`,
   with optional `"memory_path"` and `"memory_embed_model"`
 - **m8trixsh** — `ENABLE_MEMORY=1` in `~/.m8shrc`, with optional `MEMORY_PATH`
   and `MEMORY_EMBED_MODEL`
@@ -924,12 +1079,12 @@ The `websearch` tool queries the web through the
 [Parallel](https://parallel.ai) Search API and returns a numbered list of
 results (title, URL, snippet). It needs a Parallel API key, taken from the
 `PARALLEL_API_KEY` environment variable or, failing that, the first line of
-`.m8trix/parallel_api_key` (gitignored — never commit the key). `PARALLEL_API_BASE`
+`.m8/parallel_api_key` (gitignored — never commit the key). `PARALLEL_API_BASE`
 overrides the API host for a proxy or a test double.
 
 `websearch` is **off by default**; each app opts in from its own config:
 
-- **m8trixparrot** — `"enable_web_search": true` in `<workdir>/.m8trix/settings.json`
+- **m8** — `"enable_web_search": true` in `<workdir>/.m8/config.json`
 - **m8trixsh** — `ENABLE_WEB_SEARCH=1` in `~/.m8shrc`
 
 With no key configured the app prints a warning and `websearch` calls return an

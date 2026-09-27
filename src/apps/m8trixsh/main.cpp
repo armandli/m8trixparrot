@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
   int num_ctx = settings.num_ctx.value_or(0);
   int summarize_at = settings.summarize_at.value_or(200000);
   int ollama_jobs = settings.ollama_jobs.value_or(oc::kDefaultOllamaJobs);
-  std::string skills_dir = settings.skills_dir.value_or(".m8trix/skills");
+  std::string skills_dir = settings.skills_dir.value_or(".m8/skills");
   bool no_skills = not settings.enable_skills.value_or(true);
   std::string shell_override = settings.shell.value_or("");
   std::string switch_key_name = settings.mode_switch_key.value_or("shift-tab");
