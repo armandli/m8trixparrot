@@ -120,8 +120,10 @@ struct WebFetchTool {
 
 // Searches the web through the Parallel Search API (POST /v1/search over
 // libcurl). The API key comes from PARALLEL_API_KEY or, failing that, the
-// .m8/parallel_api_key file under the working directory; a missing key is
-// reported as a tool error, not a crash. PARALLEL_API_BASE overrides the host.
+// .m8/parallel_api_key file under the working directory — unless
+// set_web_search_api_key_file() named one file, which replaces both of those.
+// A missing key is reported as a tool error, not a crash. PARALLEL_API_BASE
+// overrides the host.
 // Advertised only when AgentOptions::enable_web_search is set.
 struct WebSearchTool {
   std::string description() const;
@@ -129,9 +131,21 @@ struct WebSearchTool {
   ToolResult execute(const ToolArgs& args) const;
 };
 
-// True when WebSearchTool::execute() would find an API key (PARALLEL_API_KEY, or
-// .m8/parallel_api_key under the working directory). For an app that wants
-// to warn when web search is enabled but unconfigured.
+// Restricts WebSearchTool to one key file, disabling both the PARALLEL_API_KEY
+// environment variable and the .m8/parallel_api_key fallback. A leading `~/` or
+// `$HOME/` is expanded. Call once at startup, before any search; an empty string
+// restores the default chain.
+//
+// For the standalone tool_websearch command, whose key is the operator's own
+// ~/.parallel_api_key rather than anything reachable from the workspace the
+// agent is editing. A workspace-relative key file is the right default for an
+// agent running inside one repository and the wrong one for a command the
+// operator runs from anywhere.
+void set_web_search_api_key_file(std::string path);
+
+// True when WebSearchTool::execute() would find an API key — from whichever of
+// the sources above is in play. For an app that wants to warn when web search is
+// enabled but unconfigured.
 bool web_search_available();
 
 // Asks the operator a question and blocks until they answer. Stateful, like

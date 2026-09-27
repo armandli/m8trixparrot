@@ -61,7 +61,11 @@ constexpr Entry kSecrets[] = {
     {Match::Exact, "/etc/shadow", true, "system password hashes"},
     {Match::Exact, "/etc/sudoers", true, "sudo configuration"},
     {Match::Prefix, "/etc/sudoers.d", true, "sudo configuration"},
-    // This project's own secret. .gitignore already calls it out by name.
+    // This project's own secret, in both of the places a key is kept: the
+    // standalone tool_websearch command reads ~/.parallel_api_key, and the
+    // websearch tool call reads .m8/parallel_api_key (which .gitignore already
+    // calls out by name).
+    {Match::Exact, "~/.parallel_api_key", true, "this project's API key"},
     {Match::Exact, "~/.m8/parallel_api_key", true, "this project's API key"},
 };
 

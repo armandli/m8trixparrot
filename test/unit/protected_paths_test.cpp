@@ -58,7 +58,8 @@ TEST_F(ProtectedPathsTest, SecretsAreDeniedToWriteAndToRead) {
                                   home() + "/.netrc",
                                   home() + "/.npmrc",
                                   home() + "/.gnupg/secring.gpg",
-                                  home() + "/.config/gh/hosts.yml"}) {
+                                  home() + "/.config/gh/hosts.yml",
+                                  home() + "/.parallel_api_key"}) {
     EXPECT_TRUE(write_denied(path)) << path;
     EXPECT_TRUE(read_denied(path)) << path;
     EXPECT_TRUE(is_protected_secret(path)) << path;

@@ -57,6 +57,19 @@ struct ScopedEnv {
   bool mHadPrior = false;
 };
 
+// The key-file override is process-global like the environment, so it gets the
+// same treatment as ScopedEnv: set for the lifetime of the object, off after.
+struct ScopedKeyFile {
+  explicit ScopedKeyFile(const std::string& path) {
+    tools::set_web_search_api_key_file(path);
+  }
+
+  ~ScopedKeyFile() { tools::set_web_search_api_key_file(std::string()); }
+
+  ScopedKeyFile(const ScopedKeyFile&) = delete;
+  ScopedKeyFile& operator=(const ScopedKeyFile&) = delete;
+};
+
 struct WebSearchTest : ToolTest {};
 
 const char* kTwoResults = R"json({
@@ -201,6 +214,47 @@ TEST_F(WebSearchTest, TheKeyFileIsUsedWhenTheEnvVarIsAbsent) {
 
   EXPECT_TRUE(result.ok) << result.error;
   EXPECT_NE(result.output.find("1. One"), std::string::npos);
+}
+
+// ───────────────────── the single-key-file override ─────────────────────────
+// What the standalone tool_websearch command uses: one file under $HOME, and no
+// other source. ToolTest gives each case its own temp cwd but leaves $HOME
+// alone, so these point $HOME at the temp directory rather than writing a key
+// into the developer's real home.
+
+// Reaching ok == true proves the key was found in ~/.parallel_api_key, trimmed,
+// and sent.
+TEST_F(WebSearchTest, TheOverrideKeyFileIsReadFromTheHomeDirectory) {
+  LoopbackServer server(200, "application/json", kThreeResults);
+  ScopedEnv base("PARALLEL_API_BASE", server.url(""));
+  ScopedEnv key("PARALLEL_API_KEY");  // unset
+  ScopedEnv home("HOME", dir().string());
+  write_file(".parallel_api_key", "  home-key-123\n");
+  ScopedKeyFile only("~/.parallel_api_key");
+
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("counting")}}));
+
+  EXPECT_TRUE(result.ok) << result.error;
+  EXPECT_NE(result.output.find("1. One"), std::string::npos);
+}
+
+// The override replaces the default chain rather than extending it: with both
+// other sources present and the named file absent, there is no key. This is the
+// "and nowhere else" half of the contract, and the reason the override exists.
+TEST_F(WebSearchTest, TheOverrideIgnoresTheEnvVarAndTheWorkspaceKeyFile) {
+  ScopedEnv key("PARALLEL_API_KEY", "env-key");
+  ScopedEnv home("HOME", dir().string());
+  write_file(".m8/parallel_api_key", "workspace-key\n");
+  ScopedKeyFile only("~/.parallel_api_key");  // never written
+
+  const tools::ToolResult result =
+      tools::WebSearchTool().execute(args({{"query", str("anything")}}));
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.error.find("~/.parallel_api_key"), std::string::npos);
+  EXPECT_EQ(result.error.find("PARALLEL_API_KEY"), std::string::npos);
+  EXPECT_FALSE(tools::web_search_available());
 }
 
 }  // namespace

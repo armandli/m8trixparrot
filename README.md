@@ -189,12 +189,15 @@ directories deep still uses the repository's state rather than making its own:
   skills/<name>/       SKILL.md + supporting files  (tracked in git)
   vdb/memory.m8db      the vector database
   sessions/<uuid>.json one root result tree per turn
-  parallel_api_key     the websearch key, if you use one  (never committed)
+  parallel_api_key     the websearch tool call's key, if you use one  (never committed)
 ```
 
-One thing is deliberately *not* in there: `~/.m8/bash_search_index.json`. That
-index describes `PATH`, which is a property of the machine rather than of one
-repository, so it is scanned once per machine instead of once per checkout.
+Two things are deliberately *not* in there, both for the same reason — they are
+properties of the machine rather than of one repository.
+`~/.m8/bash_search_index.json` describes `PATH`, so it is scanned once per
+machine instead of once per checkout. And `~/.parallel_api_key` is the key the
+standalone `tool_websearch` command reads, since that command is run from
+anywhere rather than from a workspace root (see [Web search](#web-search)).
 
 Slash commands: `/help`, `/session`, `/context`, `/skills`, `/reset`, `/quit`,
 and `/remember <text>`, `/memories [query]`, `/forget <id>` for driving memory by
@@ -882,7 +885,7 @@ genuinely needs changing, you change it.
 
 | Tier | Refused to | Examples |
 |---|---|---|
-| Secret | `read`, `write`, `edit`, and skipped by `grep`/`find` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.git-credentials`, `~/.netrc`, `~/.npmrc`, `/etc/sudoers`, `.m8/parallel_api_key` |
+| Secret | `read`, `write`, `edit`, and skipped by `grep`/`find` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.git-credentials`, `~/.netrc`, `~/.npmrc`, `/etc/sudoers`, `~/.parallel_api_key`, `.m8/parallel_api_key` |
 | Execution vector | `write`, `edit` — **reading stays allowed** | `~/.zshrc` and the other shell startup files, `~/.gitconfig`, any `.git/` directory, launchd and systemd units, crontabs, `/etc`, `/usr`, `/bin`, `/System` |
 
 Reading `~/.zshrc` to answer a question about it is useful and harmless; writing
@@ -1144,10 +1147,23 @@ build/toolcall --memory-path /tmp/mem.m8db --memory-model mxbai-embed-large '{"n
 
 The `websearch` tool queries the web through the
 [Parallel](https://parallel.ai) Search API and returns a numbered list of
-results (title, URL, snippet). It needs a Parallel API key, taken from the
-`PARALLEL_API_KEY` environment variable or, failing that, the first line of
-`.m8/parallel_api_key` (gitignored — never commit the key). `PARALLEL_API_BASE`
-overrides the API host for a proxy or a test double.
+results (title, URL, snippet). It needs a Parallel API key, and where that key
+comes from depends on which of the two callers is asking:
+
+- **the `websearch` tool call** (inside `m8`, `m8trixsh` or `toolcall`) — the
+  `PARALLEL_API_KEY` environment variable or, failing that, the first line of
+  `.m8/parallel_api_key`. The key belongs to the workspace the agent is working
+  in, so it lives beside that workspace's config.
+- **the standalone `tool_websearch` command** — the first line of
+  `~/.parallel_api_key`, and nowhere else. `PARALLEL_API_KEY` and
+  `.m8/parallel_api_key` are both ignored there. That command is run from
+  wherever you happen to be standing rather than from a workspace root, so a
+  relative key file would usually be missing and an inherited environment
+  variable would be an invisible source.
+
+Both files are gitignored, both are on the [Secret tier](#protected-paths), and
+neither should ever be committed. `PARALLEL_API_BASE` overrides the API host for
+a proxy or a test double, for either caller.
 
 `websearch` is **off by default**; each app opts in from its own config:
 
