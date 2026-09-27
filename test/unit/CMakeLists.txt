@@ -9,6 +9,8 @@ add_executable(unit_tests
   skills_test.cpp
   tools_bash_repl_test.cpp
   tools_bash_search_test.cpp
+  protected_paths_test.cpp
+  sane_policy_test.cpp
   tools_file_test.cpp
   tools_search_test.cpp
   tools_shell_test.cpp

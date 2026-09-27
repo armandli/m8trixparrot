@@ -13,6 +13,7 @@
 #include <system_error>
 #include <vector>
 
+#include <core/tools/protected_paths.h>
 #include <core/tools/tools_util.h>
 
 namespace tools {
@@ -152,6 +153,15 @@ ToolResult ReadTool::execute(const ToolArgs& args) const {
     return result;
   }
 
+  // Ahead of the existence check on purpose: a refusal that came after it would
+  // still report whether a protected file is present.
+  const std::string protected_reason =
+      protected_path_reason(*path, PathAccess::Read, "read");
+  if (not protected_reason.empty()) {
+    result.error = "read: " + protected_reason;
+    return result;
+  }
+
   std::error_code ec;
   if (not std::filesystem::exists(*path, ec) or ec) {
     result.error = "read: no such file: " + *path;
@@ -215,6 +225,15 @@ ToolResult WriteTool::execute(const ToolArgs& args) const {
     return result;
   }
 
+  // Before create_directories below: a refused write must not leave the
+  // directory tree it would have needed behind it.
+  const std::string protected_reason =
+      protected_path_reason(*path, PathAccess::Write, "write");
+  if (not protected_reason.empty()) {
+    result.error = "write: " + protected_reason;
+    return result;
+  }
+
   const std::filesystem::path target(*path);
   if (target.has_parent_path()) {
     std::error_code ec;
@@ -263,6 +282,15 @@ ToolResult EditTool::execute(const ToolArgs& args) const {
   if (edits == nullptr or edits->empty()) {
     result.error =
         "edit: missing required argument 'edits' (array of {oldText, newText})";
+    return result;
+  }
+
+  // Before read_file: an edit reads the whole file first, so a protected one must
+  // be refused before it is opened, not just before it is written back.
+  const std::string protected_reason =
+      protected_path_reason(*path, PathAccess::Write, "edit");
+  if (not protected_reason.empty()) {
+    result.error = "edit: " + protected_reason;
     return result;
   }
 

@@ -8,6 +8,7 @@
 #include <system_error>
 #include <vector>
 
+#include <core/tools/protected_paths.h>
 #include <core/tools/tools_util.h>
 
 namespace policy {
@@ -36,24 +37,22 @@ bool is_shell_command(const std::string& base) {
 // Commands whose job is to put bytes somewhere. Their destination arguments
 // get the same containment check as write/edit.
 bool is_write_command(const std::string& base) {
+  // tool_write and tool_edit belong here for the same reason tee does: they are
+  // how m8 writes files now. They were missed when write/edit stopped being
+  // in-process tools checked by name in verify() and became commands run in the
+  // shell — which left verify()'s write/edit branch dead for m8 (it sets
+  // enable_file_tools = false) and every argument to tool_write unexamined.
   return base == "tee" or base == "dd" or base == "cp" or base == "mv" or
          base == "install" or base == "truncate" or base == "ln" or
          base == "mkdir" or base == "touch" or base == "rm" or
-         base == "rmdir" or base == "chmod" or base == "chown";
+         base == "rmdir" or base == "chmod" or base == "chown" or
+         base == "tool_write" or base == "tool_edit";
 }
 
 // Destination is the last non-flag argument (cp/mv/install/ln); everything
 // else in the list takes a list of destinations.
 bool takes_last_argument(const std::string& base) {
   return base == "cp" or base == "mv" or base == "install" or base == "ln";
-}
-
-// Writing to the process's own streams is routine and harmless, and these
-// aren't under any write root, so they need an explicit pass.
-bool is_pseudo_device(const std::string& path) {
-  return path == "/dev/null" or path == "/dev/stdout" or
-         path == "/dev/stderr" or path == "/dev/tty" or path == "/dev/zero" or
-         path.rfind("/dev/fd/", 0) == 0;
 }
 
 struct Token {
@@ -234,9 +233,13 @@ std::string SanePolicy::name() const { return "sane"; }
 
 bool SanePolicy::path_allowed(const std::string& path) const {
   if (path.empty()) return true;  // The tool's own error to report.
-  if (is_pseudo_device(path)) return true;
+  if (tools::is_pseudo_device(path)) return true;
 
-  std::filesystem::path target(path);
+  // A leading ~ or $HOME first. Without this they are RELATIVE by
+  // std::filesystem's rules, get rebased under the workspace root below, and
+  // pass the containment check — while the shell expands them for real and
+  // writes the actual file. `echo k >> ~/.ssh/authorized_keys` was allowed.
+  std::filesystem::path target = tools::expand_home(path);
   if (target.is_relative()) {
     // Against the workspace root rather than the live cwd, so the boundary
     // doesn't shift under the policy.
@@ -256,6 +259,27 @@ bool SanePolicy::path_allowed(const std::string& path) const {
     if (root_it == root.end()) return true;
   }
   return false;
+}
+
+std::string SanePolicy::path_problem(const std::string& path) const {
+  if (path.empty()) return std::string();  // The tool's own error to report.
+
+  // The protected list first: it covers paths inside the workspace (`.git/`)
+  // that the containment check below would allow, and its reason is the more
+  // specific of the two.
+  const std::string protected_reason =
+      tools::protected_path_reason(path, tools::PathAccess::Write, "write");
+  if (not protected_reason.empty()) return protected_reason;
+
+  if (path_allowed(path)) return std::string();
+
+  std::string roots;
+  for (const std::filesystem::path& root : mWriteRoots) {
+    if (not roots.empty()) roots += " or ";
+    roots += root.string();
+  }
+  return path + " is outside the writable area; only paths under " + roots +
+         " may be modified";
 }
 
 std::string SanePolicy::inspect_command(const std::string& command) const {
@@ -301,9 +325,10 @@ std::string SanePolicy::inspect_command(const std::string& command) const {
     }
 
     for (const std::string& destination : destinations) {
-      if (path_allowed(destination)) continue;
-      return "`" + current_command + "` would write to " + destination +
-             ", which is outside the workspace";
+      const std::string problem = path_problem(destination);
+      if (problem.empty()) continue;
+      return "`" + current_command + "` would write to a path it may not: " +
+             problem;
     }
     return std::string();
   };
@@ -328,10 +353,11 @@ std::string SanePolicy::inspect_command(const std::string& command) const {
         const std::string& target = tokens[i + 1].text;
         ++i;
         // >&1 and >&2 name descriptors, not files.
-        if (not target.empty() and target[0] != '&' and
-            not path_allowed(target)) {
-          return "redirecting output to " + target +
-                 " would write outside the workspace";
+        if (not target.empty() and target[0] != '&') {
+          const std::string problem = path_problem(target);
+          if (not problem.empty()) {
+            return "redirecting output to a path it may not: " + problem;
+          }
         }
       }
       continue;
@@ -404,16 +430,9 @@ PolicyResult SanePolicy::verify(std::string_view tool_name,
     // No path at all is the tool's own error to report, with a better message
     // than a policy could give.
     if (not path) return PolicyResult::allow();
-    if (path_allowed(*path)) return PolicyResult::allow();
-
-    std::string roots;
-    for (const std::filesystem::path& root : mWriteRoots) {
-      if (not roots.empty()) roots += " or ";
-      roots += root.string();
-    }
-    return PolicyResult::deny("`" + std::string(tool_name) + "` to " + *path +
-                              " is outside the writable area; only paths under " +
-                              roots + " may be modified");
+    const std::string problem = path_problem(*path);
+    if (problem.empty()) return PolicyResult::allow();
+    return PolicyResult::deny("`" + std::string(tool_name) + "`: " + problem);
   }
 
   // Reading, searching and listing are unrestricted.

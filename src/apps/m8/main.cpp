@@ -228,8 +228,13 @@ int main(int argc, char** argv) {
 
   // Agent only knows PolicyInterface, so which policy is in force is decided
   // here and nowhere else.
+  //
+  // The write root is the workspace root, not the launch directory: everything
+  // else m8 does with paths walks up to the nearest .git/.m8, and a policy whose
+  // boundary sat at whatever subdirectory you happened to start in would refuse
+  // writes to sibling directories of the same project.
   const policy::YoloPolicy yolo_policy;
-  const policy::SanePolicy sane_policy;
+  const policy::SanePolicy sane_policy(paths.root);
   const policy::PolicyInterface& pol =
       policy_name == "sane"
           ? static_cast<const policy::PolicyInterface&>(sane_policy)

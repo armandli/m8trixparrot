@@ -869,6 +869,73 @@ the model:
 /forget <id>        delete one
 ```
 
+## Protected paths
+
+The file tools refuse to touch certain files however the path is spelled. The
+list is in `src/core/tools/protected_paths.{h,cpp}` — hardcoded, with no config
+key, environment variable or flag to relax it. There is no override on purpose:
+anything an agent can set costs it exactly as little as it costs you, so an
+escape hatch would stop accidents and nothing else. When a protected file
+genuinely needs changing, you change it.
+
+**Two tiers**, because the danger runs in different directions:
+
+| Tier | Refused to | Examples |
+|---|---|---|
+| Secret | `read`, `write`, `edit`, and skipped by `grep`/`find` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.git-credentials`, `~/.netrc`, `~/.npmrc`, `/etc/sudoers`, `.m8/parallel_api_key` |
+| Execution vector | `write`, `edit` — **reading stays allowed** | `~/.zshrc` and the other shell startup files, `~/.gitconfig`, any `.git/` directory, launchd and systemd units, crontabs, `/etc`, `/usr`, `/bin`, `/System` |
+
+Reading `~/.zshrc` to answer a question about it is useful and harmless; writing
+it is code execution on your next login. Reading `~/.ssh/id_rsa` is the whole
+attack, so that one is refused outright.
+
+`.git/` matches at any depth, including the repository m8 is working in — a
+`pre-commit` hook or a `core.sshCommand` in `.git/config` is arbitrary command
+execution. `.github/` is a different component and stays writable.
+
+The check runs **inside the tool**, on the path after `~`/`$HOME` expansion,
+`..` normalization and symlink resolution. So all four of these hit the same
+refusal:
+
+```sh
+tool_write ~/.ssh/authorized_keys        # the obvious one
+tool_write '~/.ssh/authorized_keys'      # quoted, so the shell never expanded ~
+ln -s ~/.ssh/authorized_keys ./innocent
+tool_write ./innocent                    # through a symlink
+tool_write ~/.config/../.ssh/authorized_keys
+```
+
+`policy::SanePolicy` consults the same list, so under that policy it also covers
+shell redirections and the other write commands — `echo k >> ~/.ssh/authorized_keys`,
+`cp evil ~/.ssh/authorized_keys`, `tee ~/.zshrc`, `dd of=/etc/hosts`.
+
+### What this is not
+
+It is not a sandbox, and it matters not to mistake it for one.
+
+Where it applies it is stronger than the policy layer: it sees the final
+resolved path at the moment of the write, so `eval`, base64, a variable, or a
+path assembled at runtime make no difference. But it only guards the tools that
+call it. A shell reaches the same file with `sed -i`, an interpreter one-liner,
+or a script written and then executed, and nothing here sees any of that.
+`SanePolicy` catches the straightforward shell forms, but **`m8trixsh` defaults
+to `yolo` and `sp` hardcodes it**, and even under `sane` the bypasses its own
+header documents (`sane_policy.h:25-32`) still work.
+
+Two limits are inherent to checking a path rather than a file descriptor: a
+hardlink to a protected file resolves to itself and is not detected, and there
+is a window between the check and the `open()` in which a symlink could be
+swapped. Both need shell access that could be used more directly anyway.
+
+So it makes accidental destruction very unlikely and closes the route an agent
+reaches for first. A real boundary is the operating system's — a `sandbox-exec`
+profile, a container, or a separate low-privilege user.
+
+Not protected, as a deliberate choice: `.m8/config.json` (which holds
+`"policy": "sane"`, so an agent that rewrites it relaxes the policy for the
+*next* launch — the deny list itself is hardcoded and cannot be turned off this
+way), `~/.claude/`, and `.envrc`.
+
 ## Skills
 
 `m8` loads **skills** — reusable procedures for specific tasks — from

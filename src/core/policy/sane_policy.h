@@ -49,10 +49,18 @@ struct SanePolicy : PolicyInterface {
 
 protected:
   // True when `path` resolves to somewhere under one of the write roots.
-  // Relative paths resolve against the workspace root, `.`/`..` are
-  // normalized, and symlinks on the existing part of the path are followed —
-  // a link inside the workspace pointing at /etc does not sneak through.
+  // Relative paths resolve against the workspace root, a leading ~ or $HOME is
+  // expanded, `.`/`..` are normalized, and symlinks on the existing part of the
+  // path are followed — a link inside the workspace pointing at /etc does not
+  // sneak through.
   bool path_allowed(const std::string& path) const;
+
+  // Empty when `path` may be written; otherwise why not. Two reasons, in this
+  // order: it is on the protected list (tools/protected_paths.h), or it is
+  // outside the write roots. The order matters because the protected list
+  // includes `.git/`, which IS inside the workspace — containment alone would
+  // wave it through.
+  std::string path_problem(const std::string& path) const;
 
   // Empty when the command is acceptable; otherwise the reason to refuse it.
   std::string inspect_command(const std::string& command) const;

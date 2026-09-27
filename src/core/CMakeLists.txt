@@ -14,6 +14,7 @@ add_library(agentcore STATIC
   oc/ollama_client.cpp
   policy/policy.cpp
   agent/session_store.cpp
+  tools/protected_paths.cpp
   tools/shell_session.cpp
   agent/skills.cpp
   tools/tools_ask_user.cpp
