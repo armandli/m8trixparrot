@@ -3,6 +3,8 @@
 // The singleton index persists in memory across cases, so SetUpTestSuite does a
 // single scan before any case runs.  Individual cases then query that data.
 
+#include <unistd.h>
+
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -265,6 +267,77 @@ TEST_F(BashSearchTest, SearchWithMalformedQueryIsAnError) {
 
   EXPECT_FALSE(result.ok);
   EXPECT_TRUE(result.output.empty());
+}
+
+// ── what the PATH scan counts as a command ────────────────────────────
+
+// Its own fixture rather than a BashSearchTest case: these repoint $PATH and
+// rescan, where BashSearchTest deliberately shares one real-PATH index across
+// all of its cases. A separate index file keeps that suite's file intact, and
+// the in-memory index is dropped on the way out so whatever runs next reloads
+// rather than serving a two-entry PATH.
+struct BashSearchPathScanTest : ToolTest {
+  static std::filesystem::path index_file() {
+    return std::filesystem::temp_directory_path() /
+           "m8-test-bash-search-path-scan.json";
+  }
+
+  void SetUp() override {
+    ToolTest::SetUp();
+    tools::wait_for_bash_search_rescan();
+    tools::set_bash_search_index_path(index_file().string());
+    tools::reset_bash_search_index_for_test();
+  }
+
+  void TearDown() override {
+    tools::wait_for_bash_search_rescan();
+    tools::reset_bash_search_index_for_test();
+    std::error_code ec;
+    std::filesystem::remove(index_file(), ec);
+    std::filesystem::remove(index_file().string() + ".tmp", ec);
+    tools::set_bash_search_index_path("");
+    ToolTest::TearDown();
+  }
+
+  // $PATH holding nothing but the case's own bin directory. With one name or
+  // none the scan's apropos(1) call contributes nothing, so these run fast.
+  std::string only_our_bin() const { return (dir() / "bin").string(); }
+};
+
+// Exec bits for group and other, but not for the owner — us. The scan used to ask
+// whether any exec bit was set anywhere, so it indexed files like this and
+// recommended a command that fails the moment it is used.
+TEST_F(BashSearchPathScanTest, DoesNotIndexAFileThisUserCannotExecute) {
+  if (::geteuid() == 0) GTEST_SKIP() << "root bypasses the exec permission bits";
+  write_file("bin/unrunnable_cmd", "#!/bin/sh\necho unreachable\n");
+  std::filesystem::permissions(dir() / "bin/unrunnable_cmd",
+                               std::filesystem::perms::owner_read |
+                                   std::filesystem::perms::owner_write |
+                                   std::filesystem::perms::group_exec |
+                                   std::filesystem::perms::others_exec);
+  ScopedEnv path("PATH", only_our_bin());
+
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("scan")}}));
+
+  EXPECT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(result.output, "Scanned 0 commands.");
+}
+
+// The control for the case above: the same file, runnable by its owner, is
+// indexed. Without this, "Scanned 0 commands" would also pass if the scan had
+// stopped seeing the directory at all.
+TEST_F(BashSearchPathScanTest, DoesIndexAFileThisUserCanExecute) {
+  write_file("bin/runnable_cmd", "#!/bin/sh\necho fine\n");
+  std::filesystem::permissions(dir() / "bin/runnable_cmd",
+                               std::filesystem::perms::owner_all);
+  ScopedEnv path("PATH", only_our_bin());
+
+  const tools::ToolResult result =
+      tools::BashSearchTool().execute(args({{"action", str("scan")}}));
+
+  EXPECT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(result.output, "Scanned 1 commands.");
 }
 
 }  // namespace

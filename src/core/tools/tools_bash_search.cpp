@@ -1,5 +1,7 @@
 #include <core/tools/tools.h>
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -828,16 +830,16 @@ private:
       // the loop simply contributes nothing.
       std::error_code ec;
       for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
-        // One status() for both questions: asking is_regular_file separately
-        // doubles the stat calls over a PATH with thousands of entries.
         std::error_code entry_ec;
         const auto status = e.status(entry_ec);  // Follows symlinks, as exec does.
         if (entry_ec || !std::filesystem::is_regular_file(status)) continue;
-        constexpr auto kAnyExec = std::filesystem::perms::owner_exec |
-                                  std::filesystem::perms::group_exec |
-                                  std::filesystem::perms::others_exec;
-        if ((status.permissions() & kAnyExec) == std::filesystem::perms::none)
-          continue;
+        // Whether *this* user can run it, not whether some exec bit is set
+        // somewhere: a root-owned 0700 binary has owner_exec and is still
+        // unrunnable here, and indexing it would recommend a command that fails
+        // the moment it is used. One extra syscall per PATH entry, which does
+        // not matter — essentially all of the scan's time is the single
+        // apropos(1) call below, and this runs on a worker thread.
+        if (::access(e.path().c_str(), X_OK) != 0) continue;
         const std::string name = e.path().filename().string();
         if (seen.insert(name).second) names.push_back(name);
       }

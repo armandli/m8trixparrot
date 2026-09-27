@@ -63,10 +63,11 @@ bool ensure_m8_dirs(const M8Paths& paths, std::string& error);
 // is left exactly as it is and returns true.
 bool ensure_default_config(const M8Paths& paths, std::string& error);
 
-// Which of `names` can be found as an executable on `path_env`. m8 reaches its
-// file and web tools by running them in the shell, so "is tool_grep installed"
-// is a question it has to be able to answer at startup — both to warn the user
-// and to keep the system prompt from advertising a command that is not there.
+// Which of `names` can be found on `path_env` as a file this user can actually
+// execute. m8 reaches its file and web tools by running them in the shell, so
+// "is tool_grep installed" is a question it has to be able to answer at startup
+// — both to warn the user and to keep the system prompt from advertising a
+// command that is not there, or is there but unrunnable.
 std::vector<std::string> find_on_path(const std::vector<std::string>& names,
                                       const std::string& path_env);
 

@@ -2,6 +2,8 @@
 // these tests build a directory tree under a temp root and never need a real
 // environment — the same shape as sp_paths_test.cpp.
 
+#include <unistd.h>
+
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -252,6 +254,21 @@ TEST_F(M8PathsTest, IgnoresANonExecutableOfTheRightName) {
   const fs::path tool = mRoot / "bin/tool_read";
   std::ofstream(tool) << "not a program\n";
   fs::permissions(tool, fs::perms::owner_read | fs::perms::owner_write);
+
+  EXPECT_TRUE(find_on_path({"tool_read"}, (mRoot / "bin").string()).empty());
+}
+
+// Exec bits set, but not for us. Asking whether any of the three exec bits is
+// set anywhere is a different question from whether this process can run the
+// file: we own this one, so the owner class applies and the group and other
+// bits are irrelevant. Only access(X_OK) gets that right.
+TEST_F(M8PathsTest, IgnoresAFileThisUserCannotExecute) {
+  if (::geteuid() == 0) GTEST_SKIP() << "root bypasses the exec permission bits";
+  mkdirs("bin");
+  const fs::path tool = mRoot / "bin/tool_read";
+  std::ofstream(tool) << "#!/bin/sh\n";
+  fs::permissions(tool, fs::perms::owner_read | fs::perms::owner_write |
+                            fs::perms::group_exec | fs::perms::others_exec);
 
   EXPECT_TRUE(find_on_path({"tool_read"}, (mRoot / "bin").string()).empty());
 }

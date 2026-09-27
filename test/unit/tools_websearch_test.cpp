@@ -18,44 +18,7 @@
 namespace m8test {
 namespace {
 
-// Sets an environment variable for the lifetime of the object and restores the
-// previous state (value or absence) on destruction. gtest runs cases
-// sequentially in one process, so this is safe.
-struct ScopedEnv {
-  ScopedEnv(const std::string& name, const std::string& value) : mName(name) {
-    capture();
-    ::setenv(mName.c_str(), value.c_str(), 1);
-  }
-
-  // The one-argument form clears the variable instead of setting it.
-  explicit ScopedEnv(const std::string& name) : mName(name) {
-    capture();
-    ::unsetenv(mName.c_str());
-  }
-
-  ~ScopedEnv() {
-    if (mHadPrior) {
-      ::setenv(mName.c_str(), mPrior.c_str(), 1);
-    } else {
-      ::unsetenv(mName.c_str());
-    }
-  }
-
-  ScopedEnv(const ScopedEnv&) = delete;
-  ScopedEnv& operator=(const ScopedEnv&) = delete;
-
- protected:
-  void capture() {
-    if (const char* prior = std::getenv(mName.c_str())) {
-      mHadPrior = true;
-      mPrior = prior;
-    }
-  }
-
-  std::string mName;
-  std::string mPrior;
-  bool mHadPrior = false;
-};
+// ScopedEnv, which these cases lean on heavily, lives in tool_test_env.h.
 
 // The key-file override is process-global like the environment, so it gets the
 // same treatment as ScopedEnv: set for the lifetime of the object, off after.

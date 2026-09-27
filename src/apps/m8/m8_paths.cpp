@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <filesystem>
 #include <fstream>
 #include <system_error>
@@ -141,14 +143,19 @@ std::vector<std::string> find_on_path(const std::vector<std::string>& names,
       std::error_code ec;
       const sf::path candidate = sf::path(dir) / name;
       if (not sf::is_regular_file(candidate, ec)) continue;
-      // An unreadable or non-executable file of the right name is not the
-      // command: reporting it installed would advertise a tool that fails.
-      const sf::perms mode = sf::status(candidate, ec).permissions();
-      if (ec) continue;
-      const bool executable =
-          (mode & (sf::perms::owner_exec | sf::perms::group_exec |
-                   sf::perms::others_exec)) != sf::perms::none;
-      if (not executable) continue;
+      // A file of the right name this user cannot run is not the command:
+      // reporting it installed would advertise a tool that fails.
+      //
+      // Whether *this* process can execute it is a different question from
+      // whether some exec bit is set somewhere — a root-owned 0700 binary has
+      // owner_exec and is still unrunnable here. access() is the only check that
+      // accounts for uid, supplementary groups, ACLs and a noexec mount, and it
+      // costs no more than the second status() it replaces. Plain access() and
+      // not eaccess(): the two differ only for a setuid process, m8 is not one,
+      // and resolve_shell() in shell_session.cpp already reads this way.
+      // Advisory rather than a gate — nothing is executed off the back of it, so
+      // the usual access()-then-exec race does not apply.
+      if (::access(candidate.c_str(), X_OK) != 0) continue;
       found.push_back(name);
       break;
     }
