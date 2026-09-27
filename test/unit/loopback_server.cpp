@@ -65,30 +65,30 @@ LoopbackServer::LoopbackServer(LoopbackOptions options)
 
 void LoopbackServer::listen_and_serve() {
   mListenFd = ::socket(AF_INET, SOCK_STREAM, 0);
-  if (mListenFd < 0) return;
+  if (mListenFd.load() < 0) return;
 
   const int reuse = 1;
-  ::setsockopt(mListenFd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+  ::setsockopt(mListenFd.load(), SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = 0;  // Any free port; the kernel picks.
-  if (::bind(mListenFd, reinterpret_cast<sockaddr*>(&address),
+  if (::bind(mListenFd.load(), reinterpret_cast<sockaddr*>(&address),
              sizeof(address)) != 0) {
-    ::close(mListenFd);
+    ::close(mListenFd.load());
     mListenFd = -1;
     return;
   }
-  if (::listen(mListenFd, 8) != 0) {
-    ::close(mListenFd);
+  if (::listen(mListenFd.load(), 8) != 0) {
+    ::close(mListenFd.load());
     mListenFd = -1;
     return;
   }
 
   sockaddr_in bound{};
   socklen_t bound_size = sizeof(bound);
-  if (::getsockname(mListenFd, reinterpret_cast<sockaddr*>(&bound),
+  if (::getsockname(mListenFd.load(), reinterpret_cast<sockaddr*>(&bound),
                     &bound_size) == 0) {
     mPort = ntohs(bound.sin_port);
   }
@@ -100,10 +100,10 @@ LoopbackServer::~LoopbackServer() {
   mStopping = true;
   // Shutting the listening socket down is what wakes the accept() in the
   // serve thread; closing alone can leave it blocked.
-  if (mListenFd >= 0) {
-    ::shutdown(mListenFd, SHUT_RDWR);
-    ::close(mListenFd);
-    mListenFd = -1;
+  const int listening = mListenFd.exchange(-1);
+  if (listening >= 0) {
+    ::shutdown(listening, SHUT_RDWR);
+    ::close(listening);
   }
   if (mThread.joinable()) mThread.join();
 
@@ -119,7 +119,7 @@ std::string LoopbackServer::url(const std::string& path) const {
 
 void LoopbackServer::serve() {
   while (not mStopping) {
-    const int fd = ::accept(mListenFd, nullptr, nullptr);
+    const int fd = ::accept(mListenFd.load(), nullptr, nullptr);
     if (fd < 0) return;  // Listening socket closed, or the run is over.
 
     // Claimed here rather than in the handler so connections keep getting the

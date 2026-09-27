@@ -1,3 +1,4 @@
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -5,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <list>
@@ -26,6 +28,7 @@
 #include <common/transcript_view.h>
 #include <core/agent/agent.h>
 #include <core/agent/agent_pool.h>
+#include <core/vdb/memory_ops.h>
 #include <core/vdb/memory_store.h>
 #include <core/agent/agent_settings.h>
 #include <core/policy/policy.h>
@@ -74,11 +77,29 @@ std::vector<std::string> list_ollama_models(bool& command_ok) {
   return models;
 }
 
+// The argument of a /command, with surrounding whitespace dropped so
+// "/remember  x  " and "/remember x" store the same thing.
+std::string trim_copy(std::string text) {
+  size_t begin = 0;
+  size_t end = text.size();
+  while (begin < end and std::isspace(static_cast<unsigned char>(text[begin]))) {
+    ++begin;
+  }
+  while (end > begin and
+         std::isspace(static_cast<unsigned char>(text[end - 1]))) {
+    --end;
+  }
+  return text.substr(begin, end - begin);
+}
+
 const char* kHelpText =
     "/help     show this message\n"
     "/session  show the current session id\n"
     "/context  show context token usage and the auto-summarize threshold\n"
     "/skills   list available skills (and re-scan the skills directory)\n"
+    "/remember <text>   store something about this project in memory\n"
+    "/memories [query]  search memory, or show statistics with no query\n"
+    "/forget <id>       delete one memory by id\n"
     "/reset    start a new session\n"
     "/quit     exit\n"
     "\n"
@@ -586,6 +607,75 @@ int main(int argc, char** argv) {
                 " — " + skill.description;
       }
       push_notice(TranscriptNode::Kind::Notice, help);
+      return;
+    }
+    // Memory by hand. Deliberately the same MemoryStoreRegistry handle the
+    // agent's `memory` tool resolves: a second handle on one file would go
+    // stale the moment the other wrote, so the user would be shown a view the
+    // agent does not have. Resolved per command rather than cached because the
+    // store is only created on the first thing anything remembers.
+    auto with_memory = [&](const std::function<std::string(vdb::MemoryStore&)>& op) {
+      if (not options.enable_memory) {
+        push_notice(TranscriptNode::Kind::Error,
+                    "memory is off for this run (set enable_memory in "
+                    ".m8/config.json, and pull the embedding model)");
+        return;
+      }
+      vdb::MemoryOptions memory_options;
+      memory_options.path = options.memory_path;
+      memory_options.embed_model = options.memory_embed_model;
+
+      std::string error;
+      vdb::MemoryStore* store =
+          vdb::MemoryStoreRegistry::instance().get(memory_options, error);
+      if (store == nullptr) {
+        push_notice(TranscriptNode::Kind::Error, error);
+        return;
+      }
+      // Embedding is an Ollama round trip, so this runs off the UI thread —
+      // otherwise a slow model freezes the whole screen. MemoryStore is
+      // thread-safe, and the notice lands through the same mutex every other
+      // event does.
+      std::thread([&push_notice, store, op] {
+        push_notice(TranscriptNode::Kind::Notice, op(*store));
+      }).detach();
+    };
+
+    if (entered == "/remember" or entered.rfind("/remember ", 0) == 0) {
+      const std::string text =
+          entered.size() > 10 ? trim_copy(entered.substr(10)) : std::string();
+      push_notice(TranscriptNode::Kind::User, entered);
+      with_memory([text](vdb::MemoryStore& store) {
+        return vdb::do_remember(store, text);
+      });
+      return;
+    }
+    if (entered == "/memories" or entered.rfind("/memories ", 0) == 0) {
+      const std::string query =
+          entered.size() > 10 ? trim_copy(entered.substr(10)) : std::string();
+      push_notice(TranscriptNode::Kind::User, entered);
+      with_memory([query](vdb::MemoryStore& store) {
+        return vdb::do_search(store, query);
+      });
+      return;
+    }
+    if (entered == "/forget" or entered.rfind("/forget ", 0) == 0) {
+      const std::string arg =
+          entered.size() > 8 ? trim_copy(entered.substr(8)) : std::string();
+      push_notice(TranscriptNode::Kind::User, entered);
+      // strtoull would accept "12abc" and a negative id wraps around, so the
+      // digits are checked before the conversion rather than after it.
+      const bool digits =
+          not arg.empty() and
+          arg.find_first_not_of("0123456789") == std::string::npos;
+      const uint64_t id = digits ? std::strtoull(arg.c_str(), nullptr, 10) : 0;
+      if (id == 0) {
+        push_notice(TranscriptNode::Kind::Error, "usage: /forget <memory id>");
+        return;
+      }
+      with_memory([id](vdb::MemoryStore& store) {
+        return vdb::do_forget(store, id);
+      });
       return;
     }
     if (entered == "/session") {

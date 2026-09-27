@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -159,8 +160,16 @@ struct MemoryOpenResult {
 
 // The agentic layer over VectorStore: text in, ranked memories out.
 //
-// Thread-safe. The embedding call happens outside the store's lock, which is
-// what keeps a slow model from serializing every other agent's recall.
+// Thread-safe. Two things keep one recall from serializing behind every other
+// agent's:
+//
+//   - The embedding call happens outside the lock, so a slow model stalls only
+//     its own caller.
+//   - The lock is a shared_mutex, and recall/stats take it shared. It guards the
+//     mStore pointer and mOptions, not the data — VectorStore does its own,
+//     finer-grained locking underneath — so a read-mostly workload has no reason
+//     to hold it exclusive. It was a plain std::mutex, which made every memory
+//     operation wait for every other one, two concurrent recalls included.
 struct MemoryStore {
   // An existing file is asked for its vector width; a new one cannot be
   // created until something is embedded, because the header has to record a
@@ -171,7 +180,10 @@ struct MemoryStore {
 
   RememberResult remember(const Memory& memory);
   // Not const: every memory it returns has its access_count bumped, which is a
-  // write back into the store.
+  // write back into the store. The bump goes through
+  // VectorStore::update_metadata_deferred(), so it costs no disk I/O and is
+  // persisted by the next flush() — access_count feeds ranking, and losing the
+  // last few bumps to a hard abort is not worth an fsync per hit.
   RecallResult recall(const RecallQuery& query);
   StoreResult forget(const std::vector<uint64_t>& ids);
   MemoryStats stats() const;
@@ -194,7 +206,7 @@ protected:
   Embedder mEmbedder;
   std::string mOpenWarning;
   std::unique_ptr<VectorStore> mStore;
-  mutable std::mutex mMutex;
+  mutable std::shared_mutex mMutex;
 };
 
 // Process-wide, keyed by the absolute path of the file. A store owns a file

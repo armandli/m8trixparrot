@@ -5,7 +5,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <atomic>
 #include <filesystem>
+#include <thread>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -375,6 +377,87 @@ TEST_F(MemoryStoreTest, RecallBumpsAccessCountAndTheBumpSurvivesReopen) {
   const RecallResult third = reopened.store->recall(query);
   ASSERT_TRUE(third.ok) << third.error;
   EXPECT_EQ(third.memories[0].memory.access_count, 3);
+}
+
+// Recall bumps access_count, which used to make it a writer: k memories cost k
+// log appends, k header writes and k fsyncs just to record that they had been
+// read. It goes through update_metadata_deferred() now, so a recall touches no
+// disk at all until something flushes.
+TEST_F(MemoryStoreTest, RecallDoesNoDiskWritesUntilFlush) {
+  MemoryOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_TRUE(opened.store->remember(make("countable memory " +
+                                            std::to_string(i))).ok);
+  }
+  ASSERT_TRUE(opened.store->flush().ok);
+
+  const uint64_t before = std::filesystem::file_size(path);
+  const std::filesystem::file_time_type stamp =
+      std::filesystem::last_write_time(path);
+
+  RecallQuery query;
+  query.query = "countable memory";
+  query.k = 5;
+  for (int i = 0; i < 4; ++i) {
+    const RecallResult recalled = opened.store->recall(query);
+    ASSERT_TRUE(recalled.ok) << recalled.error;
+    ASSERT_FALSE(recalled.memories.empty());
+  }
+
+  EXPECT_EQ(std::filesystem::file_size(path), before)
+      << "recall wrote to the database";
+  EXPECT_EQ(std::filesystem::last_write_time(path), stamp)
+      << "recall touched the database file";
+
+  // And the bumps are real, just not yet durable.
+  const RecallResult after = opened.store->recall(query);
+  ASSERT_TRUE(after.ok) << after.error;
+  EXPECT_GT(after.memories[0].memory.access_count, 1);
+
+  ASSERT_TRUE(opened.store->flush().ok);
+  EXPECT_GT(std::filesystem::file_size(path), before)
+      << "flush did not persist the access_count bumps";
+}
+
+// The root and up to max_agents subagents share one MemoryStore through
+// MemoryStoreRegistry, and recall is the operation they all do. The outer lock
+// is a shared_mutex so they overlap; with the plain std::mutex it used to be,
+// they queued.
+TEST_F(MemoryStoreTest, ConcurrentRecallsOverlap) {
+  MemoryOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  for (int i = 0; i < 40; ++i) {
+    ASSERT_TRUE(opened.store->remember(make("shared memory " +
+                                            std::to_string(i))).ok);
+  }
+
+  MemoryStore& store = *opened.store;
+  std::atomic<int> inside{0};
+  std::atomic<int> peak{0};
+  std::atomic<int> failures{0};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < 8; ++t) {
+    threads.emplace_back([&store, &inside, &peak, &failures, t] {
+      RecallQuery query;
+      query.query = "shared memory " + std::to_string(t);
+      query.k = 5;
+      for (int i = 0; i < 25; ++i) {
+        const int now = ++inside;
+        int seen = peak.load();
+        while (now > seen and not peak.compare_exchange_weak(seen, now)) {
+        }
+        if (not store.recall(query).ok) ++failures;
+        --inside;
+      }
+    });
+  }
+  for (std::thread& thread : threads) thread.join();
+
+  EXPECT_EQ(failures.load(), 0);
+  EXPECT_GT(peak.load(), 1)
+      << "no two recalls were ever in flight at once; the read path is "
+         "serialized";
 }
 
 TEST_F(MemoryStoreTest, ForgetRemovesTheMemoryFromRecall) {

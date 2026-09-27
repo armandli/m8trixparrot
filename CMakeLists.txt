@@ -73,3 +73,32 @@ enable_testing()
 
 add_subdirectory(src)
 add_subdirectory(test)
+
+# ---------------------------------------------------------------------------
+# Install.
+#
+# m8 reads and writes files by running these commands in its shell rather than
+# through in-process tools, so they are not optional extras — an m8 whose PATH
+# has none of them is an agent with no way to edit a file but cat and sed. They
+# install together, and m8 warns at startup about any it cannot find.
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+
+install(TARGETS
+  m8
+  sp
+  toolcall
+  tool_read
+  tool_write
+  tool_edit
+  tool_find
+  tool_grep
+  tool_webfetch
+  tool_websearch
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Built only when libvterm is present (see src/apps/CMakeLists.txt).
+if(TARGET m8trixsh)
+  install(TARGETS m8trixsh RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

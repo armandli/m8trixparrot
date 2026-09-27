@@ -272,7 +272,7 @@ RememberResult MemoryStore::remember(const Memory& memory) {
     return result;
   }
 
-  std::lock_guard<std::mutex> lock(mMutex);
+  std::unique_lock<std::shared_mutex> lock(mMutex);
   const StoreResult ready =
       ensure_store_locked(static_cast<uint32_t>(vector.size()));
   if (not ready.ok) {
@@ -369,7 +369,7 @@ RecallResult MemoryStore::recall(const RecallQuery& query) {
   }
 
   {
-    std::lock_guard<std::mutex> lock(mMutex);
+    std::shared_lock<std::shared_mutex> lock(mMutex);
     // No file yet means nothing has ever been remembered. That is an empty
     // answer, not an error, and it must not force the file into existence.
     if (not mStore) {
@@ -397,7 +397,7 @@ RecallResult MemoryStore::recall(const RecallQuery& query) {
   std::vector<ScoredMemory> scored;
   std::vector<uint64_t> to_bump;
   {
-    std::lock_guard<std::mutex> lock(mMutex);
+    std::shared_lock<std::shared_mutex> lock(mMutex);
     if (mStore->dim() != vector.size()) {
       result.error = "memory: the embedding model returned " +
                      std::to_string(vector.size()) + " dimensions but " +
@@ -439,9 +439,13 @@ RecallResult MemoryStore::recall(const RecallQuery& query) {
       ++entry.memory.access_count;
       Metadata bump;
       bump[kMemoryFieldAccessCount] = entry.memory.access_count;
-      // A failed bump is not worth failing the recall over: the caller asked
-      // for memories, and it has them.
-      (void)mStore->update_metadata(entry.memory.id, bump);
+      // Deferred, not durable: this is a ranking hint, and paying an append, a
+      // header write and an fsync per hit just to record that something was
+      // read is what made a k=5 recall five disk round trips. flush() writes
+      // them all at once, under one header write. A failed bump is not worth
+      // failing the recall over either — the caller asked for memories, and it
+      // has them.
+      (void)mStore->update_metadata_deferred(entry.memory.id, bump);
     }
   }
 
@@ -451,7 +455,7 @@ RecallResult MemoryStore::recall(const RecallQuery& query) {
 }
 
 StoreResult MemoryStore::forget(const std::vector<uint64_t>& ids) {
-  std::lock_guard<std::mutex> lock(mMutex);
+  std::unique_lock<std::shared_mutex> lock(mMutex);
   StoreResult result;
   if (not mStore) {
     result.ok = true;
@@ -461,7 +465,7 @@ StoreResult MemoryStore::forget(const std::vector<uint64_t>& ids) {
 }
 
 StoreResult MemoryStore::flush() {
-  std::lock_guard<std::mutex> lock(mMutex);
+  std::unique_lock<std::shared_mutex> lock(mMutex);
   StoreResult result;
   if (not mStore) {
     result.ok = true;
@@ -471,7 +475,7 @@ StoreResult MemoryStore::flush() {
 }
 
 MemoryStats MemoryStore::stats() const {
-  std::lock_guard<std::mutex> lock(mMutex);
+  std::shared_lock<std::shared_mutex> lock(mMutex);
   MemoryStats out;
   out.path = mOptions.path;
   if (not mStore) return out;

@@ -61,7 +61,10 @@ protected:
   void serve();
   void handle(int fd, std::size_t response_index);
 
-  int mListenFd = -1;
+  // Atomic because the destructor closes it and sets it to -1 while the serve
+  // thread is blocked reading it in accept(). A plain int there is a data race
+  // ThreadSanitizer reports on every test that uses this server.
+  std::atomic<int> mListenFd{-1};
   int mPort = 0;
   std::atomic<bool> mStopping{false};
   std::thread mThread;

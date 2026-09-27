@@ -7,6 +7,7 @@ add_library(agentcore STATIC
   policy/sane_policy.cpp
   util/json_util.cpp
   util/uuid.cpp
+  vdb/memory_ops.cpp
   vdb/memory_store.cpp
   oc/basic_ollama_client.cpp
   vdb/byte_io.cpp
