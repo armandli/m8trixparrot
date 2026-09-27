@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(m8trixparrot CXX)
+project(m8 CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,14 +31,6 @@ pkg_check_modules(LIBGIT2 REQUIRED IMPORTED_TARGET libgit2)
 # libvterm powers m8trixsh's terminal pane. Not REQUIRED: when it is missing the
 # rest of the repo still configures and m8trixsh is skipped (see src/apps).
 pkg_check_modules(LIBVTERM IMPORTED_TARGET vterm)
-
-FetchContent_Declare(
-  pybind11
-  GIT_REPOSITORY https://github.com/pybind/pybind11
-  GIT_TAG v2.13.6
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(pybind11)
 
 FetchContent_Declare(
   simdjson
@@ -81,3 +73,32 @@ enable_testing()
 
 add_subdirectory(src)
 add_subdirectory(test)
+
+# ---------------------------------------------------------------------------
+# Install.
+#
+# m8 reads and writes files by running these commands in its shell rather than
+# through in-process tools, so they are not optional extras — an m8 whose PATH
+# has none of them is an agent with no way to edit a file but cat and sed. They
+# install together, and m8 warns at startup about any it cannot find.
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+
+install(TARGETS
+  m8
+  sp
+  toolcall
+  tool_read
+  tool_write
+  tool_edit
+  tool_find
+  tool_grep
+  tool_webfetch
+  tool_websearch
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Built only when libvterm is present (see src/apps/CMakeLists.txt).
+if(TARGET m8trixsh)
+  install(TARGETS m8trixsh RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

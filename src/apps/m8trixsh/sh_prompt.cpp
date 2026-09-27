@@ -32,19 +32,9 @@ std::string make_system_prompt(const agent::PromptFacts& facts,
          "subtask and `subagent_wait` to collect its conclusion.\n\n";
   }
 
-  p << "Working rules:\n";
-  if (facts.enable_python) {
-    p << "- Use `python` for computation and data transformation, `read` / "
-         "`write` / `edit` for files, and `bash` for shell commands: running "
-         "programs, git, and anything the shell does more directly.\n";
-    if (facts.enable_package_install) {
-      p << "- If a script needs a package that isn't installed, call "
-           "`package_install` with just its name first, then run the script.\n";
-    }
-  } else {
-    p << "- Use `read` / `write` / `edit` for files and `bash` for everything "
-         "the shell does.\n";
-  }
+  p << "Working rules:\n"
+       "- Use `read` / `write` / `edit` for files and `bash` for everything "
+       "the shell does: running programs, git, and computation.\n";
   if (facts.enable_web_search) {
     p << "- Use `websearch` to look things up on the live web — current "
          "events, library or API docs, unfamiliar errors.\n";

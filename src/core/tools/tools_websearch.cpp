@@ -10,11 +10,13 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <curl/curl.h>
 #include <simdjson.h>
 
 #include <core/util/json_util.h>
+#include <core/tools/protected_paths.h>
 #include <core/tools/tools_util.h>
 
 namespace tools {
@@ -31,8 +33,8 @@ constexpr const char* kDefaultApiBase = "https://api.parallel.ai";
 constexpr const char* kSearchPath = "/v1/search";
 
 // The key file, relative to the working directory — a sibling of
-// .m8trix/settings.json and .m8trix/sessions. Gitignored by the .m8trix/* rule.
-constexpr const char* kApiKeyFile = ".m8trix/parallel_api_key";
+// .m8/config.json and .m8/sessions. Gitignored by the .m8/* rule.
+constexpr const char* kApiKeyFile = ".m8/parallel_api_key";
 
 constexpr long kTimeoutSeconds = 30;
 constexpr long kConnectTimeoutSeconds = 10;
@@ -89,17 +91,44 @@ std::string flatten(std::string_view text) {
   return out;
 }
 
-// PARALLEL_API_KEY, or the trimmed contents of .m8trix/parallel_api_key.
+// Set by set_web_search_api_key_file(); empty means the default chain below.
+// Written once at startup, before any search, so a plain global needs no lock —
+// the same contract as bash_search's index path override.
+std::string& api_key_file_override() {
+  static std::string path;
+  return path;
+}
+
+// A key file's contents, trimmed; nullopt when the file is missing or blank.
+std::optional<std::string> read_key_file(const std::string& path) {
+  if (const std::optional<std::string> text = read_file(path)) {
+    std::string key = trim(*text);
+    if (not key.empty()) return key;
+  }
+  return std::nullopt;
+}
+
+// The one file set_web_search_api_key_file() named, and then nothing else;
+// otherwise PARALLEL_API_KEY, or the trimmed contents of .m8/parallel_api_key.
 std::optional<std::string> resolve_api_key() {
+  if (const std::string& only = api_key_file_override(); not only.empty()) {
+    return read_key_file(expand_home(only));
+  }
   if (const char* env = std::getenv("PARALLEL_API_KEY");
       env != nullptr and *env != '\0') {
     return std::string(env);
   }
-  if (const std::optional<std::string> file = read_file(kApiKeyFile)) {
-    std::string key = trim(*file);
-    if (not key.empty()) return key;
+  return read_key_file(kApiKeyFile);
+}
+
+// Names only the sources actually in play, so the message never offers advice
+// the caller cannot act on.
+std::string missing_key_error() {
+  if (const std::string& only = api_key_file_override(); not only.empty()) {
+    return "websearch: no Parallel API key; write the key to " + only;
   }
-  return std::nullopt;
+  return "websearch: no Parallel API key; set PARALLEL_API_KEY or write the key "
+         "to .m8/parallel_api_key";
 }
 
 std::string search_url() {
@@ -211,6 +240,10 @@ std::string format_response(const std::string& body, const std::string& query,
 
 }  // namespace
 
+void set_web_search_api_key_file(std::string path) {
+  api_key_file_override() = std::move(path);
+}
+
 bool web_search_available() { return resolve_api_key().has_value(); }
 
 std::string WebSearchTool::description() const {
@@ -231,9 +264,7 @@ ToolResult WebSearchTool::execute(const ToolArgs& args) const {
 
   const std::optional<std::string> api_key = resolve_api_key();
   if (not api_key) {
-    result.error =
-        "websearch: no Parallel API key; set PARALLEL_API_KEY or write the key "
-        "to .m8trix/parallel_api_key";
+    result.error = missing_key_error();
     return result;
   }
 
@@ -273,7 +304,7 @@ ToolResult WebSearchTool::execute(const ToolArgs& args) const {
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, kTimeoutSeconds);
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, kConnectTimeoutSeconds);
-  curl_easy_setopt(curl, CURLOPT_USERAGENT, "m8trixparrot/1.0");
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, "m8/1.0");
 
   const CURLcode code = curl_easy_perform(curl);
   curl_slist_free_all(headers);

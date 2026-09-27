@@ -22,7 +22,7 @@ struct SessionStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-session-" + util::generate_uuid_v4());
+          ("m8-session-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
   }
 

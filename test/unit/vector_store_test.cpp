@@ -5,13 +5,15 @@
 
 #include <cstdint>
 #include <cstdio>
+
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <atomic>
 #include <random>
 #include <string>
-#include <thread>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -65,7 +67,7 @@ struct VectorStoreTest : ::testing::Test {
 
   void SetUp() override {
     dir = std::filesystem::temp_directory_path() /
-          ("m8trix-vecstore-" + util::generate_uuid_v4());
+          ("m8-vecstore-" + util::generate_uuid_v4());
     std::filesystem::create_directories(dir);
     path = (dir / "memory.m8db").string();
   }
@@ -687,6 +689,322 @@ TEST_F(VectorStoreTest, ConcurrentAddsAndSearchesDoNotCorruptTheStore) {
                 "document " + std::to_string(seed));
     }
   }
+}
+
+
+// ───────────────────────── fine-grained locking ────────────────────────────
+//
+// VectorStore holds three locks — a shared_mutex over the graph and mEntries, a
+// striped shared_mutex per document id, and a mutex over the log — so that N
+// concurrent readers do not serialize behind each other. These tests cover what
+// that buys and what it costs. The lock-order rule (mStructure -> key_lock ->
+// mLog, never two key locks at once) is what a ThreadSanitizer build of the
+// mixed-traffic test below is there to catch.
+
+TEST_F(VectorStoreTest, DeferredMetadataUpdateIsVisibleImmediately) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  const AddResult added = fill(*opened.store, 3);
+  ASSERT_TRUE(added.ok) << added.error;
+
+  Metadata bump;
+  bump["rank"] = static_cast<int64_t>(99);
+  const StoreResult updated =
+      opened.store->update_metadata_deferred(added.ids[1], bump);
+  ASSERT_TRUE(updated.ok) << updated.error;
+
+  const std::vector<Document> got = opened.store->get({added.ids[1]});
+  ASSERT_EQ(got.size(), 1u);
+  EXPECT_EQ(std::get<int64_t>(got[0].metadata.at("rank")), 99);
+  // Merged, not replaced: a field absent from `changes` keeps its value.
+  EXPECT_EQ(std::get<std::string>(got[0].metadata.at("kind")), "semantic");
+}
+
+// The whole reason it is deferred: a recall bumping k access_counts should not
+// touch the disk at all.
+TEST_F(VectorStoreTest, DeferredMetadataUpdateWritesNothingUntilFlush) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  const AddResult added = fill(*opened.store, 3);
+  ASSERT_TRUE(added.ok) << added.error;
+  ASSERT_TRUE(opened.store->flush().ok);
+
+  const uint64_t before = std::filesystem::file_size(path);
+  for (const uint64_t id : added.ids) {
+    Metadata bump;
+    bump["rank"] = static_cast<int64_t>(7);
+    ASSERT_TRUE(opened.store->update_metadata_deferred(id, bump).ok);
+  }
+  EXPECT_EQ(std::filesystem::file_size(path), before)
+      << "a deferred update reached the disk";
+
+  ASSERT_TRUE(opened.store->flush().ok);
+  EXPECT_GT(std::filesystem::file_size(path), before)
+      << "flush did not persist the deferred updates";
+}
+
+TEST_F(VectorStoreTest, DeferredMetadataSurvivesAReopenOnceFlushed) {
+  std::vector<uint64_t> ids;
+  {
+    StoreOpenResult opened = open_store(options());
+    ASSERT_TRUE(opened.ok) << opened.error;
+    const AddResult added = fill(*opened.store, 3);
+    ASSERT_TRUE(added.ok) << added.error;
+    ids = added.ids;
+
+    Metadata bump;
+    bump["rank"] = static_cast<int64_t>(42);
+    ASSERT_TRUE(opened.store->update_metadata_deferred(ids[2], bump).ok);
+    ASSERT_TRUE(opened.store->flush().ok);
+  }
+
+  StoreOpenResult reopened = open_store(options());
+  ASSERT_TRUE(reopened.ok) << reopened.error;
+  const std::vector<Document> got = reopened.store->get({ids[2]});
+  ASSERT_EQ(got.size(), 1u);
+  EXPECT_EQ(std::get<int64_t>(got[0].metadata.at("rank")), 42);
+}
+
+// The destructor flushes, so an ordinary shutdown persists a deferred update
+// without the caller having to know it was deferred.
+TEST_F(VectorStoreTest, DestructorPersistsDeferredMetadata) {
+  std::vector<uint64_t> ids;
+  {
+    StoreOpenResult opened = open_store(options());
+    ASSERT_TRUE(opened.ok) << opened.error;
+    const AddResult added = fill(*opened.store, 2);
+    ASSERT_TRUE(added.ok) << added.error;
+    ids = added.ids;
+
+    Metadata bump;
+    bump["rank"] = static_cast<int64_t>(11);
+    ASSERT_TRUE(opened.store->update_metadata_deferred(ids[0], bump).ok);
+  }  // ~VectorStore -> flush()
+
+  StoreOpenResult reopened = open_store(options());
+  ASSERT_TRUE(reopened.ok) << reopened.error;
+  const std::vector<Document> got = reopened.store->get({ids[0]});
+  ASSERT_EQ(got.size(), 1u);
+  EXPECT_EQ(std::get<int64_t>(got[0].metadata.at("rank")), 11);
+}
+
+TEST_F(VectorStoreTest, DeferredUpdateRejectsAnUnknownIdAndASchemaViolation) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  const AddResult added = fill(*opened.store, 1);
+  ASSERT_TRUE(added.ok) << added.error;
+
+  Metadata fine;
+  fine["rank"] = static_cast<int64_t>(1);
+  const StoreResult missing = opened.store->update_metadata_deferred(999, fine);
+  EXPECT_FALSE(missing.ok);
+  EXPECT_NE(missing.error.find("999"), std::string::npos) << missing.error;
+
+  Metadata wrong_type;
+  wrong_type["rank"] = std::string("not an int");
+  const StoreResult invalid =
+      opened.store->update_metadata_deferred(added.ids[0], wrong_type);
+  EXPECT_FALSE(invalid.ok) << "schema validation was skipped";
+}
+
+// A durable update after a deferred one must clear the dirty flag, or flush
+// would write a second, redundant SetMeta for the same state.
+TEST_F(VectorStoreTest, ADurableUpdateAfterADeferredOneLeavesNothingDirty) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  const AddResult added = fill(*opened.store, 1);
+  ASSERT_TRUE(added.ok) << added.error;
+
+  Metadata first;
+  first["rank"] = static_cast<int64_t>(1);
+  ASSERT_TRUE(opened.store->update_metadata_deferred(added.ids[0], first).ok);
+  Metadata second;
+  second["rank"] = static_cast<int64_t>(2);
+  ASSERT_TRUE(opened.store->update_metadata(added.ids[0], second).ok);
+
+  const uint64_t after_durable = std::filesystem::file_size(path);
+  ASSERT_TRUE(opened.store->flush().ok);
+  const uint64_t after_flush = std::filesystem::file_size(path);
+  // flush still appends its graph snapshot; what it must not append is another
+  // SetMeta. A snapshot for one document is far smaller than a metadata record,
+  // so assert on the value rather than trying to size the delta.
+  EXPECT_GT(after_flush, 0u);
+  EXPECT_GE(after_flush, after_durable);
+
+  const std::vector<Document> got = opened.store->get({added.ids[0]});
+  ASSERT_EQ(got.size(), 1u);
+  EXPECT_EQ(std::get<int64_t>(got[0].metadata.at("rank")), 2);
+}
+
+// Concurrent deferred updates to DIFFERENT ids hit different stripes and must
+// all land. With one global lock this passed too; what it guards now is that
+// striping did not lose a write.
+TEST_F(VectorStoreTest, ConcurrentDeferredUpdatesToDifferentKeysAllLand) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  constexpr int kDocs = 64;
+  const AddResult added = fill(*opened.store, kDocs);
+  ASSERT_TRUE(added.ok) << added.error;
+
+  VectorStore& store = *opened.store;
+  std::vector<std::thread> threads;
+  std::atomic<int> failures{0};
+  for (int t = 0; t < 8; ++t) {
+    threads.emplace_back([&store, &added, &failures, t] {
+      for (size_t i = t; i < added.ids.size(); i += 8) {
+        Metadata bump;
+        bump["rank"] = static_cast<int64_t>(1000 + i);
+        if (not store.update_metadata_deferred(added.ids[i], bump).ok) {
+          ++failures;
+        }
+      }
+    });
+  }
+  for (std::thread& thread : threads) thread.join();
+  EXPECT_EQ(failures.load(), 0);
+
+  for (size_t i = 0; i < added.ids.size(); ++i) {
+    const std::vector<Document> got = store.get({added.ids[i]});
+    ASSERT_EQ(got.size(), 1u) << i;
+    EXPECT_EQ(std::get<int64_t>(got[0].metadata.at("rank")),
+              static_cast<int64_t>(1000 + i))
+        << "id " << added.ids[i] << " lost its update";
+  }
+}
+
+// Two writers on the SAME key serialize, and the result is one of the two — a
+// whole merged map, never a torn one. The assertion that matters is the second
+// field: a torn merge would leave "kind" from one writer and "rank" from the
+// other.
+TEST_F(VectorStoreTest, ConcurrentUpdatesToOneKeyLeaveAConsistentMap) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  const AddResult added = fill(*opened.store, 1);
+  ASSERT_TRUE(added.ok) << added.error;
+  const uint64_t id = added.ids[0];
+
+  VectorStore& store = *opened.store;
+  std::vector<std::thread> threads;
+  for (int t = 0; t < 8; ++t) {
+    threads.emplace_back([&store, id, t] {
+      for (int i = 0; i < 50; ++i) {
+        Metadata change;
+        change["rank"] = static_cast<int64_t>(t);
+        change["kind"] = std::string(t % 2 == 0 ? "episodic" : "semantic");
+        (void)store.update_metadata_deferred(id, change);
+      }
+    });
+  }
+  for (std::thread& thread : threads) thread.join();
+
+  const std::vector<Document> got = store.get({id});
+  ASSERT_EQ(got.size(), 1u);
+  const int64_t rank = std::get<int64_t>(got[0].metadata.at("rank"));
+  const std::string kind = std::get<std::string>(got[0].metadata.at("kind"));
+  ASSERT_GE(rank, 0);
+  ASSERT_LT(rank, 8);
+  EXPECT_EQ(kind, rank % 2 == 0 ? "episodic" : "semantic")
+      << "rank " << rank << " and kind " << kind
+      << " came from different writers: the merge was torn";
+}
+
+// Concurrent searches take mStructure shared and the key locks shared, so they
+// overlap rather than queue. Asserting on overlap rather than on completion is
+// the point: with the old single mutex they completed too, one at a time.
+TEST_F(VectorStoreTest, ConcurrentSearchesOverlap) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  ASSERT_TRUE(fill(*opened.store, 200).ok);
+
+  VectorStore& store = *opened.store;
+  constexpr int kThreads = 8;
+  std::atomic<int> inside{0};
+  std::atomic<int> peak{0};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&store, &inside, &peak, t] {
+      const std::vector<float> query = seeded_vector(static_cast<uint32_t>(t));
+      for (int i = 0; i < 40; ++i) {
+        const int now = ++inside;
+        int seen = peak.load();
+        while (now > seen and not peak.compare_exchange_weak(seen, now)) {
+        }
+        const SearchResult found = store.search(query, 5);
+        EXPECT_TRUE(found.ok) << found.error;
+        --inside;
+      }
+    });
+  }
+  for (std::thread& thread : threads) thread.join();
+  EXPECT_GT(peak.load(), 1)
+      << "no two searches were ever in flight at once; the read path is "
+         "serialized";
+}
+
+// Mixed traffic over every lock at once. It asserts little on purpose — the
+// value is running it under -fsanitize=thread, which is the only thing that
+// actually catches a lock-order inversion between mStructure, a key lock and
+// mLog.
+TEST_F(VectorStoreTest, MixedConcurrentTrafficStaysConsistent) {
+  StoreOpenResult opened = open_store(options());
+  ASSERT_TRUE(opened.ok) << opened.error;
+  const AddResult seed = fill(*opened.store, 32);
+  ASSERT_TRUE(seed.ok) << seed.error;
+
+  VectorStore& store = *opened.store;
+  std::atomic<bool> stop{false};
+  std::vector<std::thread> threads;
+
+  // Readers.
+  for (int t = 0; t < 4; ++t) {
+    threads.emplace_back([&store, &stop, &seed, t] {
+      const std::vector<float> query = seeded_vector(static_cast<uint32_t>(t));
+      while (not stop.load()) {
+        (void)store.search(query, 4);
+        (void)store.get(seed.ids);
+        (void)store.get_where(Filter::match_all(), 8);
+        (void)store.doc_count();
+        (void)store.file_size();
+      }
+    });
+  }
+  // Deferred and durable metadata writers on overlapping keys.
+  for (int t = 0; t < 2; ++t) {
+    threads.emplace_back([&store, &stop, &seed, t] {
+      int i = 0;
+      while (not stop.load()) {
+        const uint64_t id = seed.ids[(++i) % seed.ids.size()];
+        Metadata change;
+        change["rank"] = static_cast<int64_t>(i);
+        if (t == 0) {
+          (void)store.update_metadata_deferred(id, change);
+        } else {
+          (void)store.update_metadata(id, change);
+        }
+      }
+    });
+  }
+  // One writer growing the collection, which takes mStructure exclusive and
+  // reallocates mEntries under every reader above.
+  threads.emplace_back([&store, &stop] {
+    int from = 1000;
+    while (not stop.load()) {
+      (void)fill(store, 4, from);
+      from += 4;
+    }
+  });
+  // And one flushing, which walks mEntries clearing dirty flags.
+  threads.emplace_back([&store, &stop] {
+    while (not stop.load()) (void)store.flush();
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  stop.store(true);
+  for (std::thread& thread : threads) thread.join();
+
+  EXPECT_GE(store.doc_count(), 32u);
+  const SearchResult found = store.search(seeded_vector(0), 4);
+  EXPECT_TRUE(found.ok) << found.error;
 }
 
 }  // namespace

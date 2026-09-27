@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
   if (not keep) std::filesystem::remove(db, ec);
 
   std::printf("======================================================\n");
-  std::printf("m8trixparrot agentic memory store\n");
+  std::printf("m8 agentic memory store\n");
   std::printf("======================================================\n");
 
   vdb::MemoryOptions options;

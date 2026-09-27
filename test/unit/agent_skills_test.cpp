@@ -28,7 +28,7 @@ struct AgentSkillsTest : ::testing::Test {
 
   void SetUp() override {
     root = std::filesystem::temp_directory_path() /
-           ("m8trix-skills-" + util::generate_uuid_v4());
+           ("m8-skills-" + util::generate_uuid_v4());
     std::filesystem::create_directories(root / "skills" / "demo");
     std::ofstream(root / "skills" / "demo" / "SKILL.md")
         << "---\nname: demo\ndescription: a demo skill\n---\n\n# demo\n"

@@ -13,6 +13,7 @@
 #include <system_error>
 #include <vector>
 
+#include <core/tools/protected_paths.h>
 #include <core/tools/tools_util.h>
 
 namespace tools {
@@ -98,6 +99,17 @@ std::vector<std::string> walk_files(const std::filesystem::path& root,
       continue;
     }
 
+    // A walk that crosses a protected secret must not read it. Skipped rather
+    // than refused, because the root here is usually somewhere perfectly
+    // ordinary that happens to contain one — a grep over $HOME should not fail
+    // because ~/.ssh exists. A whole directory is dropped without descending
+    // into it, so the per-file check below only has the single-file secrets
+    // (~/.netrc and the like) left to catch.
+    if (is_protected_secret(it->path().string())) {
+      if (is_directory) it.disable_recursion_pending();
+      continue;
+    }
+
     if (is_directory) continue;
     if (not it->is_regular_file(entry_ec) or entry_ec) continue;
 
@@ -133,6 +145,13 @@ ToolResult FindTool::execute(const ToolArgs& args) const {
   }
 
   const std::string root = default_path(args);
+  // Pointed AT a secret, rather than crossing one on the way: the walk would
+  // skip every file and report no matches, which reads as "nothing there"
+  // instead of "not allowed to look".
+  if (is_protected_secret(root)) {
+    result.error = "find: " + protected_path_reason(root, PathAccess::Read, "find");
+    return result;
+  }
   const int64_t limit = std::max<int64_t>(int_arg(args, "limit").value_or(1000), 1);
 
   std::regex matcher;
@@ -229,6 +248,14 @@ ToolResult GrepTool::execute(const ToolArgs& args) const {
                    [](unsigned char c) { return std::tolower(c); });
     return lowered.find(needle) != std::string::npos;
   };
+
+  // Same as find: refuse when aimed at a secret rather than silently matching
+  // nothing. This also covers the single-file case below, which never reaches
+  // walk_files and so would otherwise have no guard at all.
+  if (is_protected_secret(root)) {
+    result.error = "grep: " + protected_path_reason(root, PathAccess::Read, "grep");
+    return result;
+  }
 
   // `path` may name a single file, in which case there's nothing to walk.
   std::error_code ec;

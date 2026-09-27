@@ -72,6 +72,20 @@ std::string metadata_to_json(const Metadata& meta) {
   return writer.str();
 }
 
+// The SetMeta payload. The whole merged map goes on disk, not a delta, so replay
+// is a plain assignment and the order of overlapping SetMeta records cannot
+// matter. Shared by update_metadata() and by flush_locked(), which writes one
+// per entry that update_metadata_deferred() left dirty.
+std::string set_meta_payload(uint64_t id, const Metadata& merged) {
+  const std::string meta = metadata_to_json(merged);
+  std::string payload;
+  put_u64(payload, id);
+  put_u32(payload, static_cast<uint32_t>(meta.size()));
+  put_bytes(payload, meta.data(), meta.size());
+  return payload;
+}
+
+
 std::optional<MetaValue> meta_value_from(simdjson::dom::element element) {
   switch (element.type()) {
     case simdjson::dom::element_type::STRING:
@@ -797,6 +811,34 @@ StoreResult VectorStore::sync_locked() {
 }
 
 StoreResult VectorStore::flush_locked() {
+  // Deferred metadata first. This is where update_metadata_deferred()'s writes
+  // become durable, and coalescing them here is the point: a recall of k
+  // memories bumped k access_counts, and they cost one header write and one
+  // fsync between them rather than k of each.
+  //
+  // Requires mStructure EXCLUSIVE (flush() takes it): a concurrent deferred
+  // update setting meta_dirty on an entry this loop has already passed would
+  // have its change persisted by nobody.
+  for (Entry& entry : mEntries) {
+    if (not entry.meta_dirty) continue;
+    if (entry.deleted) {
+      // remove() already charged the old SetMeta to mGarbage; writing a new one
+      // for a tombstoned document would only add more.
+      entry.meta_dirty = false;
+      continue;
+    }
+    const std::string payload = set_meta_payload(entry.id, entry.metadata);
+    const uint64_t before = mLogEnd;
+    const StoreResult appended = append_record_locked(
+        static_cast<uint8_t>(RecordType::SetMeta), payload);
+    // A failure here leaves the flag set, so the next flush tries again rather
+    // than silently dropping the change.
+    if (not appended.ok) return appended;
+    mGarbage += entry.meta_bytes;
+    entry.meta_bytes = mLogEnd - before;
+    entry.meta_dirty = false;
+  }
+
   const std::string snapshot = mIndex->serialize_graph();
   const uint64_t previous = mSnapshotOffset;
   const uint64_t previous_end = mSnapshotEnd;
@@ -814,27 +856,31 @@ StoreResult VectorStore::flush_locked() {
 }
 
 StoreResult VectorStore::flush() {
-  std::unique_lock<std::shared_mutex> lock(mMutex);
+  // Exclusive: flush_locked() walks mEntries clearing meta_dirty, and a
+  // concurrent update_metadata_deferred() setting the flag on an entry already
+  // walked past would have its change persisted by nobody.
+  std::unique_lock<std::shared_mutex> structure(mStructure);
   if (mFd < 0) {
     StoreResult result;
     result.error = "vector store: not open";
     return result;
   }
+  std::lock_guard<std::mutex> log(mLog);
   return flush_locked();
 }
 
 uint64_t VectorStore::doc_count() const {
-  std::shared_lock<std::shared_mutex> lock(mMutex);
+  std::shared_lock<std::shared_mutex> structure(mStructure);
   return mLiveCount;
 }
 
 uint64_t VectorStore::garbage_bytes() const {
-  std::shared_lock<std::shared_mutex> lock(mMutex);
+  std::lock_guard<std::mutex> log(mLog);
   return mGarbage;
 }
 
 uint64_t VectorStore::file_size() const {
-  std::shared_lock<std::shared_mutex> lock(mMutex);
+  std::lock_guard<std::mutex> log(mLog);
   return mLogEnd;
 }
 
@@ -849,7 +895,12 @@ AddResult VectorStore::add(const std::vector<std::string>& contents,
     return result;
   }
 
-  std::unique_lock<std::shared_mutex> lock(mMutex);
+  // Exclusive throughout: mIndex->add() mutates the HNSW graph, and the
+  // mEntries resize below can reallocate, invalidating every reference a
+  // concurrent reader holds. No key locks are taken or needed — exclusive
+  // mStructure already excludes everyone who could hold one.
+  std::unique_lock<std::shared_mutex> structure(mStructure);
+  std::lock_guard<std::mutex> log(mLog);
   if (mFd < 0) {
     result.error = "vector store: not open";
     return result;
@@ -905,18 +956,27 @@ AddResult VectorStore::add(const std::vector<std::string>& contents,
 
 StoreResult VectorStore::update_metadata(uint64_t id, const Metadata& changes) {
   StoreResult result;
-  std::unique_lock<std::shared_mutex> lock(mMutex);
+  // Shared, not exclusive: nothing here touches the graph or resizes mEntries,
+  // so two updates to different documents have no reason to wait for each
+  // other. The per-key lock below is what makes that safe.
+  std::shared_lock<std::shared_mutex> structure(mStructure);
   if (mFd < 0) {
     result.error = "vector store: not open";
     return result;
   }
   const auto found = mIdToLabel.find(id);
-  if (found == mIdToLabel.end() or mEntries[found->second].deleted) {
+  if (found == mIdToLabel.end()) {
     result.error = "vector store: no document with id " + std::to_string(id);
     return result;
   }
 
   Entry& entry = mEntries[found->second];
+  std::unique_lock<std::shared_mutex> key(key_lock(id));
+  if (entry.deleted) {
+    result.error = "vector store: no document with id " + std::to_string(id);
+    return result;
+  }
+
   Metadata merged = entry.metadata;
   for (const auto& [name, value] : changes) merged[name] = value;
   std::string schema_error;
@@ -925,29 +985,68 @@ StoreResult VectorStore::update_metadata(uint64_t id, const Metadata& changes) {
     return result;
   }
 
-  // The whole merged map goes on disk, not a delta, so replay is a plain
-  // assignment and the order of overlapping SetMeta records cannot matter.
-  const std::string meta = metadata_to_json(merged);
-  std::string payload;
-  put_u64(payload, id);
-  put_u32(payload, static_cast<uint32_t>(meta.size()));
-  put_bytes(payload, meta.data(), meta.size());
+  const std::string payload = set_meta_payload(id, merged);
+  {
+    std::lock_guard<std::mutex> log(mLog);
+    const uint64_t before = mLogEnd;
+    const StoreResult appended = append_record_locked(
+        static_cast<uint8_t>(RecordType::SetMeta), payload);
+    if (not appended.ok) return appended;
 
-  const uint64_t before = mLogEnd;
-  const StoreResult appended = append_record_locked(
-      static_cast<uint8_t>(RecordType::SetMeta), payload);
-  if (not appended.ok) return appended;
-
-  mGarbage += entry.meta_bytes;
-  entry.meta_bytes = mLogEnd - before;
+    mGarbage += entry.meta_bytes;
+    entry.meta_bytes = mLogEnd - before;
+  }
   entry.metadata = std::move(merged);
+  // Whatever an earlier deferred update left unwritten is on disk now.
+  entry.meta_dirty = false;
+  result.ok = true;
+  return result;
+}
+
+StoreResult VectorStore::update_metadata_deferred(uint64_t id,
+                                                  const Metadata& changes) {
+  StoreResult result;
+  std::shared_lock<std::shared_mutex> structure(mStructure);
+  if (mFd < 0) {
+    result.error = "vector store: not open";
+    return result;
+  }
+  const auto found = mIdToLabel.find(id);
+  if (found == mIdToLabel.end()) {
+    result.error = "vector store: no document with id " + std::to_string(id);
+    return result;
+  }
+
+  Entry& entry = mEntries[found->second];
+  std::unique_lock<std::shared_mutex> key(key_lock(id));
+  if (entry.deleted) {
+    result.error = "vector store: no document with id " + std::to_string(id);
+    return result;
+  }
+
+  Metadata merged = entry.metadata;
+  for (const auto& [name, value] : changes) merged[name] = value;
+  std::string schema_error;
+  if (not mSchema.validate(merged, schema_error)) {
+    result.error = "vector store: " + schema_error;
+    return result;
+  }
+
+  // The whole point: no append, no header write, no fsync. mLog is never taken,
+  // so N of these on different keys run genuinely in parallel.
+  entry.metadata = std::move(merged);
+  entry.meta_dirty = true;
   result.ok = true;
   return result;
 }
 
 StoreResult VectorStore::remove(const std::vector<uint64_t>& ids) {
   StoreResult result;
-  std::unique_lock<std::shared_mutex> lock(mMutex);
+  // Exclusive: `deleted` is read without a key lock by every search and get, so
+  // flipping it has to exclude them outright rather than race one entry at a
+  // time. No key locks are taken or needed for the same reason add() takes none.
+  std::unique_lock<std::shared_mutex> structure(mStructure);
+  std::lock_guard<std::mutex> log(mLog);
   if (mFd < 0) {
     result.error = "vector store: not open";
     return result;
@@ -977,7 +1076,7 @@ StoreResult VectorStore::remove(const std::vector<uint64_t>& ids) {
 
 std::vector<Document> VectorStore::get(
     const std::vector<uint64_t>& ids) const {
-  std::shared_lock<std::shared_mutex> lock(mMutex);
+  std::shared_lock<std::shared_mutex> structure(mStructure);
   std::vector<Document> out;
   out.reserve(ids.size());
   for (const uint64_t id : ids) {
@@ -985,6 +1084,9 @@ std::vector<Document> VectorStore::get(
     if (found == mIdToLabel.end()) continue;
     const Entry& entry = mEntries[found->second];
     if (entry.deleted) continue;
+    // One key at a time, released before the next: holding two would be the
+    // one way this scheme can deadlock.
+    std::shared_lock<std::shared_mutex> key(key_lock(id));
     out.push_back(Document{entry.id, entry.content, entry.metadata});
   }
   return out;
@@ -992,11 +1094,14 @@ std::vector<Document> VectorStore::get(
 
 std::vector<Document> VectorStore::get_where(const Filter& filter,
                                              size_t limit) const {
-  std::shared_lock<std::shared_mutex> lock(mMutex);
+  std::shared_lock<std::shared_mutex> structure(mStructure);
   std::vector<Document> out;
   for (const Entry& entry : mEntries) {
     if (out.size() >= limit) break;
     if (entry.deleted) continue;
+    // The filter reads metadata, so the key lock has to cover the match as well
+    // as the copy — not just the copy.
+    std::shared_lock<std::shared_mutex> key(key_lock(entry.id));
     if (not filter.is_match_all() and not filter.matches(entry.metadata)) {
       continue;
     }
@@ -1007,7 +1112,9 @@ std::vector<Document> VectorStore::get_where(const Filter& filter,
 
 SearchResult VectorStore::search(const std::vector<float>& query, size_t k,
                                  const Filter& filter) const {
-  std::shared_lock<std::shared_mutex> lock(mMutex);
+  // Shared: an HNSW traversal only reads the graph, so N searches run at once.
+  // search_locked() takes the per-key locks as it touches each candidate.
+  std::shared_lock<std::shared_mutex> structure(mStructure);
   return search_locked(query, k, filter);
 }
 
@@ -1035,10 +1142,18 @@ SearchResult VectorStore::search_locked(const std::vector<float>& query,
   }
 
   const bool match_all = filter.is_match_all();
+  // Called from inside the graph walk, once per candidate. `deleted` is safe to
+  // read under mStructure alone (only remove(), which holds it exclusive, writes
+  // it); metadata needs the key lock, because update_metadata_deferred() may be
+  // rewriting it right now under nothing stronger than shared mStructure. Taken
+  // and released per candidate: the walk visits many, and holding even one
+  // across another acquisition is what the lock-order rule forbids.
   const LabelPredicate accept = [&](uint32_t label) {
     const Entry& entry = mEntries[label];
     if (entry.deleted) return false;
-    return match_all or filter.matches(entry.metadata);
+    if (match_all) return true;
+    std::shared_lock<std::shared_mutex> key(key_lock(entry.id));
+    return filter.matches(entry.metadata);
   };
 
   // Small collections take the exact path: at a few thousand documents a
@@ -1063,7 +1178,10 @@ SearchResult VectorStore::search_locked(const std::vector<float>& query,
     scored.id = entry.id;
     scored.score = mOptions.metric == Metric::Cosine ? 1.0f - hit.distance
                                                      : -hit.distance;
-    scored.document = Document{entry.id, entry.content, entry.metadata};
+    {
+      std::shared_lock<std::shared_mutex> key(key_lock(entry.id));
+      scored.document = Document{entry.id, entry.content, entry.metadata};
+    }
     result.hits.push_back(std::move(scored));
   }
   result.ok = true;
@@ -1383,7 +1501,10 @@ StoreOpenResult VectorStore::open(const std::string& path, const Schema& schema,
 }
 
 StoreResult VectorStore::compact() {
-  std::unique_lock<std::shared_mutex> lock(mMutex);
+  // Exclusive: it rebuilds the graph from scratch and swaps mFd for a renamed
+  // temp file.
+  std::unique_lock<std::shared_mutex> structure(mStructure);
+  std::lock_guard<std::mutex> log(mLog);
   return compact_locked();
 }
 

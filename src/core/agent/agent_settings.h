@@ -6,10 +6,10 @@
 
 namespace agent {
 
-// Where m8trixparrot's startup settings file lives, relative to the working
+// Where m8's startup settings file lives, relative to the working
 // directory. Read once at process startup (see load_startup_settings); nothing
 // in the agent core re-reads it during a run.
-inline constexpr const char* kAgentSettingsPath = ".m8trix/settings.json";
+inline constexpr const char* kAgentSettingsPath = ".m8/config.json";
 
 // m8trixsh keeps its config out of the workspace, in a home-directory dotfile
 // in shell-env format (see load_shellrc_settings). Callers join it with $HOME.
@@ -32,7 +32,8 @@ struct StartupSettings {
   std::optional<std::string> skills_dir;
   std::optional<bool> enable_skills;
   std::optional<bool> enable_subagents;
-  std::optional<bool> enable_package_install;
+  std::optional<bool> enable_bash_repl;
+  std::optional<bool> enable_bash_search;
   std::optional<bool> enable_web_search;
   std::optional<bool> enable_memory;
   std::optional<std::string> memory_path;

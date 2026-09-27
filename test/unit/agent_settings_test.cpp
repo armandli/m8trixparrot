@@ -24,7 +24,8 @@ TEST_F(AgentSettingsTest, MissingFileLeavesEverythingUnsetAndNoWarning) {
   EXPECT_FALSE(settings.skills_dir.has_value());
   EXPECT_FALSE(settings.enable_skills.has_value());
   EXPECT_FALSE(settings.enable_subagents.has_value());
-  EXPECT_FALSE(settings.enable_package_install.has_value());
+  EXPECT_FALSE(settings.enable_bash_repl.has_value());
+  EXPECT_FALSE(settings.enable_bash_search.has_value());
   EXPECT_FALSE(settings.enable_web_search.has_value());
 }
 
@@ -40,7 +41,8 @@ TEST_F(AgentSettingsTest, AllRecognizedKeysAreParsed) {
     "skills_dir": "custom/skills",
     "enable_skills": false,
     "enable_subagents": false,
-    "enable_package_install": false,
+    "enable_bash_repl": true,
+    "enable_bash_search": true,
     "enable_web_search": true
   })json");
 
@@ -58,7 +60,8 @@ TEST_F(AgentSettingsTest, AllRecognizedKeysAreParsed) {
   EXPECT_EQ(settings.skills_dir, "custom/skills");
   EXPECT_EQ(settings.enable_skills, false);
   EXPECT_EQ(settings.enable_subagents, false);
-  EXPECT_EQ(settings.enable_package_install, false);
+  EXPECT_EQ(settings.enable_bash_repl, true);
+  EXPECT_EQ(settings.enable_bash_search, true);
   EXPECT_EQ(settings.enable_web_search, true);
 }
 
@@ -159,7 +162,7 @@ TEST_F(ShellRcTest, TruthyEnableValuesAreTrueAndEverythingElseIsFalse) {
              "ENABLE_WEB_SEARCH=1\n"
              "ENABLE_SKILLS=on\n"
              "ENABLE_SUBAGENTS=YES\n"
-             "ENABLE_PACKAGE_INSTALL=false\n");
+             "ENABLE_BASH_REPL=false\n");
 
   std::string warning;
   const StartupSettings settings = load_shellrc_settings(".m8shrc", warning);
@@ -167,7 +170,7 @@ TEST_F(ShellRcTest, TruthyEnableValuesAreTrueAndEverythingElseIsFalse) {
   EXPECT_EQ(settings.enable_web_search, true);
   EXPECT_EQ(settings.enable_skills, true);
   EXPECT_EQ(settings.enable_subagents, true);
-  EXPECT_EQ(settings.enable_package_install, false);
+  EXPECT_EQ(settings.enable_bash_repl, false);
 }
 
 TEST_F(ShellRcTest, CommentsBlankLinesAndAnExportPrefixAreAllTolerated) {

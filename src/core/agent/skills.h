@@ -17,8 +17,8 @@ namespace agent {
 // Agent Skills format (https://agentskills.io): YAML-ish frontmatter between
 // `---` lines, then a markdown body. The agent sees only name + description in
 // its system prompt (the "catalog") and loads the body on demand with the
-// `skill` tool; supporting files under the skill directory are read with
-// `python`.
+// `skill` tool; supporting files under the skill directory are read by running
+// `tool_read` in the shell.
 
 struct SkillInfo {
   // the directory name; frontmatter `name` must match
@@ -27,7 +27,7 @@ struct SkillInfo {
   std::string dir;            // "<skills_dir>/<name>"
   std::string skill_md_path;  // "<dir>/SKILL.md"
 
-  // From the frontmatter's `metadata:` map. These are m8trix extensions the
+  // From the frontmatter's `metadata:` map. These are m8 extensions the
   // Agent Skills spec allows there (its top-level keys stay portable).
   std::vector<std::string> dependencies;  // metadata.requires (informational)
   bool command = false;         // metadata.command: /<name> in the TUI
@@ -60,8 +60,8 @@ struct SkillCatalog {
 
   const SkillInfo* find(std::string_view name) const;
 
-  // Name of the first skill whose directory path appears in `text` (a python
-  // script or its argument JSON), or "" — used to tag transcript messages that
+  // Name of the first skill whose directory path appears in `text` (a shell
+  // command or its argument JSON), or "" — used to tag transcript messages that
   // read a skill's files so `skill unload` can find them.
   std::string label_for_text(std::string_view text) const;
 };

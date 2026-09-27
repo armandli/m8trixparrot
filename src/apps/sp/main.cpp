@@ -839,7 +839,7 @@ int main(int argc, char** argv) {
       "one KEY=VALUE per line; keys: MODEL, MAX_STEPS, NUM_CTX, SUMMARIZE_AT,\n"
       "OLLAMA_JOBS, ENABLE_SUBAGENTS, MAX_DEPTH, MAX_AGENTS, ENABLE_MEMORY,\n"
       "MEMORY_PATH, MEMORY_EMBED_MODEL) and, per directory, in\n"
-      "./.m8trix/settings.json, which wins over it. A flag wins over both.\n"
+      "./.m8/config.json, which wins over it. A flag wins over both.\n"
       "\nsp delegates independent subtasks to subagents (MAX_DEPTH=3,\n"
       "MAX_AGENTS=8), each with its own shell and its own context but the same\n"
       "memory. They share one ollama, so OLLAMA_JOBS is what decides whether\n"
@@ -891,7 +891,7 @@ int main(int argc, char** argv) {
                  "by name\n";
   }
 
-  // sp's own cache, not the shared ~/.m8trix one.
+  // sp's own cache, not the shared ~/.m8 one.
   tools::set_bash_search_index_path(paths.search_index());
 
   std::string settings_warning;
@@ -1032,7 +1032,7 @@ int main(int argc, char** argv) {
       memory.enabled = true;
     } else if (memory_wanted.has_value()) {
       // Asked for outright: honour it and say why the calls will fail, rather
-      // than silently overruling the user. Same wording as m8trixparrot.
+      // than silently overruling the user. Same wording as m8.
       memory.enabled = true;
       std::cerr << "warning: memory is enabled but '" << memory_model
                 << "' is not a pulled embedding model (try `ollama pull "
@@ -1067,17 +1067,15 @@ int main(int argc, char** argv) {
   }
 
   agent::AgentOptions options;
-  options.enable_python          = false;
   options.enable_subagents       = subagents;
   options.enable_skills          = false;
-  options.enable_package_install = false;
   options.enable_file_tools      = false;
   options.enable_web_search      = false;
   options.enable_bash_search     = true;
   // One shell for the whole run: sp's tasks are shell work, and a shell that
   // forgets everything between calls makes the model redo its setup each time.
   options.enable_bash_repl       = true;
-  // Otherwise every turn drops a .m8trix/sessions directory into whatever
+  // Otherwise every turn drops a .m8/sessions directory into whatever
   // directory the user happened to be standing in.
   options.session_dir            = paths.sessions();
   options.max_steps              = max_steps;

@@ -77,7 +77,7 @@ std::string temp_file_name(std::string_view label) {
       std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
 
   std::ostringstream name;
-  name << "m8trixparrot-" << label << "-" << ticks << "-"
+  name << "m8-" << label << "-" << ticks << "-"
        << counter.fetch_add(1, std::memory_order_relaxed) << ".txt";
   return name.str();
 }

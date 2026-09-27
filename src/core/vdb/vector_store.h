@@ -5,6 +5,8 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <array>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -214,9 +216,33 @@ struct StoreOpenResult {
 // vector_store.cpp for the byte layout.
 //
 // Every method is thread-safe. An agent runs its tools on its own thread and
-// subagents run concurrently against the same store, so the lock lives here
-// rather than in each caller. It is a shared_mutex because recall outnumbers
-// remember by a wide margin in the workload this exists for.
+// subagents run concurrently against the same store, so the locking lives here
+// rather than in each caller.
+//
+// THREE locks, not one, because recall outnumbers remember by a wide margin and
+// a single mutex made every concurrent recall wait its turn:
+//
+//   mStructure  shared_mutex over the HNSW graph, mEntries, mIdToLabel,
+//               mLiveCount, mNextId, mFd, mReady. Shared for a read, exclusive
+//               for anything that adds, removes or rebuilds.
+//   key_lock(id) a striped shared_mutex over ONE document's mutable payload:
+//               content, metadata, meta_bytes, meta_dirty.
+//   mLog        the file: mLogEnd, mGeneration, mSnapshotOffset/End, mGarbage.
+//               One writer at a time regardless of which key, because the log is
+//               one append point.
+//
+// Lock order is mStructure -> key_lock -> mLog, never inverted, and never two
+// key locks at once. Every deadlock this scheme could have comes from breaking
+// one of those two rules.
+//
+// add() and remove() take mStructure EXCLUSIVE and that is structural, not a
+// shortcoming to fix later: they mutate the HNSW graph, which VectorIndex
+// documents as not thread-safe, and mEntries is a std::vector whose push_back
+// can reallocate and invalidate every reference a per-key holder is using.
+// update_metadata() may take mStructure merely shared while mutating an entry
+// only because the per-key lock serialises writers to the same entry and the one
+// thing that reallocates holds mStructure exclusive. That is the invariant the
+// whole scheme rests on.
 // ---------------------------------------------------------------------------
 
 struct VectorStore {
@@ -240,8 +266,21 @@ struct VectorStore {
   std::vector<Document> get_where(const Filter& filter, size_t limit) const;
 
   // Merges `changes` into the document's metadata: a field absent from
-  // `changes` keeps its current value.
+  // `changes` keeps its current value. Durable: appends a SetMeta record and
+  // fsyncs before returning.
   StoreResult update_metadata(uint64_t id, const Metadata& changes);
+
+  // update_metadata without the disk write: merges into RAM, marks the entry
+  // dirty, and leaves persisting it to the next flush(), which coalesces every
+  // dirty entry into one header write and one fsync.
+  //
+  // For a counter that is a ranking hint rather than user data — MemoryStore's
+  // access_count is the case this exists for. A recall of k memories used to
+  // cost k appends, k header writes and k fsyncs just to record that it had read
+  // them; now it costs none, and a hard abort between flushes loses only the
+  // most recent bumps. Anything a caller would be upset to lose belongs in
+  // update_metadata instead.
+  StoreResult update_metadata_deferred(uint64_t id, const Metadata& changes);
 
   StoreResult remove(const std::vector<uint64_t>& ids);
 
@@ -272,19 +311,44 @@ protected:
     bool deleted = false;
     uint64_t record_bytes = 0;  // Framed size of the PutDoc that defines it.
     uint64_t meta_bytes = 0;    // Framed size of its newest SetMeta, if any.
+    // Metadata changed in RAM by update_metadata_deferred() and not yet on
+    // disk. flush() clears it.
+    bool meta_dirty = false;
+  };
+
+  // std::shared_mutex is 56+ bytes and adjacent ones share a cache line, so two
+  // unrelated documents' locks would make each other's acquisition bounce
+  // between cores. Padding costs memory that 256 locks can afford.
+  struct alignas(64) PaddedLock {
+    mutable std::shared_mutex m;
   };
 
   VectorStore() = default;
 
-  // ── all require mMutex ──
+  // One striped lock per document, keyed by id. Striped rather than a lock
+  // inside each Entry because these must outlive the vector reallocation that
+  // add() causes, and because a shared_mutex member would make Entry
+  // non-movable. Two ids sharing a stripe contend without needing to; at 256
+  // stripes that is rare enough to be cheaper than the alternative. The whole
+  // storage decision is behind this one function.
+  std::shared_mutex& key_lock(uint64_t id) const {
+    return mKeyLocks[id & (kKeyLockCount - 1)].m;
+  }
+
+  // ── require mStructure (shared is enough unless noted) ──
+  SearchResult search_locked(const std::vector<float>& query, size_t k,
+                             const Filter& filter) const;
+  // Reads one entry's payload; requires key_lock(entry.id) shared.
+  std::string put_payload_locked(const Entry& entry, const float* vector) const;
+
+  // ── require mLog, and mStructure held by the caller ──
   StoreResult append_record_locked(uint8_t type, const std::string& payload);
   StoreResult write_header_locked();
   StoreResult sync_locked();
+  // Also requires mStructure EXCLUSIVE: it walks mEntries clearing meta_dirty.
   StoreResult flush_locked();
+  // Requires mStructure EXCLUSIVE: it rebuilds the graph and reopens the file.
   StoreResult compact_locked();
-  SearchResult search_locked(const std::vector<float>& query, size_t k,
-                             const Filter& filter) const;
-  std::string put_payload_locked(const Entry& entry, const float* vector) const;
 
   std::string mPath;
   StoreOptions mOptions;
@@ -305,7 +369,11 @@ protected:
   // half-built one on any error, and that one has no index to snapshot and no
   // business writing a header over a file it could not make sense of.
   bool mReady = false;
-  mutable std::shared_mutex mMutex;
+
+  static constexpr size_t kKeyLockCount = 256;  // power of two: see key_lock()
+  mutable std::shared_mutex mStructure;
+  mutable std::mutex mLog;
+  mutable std::array<PaddedLock, kKeyLockCount> mKeyLocks;
 };
 
 }  // namespace vdb

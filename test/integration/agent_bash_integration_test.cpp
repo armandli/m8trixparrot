@@ -1,13 +1,17 @@
-// Live end-to-end tests. A real Agent turn, a real Ollama model, and a
-// python-only tool set (AgentOptions::enable_subagents = false). Each test hands
-// the agent a plain-English objective and checks the side effect it should have
-// produced — a file on disk, a value in the final message — never the exact
-// wording, since the model is non-deterministic.
+// Live end-to-end tests. A real Agent turn, a real Ollama model, and m8's own
+// tool set: `bash_repl` as the sole execution substrate, `bash_search` for
+// finding commands, and the installed tool_* binaries reached by running them in
+// the shell. Each test hands the agent a plain-English objective and checks the
+// side effect it should have produced — a file on disk, a value in the final
+// message — never the exact wording, since the model is non-deterministic.
 //
 // Skipped unless Ollama is reachable with the model (default "qwen3.8:27b-mlx",
-// matching src/apps/m8trixparrot/main.cpp; override with OLLAMA_HOST /
-// M8_TEST_MODEL). The web test additionally needs outbound network. A missing
-// dependency is a SKIP, not a failure.
+// matching src/apps/m8/main.cpp; override with OLLAMA_HOST / M8_TEST_MODEL). A
+// missing dependency is a SKIP, not a failure.
+//
+// M8_BINARY_DIR is prepended to PATH for the duration of each test, so the
+// tool_* binaries this build produced are the ones the agent finds. That makes
+// the suite exercise the real discovery path without requiring `make install`.
 //
 // Run with:  make integration-test   (or  ctest --test-dir build -L integration)
 
@@ -17,7 +21,6 @@
 #include <string>
 #include <vector>
 
-#include <curl/curl.h>
 #include <gtest/gtest.h>
 
 #include <core/agent/agent.h>
@@ -27,7 +30,6 @@
 #include <core/policy/policy.h>
 #include <core/tools/tools.h>
 
-#include <parallel_key.h>
 #include <tool_test_env.h>
 
 namespace agent {
@@ -50,7 +52,7 @@ bool mentions_number(const std::string& haystack, const std::string& n) {
   return false;
 }
 
-struct AgentPythonIntegrationTest : m8test::ToolTest {
+struct AgentBashIntegrationTest : m8test::ToolTest {
   void SetUp() override {
     const char* host_env = std::getenv("OLLAMA_HOST");
     mHost = (host_env != nullptr and *host_env != '\0')
@@ -69,7 +71,17 @@ struct AgentPythonIntegrationTest : m8test::ToolTest {
     m8test::ToolTest::SetUp();  // fresh temp dir, chdir into it
     mBaseReady = true;
 
-    tools::ensure_python_ready();  // on the main thread, before any turn
+    // The tool_* binaries this build produced, ahead of anything installed, so
+    // the test measures this tree rather than whatever is on the developer's
+    // PATH. Restored in TearDown.
+    const char* path = std::getenv("PATH");
+    mOldPath = path != nullptr ? path : "";
+    setenv("PATH", (std::string(M8_BINARY_DIR) + ":" + mOldPath).c_str(), 1);
+
+    // Each case gets its own index file inside the temp dir, so a scan never
+    // touches the developer's real ~/.m8 index.
+    tools::set_bash_search_index_path((dir() / "bash_search_index.json").string());
+
     oc::OllamaClient::configure(mModel, mHost);
     oc::OllamaClient::set_num_ctx(0);
     AgentPool::configure(/*max_agents=*/4, /*max_depth=*/0);
@@ -82,15 +94,27 @@ struct AgentPythonIntegrationTest : m8test::ToolTest {
 
   void TearDown() override {
     AgentPool::instance().set_observer({});
-    if (mBaseReady) m8test::ToolTest::TearDown();
+    if (mBaseReady) {
+      tools::wait_for_bash_search_rescan();
+      tools::set_bash_search_index_path(std::string());
+      setenv("PATH", mOldPath.c_str(), 1);
+      m8test::ToolTest::TearDown();
+    }
   }
 
+  // m8's tool set: one persistent shell plus command discovery. No `read`,
+  // `write`, `edit` or `websearch` — those are the installed binaries now.
   AgentOptions opts() const {
     AgentOptions options;
     options.max_steps = 16;
     options.max_depth = 0;
-    options.enable_subagents = false;      // python-only tool specification
-    options.enable_web_search = mEnableWebSearch;
+    options.enable_subagents = false;
+    options.enable_bash_repl = true;
+    options.enable_bash_search = true;
+    options.enable_file_tools = false;
+    options.enable_web_search = false;
+    options.enable_memory = false;
+    options.skills_dir = ".m8/skills";
     options.context_window_tokens = 0;
     options.context_summarize_at_tokens = 100'000'000;  // never mid-test
     return options;
@@ -118,7 +142,21 @@ struct AgentPythonIntegrationTest : m8test::ToolTest {
     return false;
   }
 
-  bool called_python() const { return called_tool("python"); }
+  bool called_shell() const { return called_tool("bash_repl"); }
+
+  // Every shell command the agent ran, concatenated — for asserting that it
+  // reached for a particular binary rather than rolling its own.
+  std::string shell_commands() const {
+    std::string all;
+    for (const AgentEvent& event : events()) {
+      if (event.kind == AgentEvent::Kind::ToolCall and
+          event.tool_name == "bash_repl") {
+        all += event.summary;
+        all += '\n';
+      }
+    }
+    return all;
+  }
 
   std::string tool_output() const {
     std::string all;
@@ -131,28 +169,16 @@ struct AgentPythonIntegrationTest : m8test::ToolTest {
     return all;
   }
 
-  static bool network_up() {
-    CURL* handle = curl_easy_init();
-    if (handle == nullptr) return false;
-    curl_easy_setopt(handle, CURLOPT_URL, "http://example.com/");
-    curl_easy_setopt(handle, CURLOPT_NOBODY, 1L);
-    curl_easy_setopt(handle, CURLOPT_TIMEOUT, 5L);
-    curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT, 5L);
-    const CURLcode rc = curl_easy_perform(handle);
-    curl_easy_cleanup(handle);
-    return rc == CURLE_OK;
-  }
-
 protected:
   std::string mHost;
   std::string mModel;
+  std::string mOldPath;
   bool mBaseReady = false;
-  bool mEnableWebSearch = false;  // a test opts in before calling run()
   mutable std::mutex mEventsMutex;
   std::vector<AgentEvent> mEvents;
 };
 
-TEST_F(AgentPythonIntegrationTest, FindsDetailInRepoFile) {
+TEST_F(AgentBashIntegrationTest, FindsDetailInRepoFile) {
   write_file("src/config.h",
              "#ifndef CONFIG_H\n"
              "#define CONFIG_H\n"
@@ -168,39 +194,27 @@ TEST_F(AgentPythonIntegrationTest, FindsDetailInRepoFile) {
       "me the integer value of the constant named kBufferBytes.");
 
   ASSERT_TRUE(result.ok) << result.error;
-  EXPECT_TRUE(called_python()) << "the agent has no read tool; it must use python";
+  EXPECT_TRUE(called_shell()) << "the agent's only substrate is the shell";
   EXPECT_TRUE(mentions_number(result.conclusion, "4096"))
       << "conclusion: " << result.conclusion;
 }
 
-TEST_F(AgentPythonIntegrationTest, WritesAndRunsGcd) {
+// The whole point of bash_repl over one-shot bash: the model should be able to
+// rely on state set in one call still being there in the next.
+TEST_F(AgentBashIntegrationTest, ShellStatePersistsAcrossCalls) {
   const AgentResult result = run(
-      "Write a Python function that computes the greatest common divisor of two "
-      "integers using the Euclidean algorithm. Then call it to compute "
-      "gcd(1071, 462) and report the result.");
+      "Do this in two separate steps, using the shell both times. First, set a "
+      "shell variable named WIDGET_COUNT to 1071 and do nothing else. Second, "
+      "in a later shell call, print the value of WIDGET_COUNT without setting "
+      "it again, and report what it printed.");
 
   ASSERT_TRUE(result.ok) << result.error;
-  EXPECT_TRUE(called_python()) << "the agent must actually run the algorithm";
+  EXPECT_TRUE(called_shell());
   const std::string haystack = result.conclusion + "\n" + tool_output();
-  EXPECT_TRUE(mentions_number(haystack, "21")) << haystack;
+  EXPECT_TRUE(mentions_number(haystack, "1071")) << haystack;
 }
 
-TEST_F(AgentPythonIntegrationTest, FetchesABasicWebsite) {
-  if (not network_up()) {
-    GTEST_SKIP() << "no outbound network to http://example.com/";
-  }
-
-  const AgentResult result = run(
-      "Fetch the web page at http://example.com/ over HTTP and tell me the "
-      "exact text contained in its top-level <h1> element. Use only the Python "
-      "standard library (urllib).");
-
-  ASSERT_TRUE(result.ok) << result.error;
-  EXPECT_NE(result.conclusion.find("Example Domain"), std::string::npos)
-      << "conclusion: " << result.conclusion;
-}
-
-TEST_F(AgentPythonIntegrationTest, CreatesMarkdownFile) {
+TEST_F(AgentBashIntegrationTest, CreatesMarkdownFile) {
   const AgentResult result = run(
       "Create a markdown file named notes.md in the current directory. Give it "
       "a level-1 heading that reads 'Release Notes', followed by a bullet list "
@@ -215,9 +229,22 @@ TEST_F(AgentPythonIntegrationTest, CreatesMarkdownFile) {
   EXPECT_NE(md.find("gamma"), std::string::npos) << md;
 }
 
-TEST_F(AgentPythonIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
+// bash_search is how the agent learns what this machine can do. Asking for a
+// capability it has no built-in tool for should send it there.
+TEST_F(AgentBashIntegrationTest, DiscoversACommandWithBashSearch) {
+  const AgentResult result = run(
+      "You have no built-in tool for searching file contents. Use bash_search "
+      "to find which commands on this machine can search text inside files, "
+      "then name one of them.");
+
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(called_tool("bash_search"))
+      << "the objective names the tool outright";
+}
+
+TEST_F(AgentBashIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
   write_file(
-      ".m8trix/skills/rot13/SKILL.md",
+      ".m8/skills/rot13/SKILL.md",
       "---\n"
       "name: rot13\n"
       "description: Apply the ROT13 substitution cipher to a piece of text. Use "
@@ -225,8 +252,7 @@ TEST_F(AgentPythonIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
       "shift of 13.\n"
       "---\n\n"
       "# rot13\n\n"
-      "Use Python's `str.translate` with a table built from "
-      "`string.ascii_lowercase` / `string.ascii_uppercase` rotated by 13. Print "
+      "Run the text through `tr 'A-Za-z' 'N-ZA-Mn-za-m'` in the shell. Print "
       "only the transformed text, nothing else.\n");
 
   const AgentResult result =
@@ -235,33 +261,9 @@ TEST_F(AgentPythonIntegrationTest, LoadsAndFollowsASkillFromTheCatalog) {
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_TRUE(called_tool("skill"))
       << "the agent should load the rot13 skill from the catalog";
-  EXPECT_TRUE(called_python()) << "the skill says to run the cipher in python";
+  EXPECT_TRUE(called_shell()) << "the skill says to run the cipher in the shell";
   EXPECT_NE(result.conclusion.find("Hello World"), std::string::npos)
       << "conclusion: " << result.conclusion;
-}
-
-// `websearch` reaches the model only with AgentOptions::enable_web_search set;
-// this also needs a Parallel API key and outbound network.
-TEST_F(AgentPythonIntegrationTest, CallsWebSearchWhenEnabledAndAKeyIsConfigured) {
-  if (not m8test::parallel_key_available()) {
-    GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
-                    ".m8trix/parallel_api_key to run this test";
-  }
-  if (not network_up()) {
-    GTEST_SKIP() << "no outbound network";
-  }
-  mEnableWebSearch = true;
-
-  const AgentResult result = run(
-      "Use the websearch tool to find the official website of the company "
-      "\"Parallel Web Systems\". Report the URL you found.");
-
-  ASSERT_TRUE(result.ok) << result.error;
-  EXPECT_TRUE(called_tool("websearch"))
-      << "the agent had a websearch tool and the task asked for it";
-  EXPECT_NE(tool_output().find("http"), std::string::npos)
-      << "websearch should have returned result URLs; tool output:\n"
-      << tool_output();
 }
 
 }  // namespace

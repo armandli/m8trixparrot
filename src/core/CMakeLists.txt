@@ -7,13 +7,14 @@ add_library(agentcore STATIC
   policy/sane_policy.cpp
   util/json_util.cpp
   util/uuid.cpp
+  vdb/memory_ops.cpp
   vdb/memory_store.cpp
   oc/basic_ollama_client.cpp
   vdb/byte_io.cpp
   oc/ollama_client.cpp
-  tools/package_installer.cpp
   policy/policy.cpp
   agent/session_store.cpp
+  tools/protected_paths.cpp
   tools/shell_session.cpp
   agent/skills.cpp
   tools/tools_ask_user.cpp
@@ -21,10 +22,8 @@ add_library(agentcore STATIC
   tools/tools_bash_search.cpp
   tools/tools_file.cpp
   vdb/memory_tool.cpp
-  tools/tools_package_install.cpp
   tools/tools_search.cpp
   tools/tools_shell.cpp
-  tools/tools_python.cpp
   agent/subagent_tool.cpp
   tools/tools_util.cpp
   tools/tools_web.cpp
@@ -40,5 +39,4 @@ target_link_libraries(agentcore
   PUBLIC CURL::libcurl
   PUBLIC simdjson::simdjson
   PUBLIC PkgConfig::LIBGIT2
-  PUBLIC pybind11::embed
 )

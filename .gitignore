@@ -68,15 +68,11 @@ vcpkg_installed/
 Testing/
 .cache/
 
-# m8trixparrot's per-workspace sessions and memory. Skills are meant to be
-# shared, so they are tracked (ignore .m8trix/'s contents, not the dir itself,
-# so the negation below can take effect).
-.m8trix/*
-!.m8trix/skills/
-# The Parallel Search API key for the `websearch` tool. Covered by .m8trix/*
-# above; spelled out here so it is obvious this is a secret and never committed.
-.m8trix/parallel_api_key
-
-# m8trixparrot's dedicated Python virtual environment, created automatically
-# on first use (see tools_python.cpp's ensure_interpreter()).
-.m8trixenv/
+# m8's per-workspace config, sessions and vector-database memory. Skills are
+# meant to be shared, so they are tracked (ignore .m8/'s contents, not the dir
+# itself, so the negation below can take effect).
+.m8/*
+!.m8/skills/
+# The Parallel Search API key for the `websearch` tool. Covered by .m8/* above;
+# spelled out here so it is obvious this is a secret and never committed.
+.m8/parallel_api_key

@@ -3,13 +3,13 @@
 // WebSearchTool::execute() making a real HTTP call.
 //
 // Skipped unless a Parallel API key is available: the PARALLEL_API_KEY
-// environment variable, or the repo's own .m8trix/parallel_api_key file (found
+// environment variable, or the repo's own .m8/parallel_api_key file (found
 // via M8_SOURCE_DIR, since ctest's working directory is the build tree). A
 // missing key is a SKIP; with a key present, a network or API failure is a
 // real failure.
 //
 // Run with:  PARALLEL_API_KEY=... make integration-test
-//        or: (with .m8trix/parallel_api_key in place)  make integration-test
+//        or: (with .m8/parallel_api_key in place)  make integration-test
 
 #include <cstdlib>
 #include <string>
@@ -26,7 +26,7 @@ namespace {
 TEST(WebSearchIntegrationTest, RealParallelSearchReturnsResultsWithUrls) {
   if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
-                    ".m8trix/parallel_api_key to run this test";
+                    ".m8/parallel_api_key to run this test";
   }
 
   ToolArgs args;
@@ -46,7 +46,7 @@ TEST(WebSearchIntegrationTest, RealParallelSearchReturnsResultsWithUrls) {
 TEST(WebSearchIntegrationTest, AnInvalidKeyIsRejectedByParallelWithItsMessage) {
   if (not m8test::parallel_key_available()) {
     GTEST_SKIP() << "no Parallel API key — set PARALLEL_API_KEY or add "
-                    ".m8trix/parallel_api_key to run this test";
+                    ".m8/parallel_api_key to run this test";
   }
 
   const char* prior = std::getenv("PARALLEL_API_KEY");

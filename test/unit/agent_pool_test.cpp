@@ -171,7 +171,6 @@ TEST_F(AgentPoolTest, ASpawnedAgentRunsATurnAndReportsItsConclusion) {
 
   AgentOptions options = opts(/*max_depth=*/3, /*max_agents=*/64);
   options.max_steps = 4;
-  options.enable_python = false;
 
   AgentPool& pool = AgentPool::instance();
   const std::string root = pool.register_root("root");
@@ -216,7 +215,6 @@ TEST_F(AgentPoolTest, ASpawnedAgentInheritsItsParentsPromptBuilder) {
 
   AgentOptions options = opts(/*max_depth=*/3, /*max_agents=*/64);
   options.max_steps = 2;
-  options.enable_python = false;
   options.system_prompt_builder = [calls](const PromptFacts& facts) {
     std::lock_guard<std::mutex> lock(calls->mutex);
     calls->depths.push_back(facts.depth);

@@ -10,7 +10,7 @@ namespace m8test {
 
 // Makes a Parallel API key visible to WebSearchTool for a live test.
 // PARALLEL_API_KEY if already set; otherwise the trimmed contents of
-// <repo>/.m8trix/parallel_api_key (via M8_SOURCE_DIR, since ctest's working
+// <repo>/.m8/parallel_api_key (via M8_SOURCE_DIR, since ctest's working
 // directory is the build tree), exported into the environment. Returns false
 // when no key is available — the caller should GTEST_SKIP.
 inline bool parallel_key_available() {
@@ -20,7 +20,7 @@ inline bool parallel_key_available() {
   }
 
 #ifdef M8_SOURCE_DIR
-  std::ifstream in(std::string(M8_SOURCE_DIR) + "/.m8trix/parallel_api_key");
+  std::ifstream in(std::string(M8_SOURCE_DIR) + "/.m8/parallel_api_key");
   if (in) {
     std::stringstream buffer;
     buffer << in.rdbuf();

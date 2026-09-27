@@ -136,8 +136,10 @@ bool apply_shellrc_pair(StartupSettings& settings, std::string_view key,
     settings.enable_skills = parse_bool(value);
   else if (key == "ENABLE_SUBAGENTS")
     settings.enable_subagents = parse_bool(value);
-  else if (key == "ENABLE_PACKAGE_INSTALL")
-    settings.enable_package_install = parse_bool(value);
+  else if (key == "ENABLE_BASH_REPL")
+    settings.enable_bash_repl = parse_bool(value);
+  else if (key == "ENABLE_BASH_SEARCH")
+    settings.enable_bash_search = parse_bool(value);
   else if (key == "ENABLE_WEB_SEARCH")
     settings.enable_web_search = parse_bool(value);
   else if (key == "ENABLE_MEMORY")
@@ -186,8 +188,8 @@ StartupSettings load_startup_settings(const std::string& path,
   settings.skills_dir = optional_string_field(obj, "skills_dir");
   settings.enable_skills = optional_bool_field(obj, "enable_skills");
   settings.enable_subagents = optional_bool_field(obj, "enable_subagents");
-  settings.enable_package_install =
-      optional_bool_field(obj, "enable_package_install");
+  settings.enable_bash_repl = optional_bool_field(obj, "enable_bash_repl");
+  settings.enable_bash_search = optional_bool_field(obj, "enable_bash_search");
   settings.enable_web_search = optional_bool_field(obj, "enable_web_search");
   settings.enable_memory = optional_bool_field(obj, "enable_memory");
   settings.memory_path = optional_string_field(obj, "memory_path");
