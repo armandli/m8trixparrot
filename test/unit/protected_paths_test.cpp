@@ -181,6 +181,42 @@ TEST_F(ProtectedPathsTest, GitDirectoryStaysReadable) {
   EXPECT_FALSE(is_protected_secret(".git/HEAD"));
 }
 
+// ───────────────────────── per-workspace secrets ─────────────────────────────
+// Files every checkout has its own copy of: matched by their trailing
+// components, wherever the workspace lives.
+
+TEST_F(ProtectedPathsTest, WorkspaceApiKeyIsASecretInAnyWorkspace) {
+  EXPECT_TRUE(read_denied(".m8/parallel_api_key"));
+  EXPECT_TRUE(write_denied("deep/project/.m8/parallel_api_key"));
+  EXPECT_TRUE(read_denied(home() + "/.m8/parallel_api_key"));
+}
+
+TEST_F(ProtectedPathsTest, McpConfigIsASecretInTheWorkspaceAndTheHome) {
+  EXPECT_TRUE(read_denied(".m8/mcp.json"));
+  EXPECT_TRUE(write_denied(".m8/mcp.json"));
+  EXPECT_TRUE(read_denied("other/checkout/.m8/mcp.json"));
+  EXPECT_TRUE(read_denied(home() + "/.m8/mcp.json"));
+  EXPECT_TRUE(read_denied(home() + "/.m8/mcp_credentials.json"));
+}
+
+// Writing an approval approves a server, whose command then runs; reading the
+// list of approvals gives nothing away.
+TEST_F(ProtectedPathsTest, McpApprovalsAreAnExecutionVector) {
+  EXPECT_TRUE(write_denied(home() + "/.m8/mcp_trust.json"));
+  EXPECT_FALSE(read_denied(home() + "/.m8/mcp_trust.json"));
+}
+
+// The suffix is whole components, and only at the end: the shared .mcp.json
+// (approval-gated by its hash instead) and the rest of .m8/ stay usable.
+TEST_F(ProtectedPathsTest, SuffixMatchesWholeTrailingComponentsOnly) {
+  EXPECT_FALSE(read_denied(".mcp.json"));
+  EXPECT_FALSE(write_denied(".m8x/mcp.json"));
+  EXPECT_FALSE(write_denied(".m8/mcp.json.bak"));
+  EXPECT_FALSE(write_denied(".m8/mcp.json/inner"));
+  EXPECT_FALSE(write_denied(".m8/config.json"));
+  EXPECT_FALSE(write_denied(".m8/skills/x/SKILL.md"));
+}
+
 // ──────────────────────────── what stays allowed ────────────────────────────
 // Regression guards. Each of these would break real work if it were caught.
 

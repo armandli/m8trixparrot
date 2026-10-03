@@ -17,6 +17,8 @@ add_executable(unit_tests
   tools_util_test.cpp
   tools_web_test.cpp
   tools_websearch_test.cpp
+  json_value_test.cpp
+  util_codec_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

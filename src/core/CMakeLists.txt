@@ -5,7 +5,13 @@ add_library(agentcore STATIC
   agent/agent_pool.cpp
   agent/agent_settings.cpp
   policy/sane_policy.cpp
+  util/base64.cpp
   util/json_util.cpp
+  util/json_value.cpp
+  util/process.cpp
+  util/secure_random.cpp
+  util/sha256.cpp
+  util/text.cpp
   util/uuid.cpp
   vdb/memory_ops.cpp
   vdb/memory_store.cpp

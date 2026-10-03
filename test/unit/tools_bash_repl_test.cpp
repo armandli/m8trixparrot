@@ -7,6 +7,8 @@
 // persistent shell has state to lose and losing it silently would be worse
 // than not having it.
 
+#include <unistd.h>
+
 #include <chrono>
 #include <string>
 
@@ -218,6 +220,40 @@ TEST_F(BashReplTest, LargeOutputIsTruncatedLikeBash) {
   EXPECT_TRUE(result.truncated);
   EXPECT_FALSE(result.overflow_path.empty());
   EXPECT_TRUE(has(result.output, "output truncated")) << "missing note";
+}
+
+// ──────────────────────────── descriptor hygiene ───────────────────────────
+
+// A descriptor this process holds must not live on in the shell: an MCP
+// server's stdin pipe inherited by bash would keep that server from ever seeing
+// EOF. The pipe is deliberately made without close-on-exec, the way code
+// elsewhere in the process might make one, and it exists before the shell
+// starts (the session forks lazily on the first call).
+TEST_F(BashReplTest, TheShellInheritsNoDescriptorsAboveStderr) {
+  int fds[2] = {-1, -1};
+  ASSERT_EQ(0, ::pipe(fds));
+
+  std::string probe;
+  for (const int fd : fds) {
+    const std::string n = std::to_string(fd);
+    // `[` is a bash builtin, so /dev/fd here is the shell's own table.
+    probe += "[ -e /dev/fd/" + n + " ] && echo LEAKED-" + n + "; ";
+  }
+  const tools::ToolResult result = run(probe + "echo probed");
+
+  ::close(fds[0]);
+  ::close(fds[1]);
+
+  EXPECT_TRUE(has(result.output, "probed")) << result.output;
+  EXPECT_FALSE(has(result.output, "LEAKED")) << result.output;
+}
+
+// The shell still works as a pipeline host: SIGPIPE is not ignored in it, so a
+// writer cut off by `head` dies quietly the way it does in a terminal.
+TEST_F(BashReplTest, PipelinesCutShortByHeadStayQuiet) {
+  const tools::ToolResult result = run("yes | head -n 2; echo done");
+  EXPECT_TRUE(has(result.output, "done")) << result.output;
+  EXPECT_FALSE(has(result.output, "Broken pipe")) << result.output;
 }
 
 }  // namespace

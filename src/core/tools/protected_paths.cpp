@@ -1,5 +1,6 @@
 #include <core/tools/protected_paths.h>
 
+#include <cstddef>
 #include <cstdlib>
 
 #include <algorithm>
@@ -21,6 +22,11 @@ enum struct Match : int {
   // A path with this component anywhere in it, at any depth. For `.git`, which
   // is a directory that exists once per repository rather than in one place.
   AnyComponent,
+  // A path whose last components are exactly these, wherever it lives. For
+  // files every workspace has its own copy of, like `.m8/mcp.json`: an absolute
+  // pattern cannot name them, and a component match on `.m8` would take the
+  // whole directory, sessions and skills included.
+  PathSuffix,
 };
 
 struct Entry {
@@ -63,10 +69,16 @@ constexpr Entry kSecrets[] = {
     {Match::Prefix, "/etc/sudoers.d", true, "sudo configuration"},
     // This project's own secret, in both of the places a key is kept: the
     // standalone tool_websearch command reads ~/.parallel_api_key, and the
-    // websearch tool call reads .m8/parallel_api_key (which .gitignore already
-    // calls out by name).
+    // websearch tool call reads .m8/parallel_api_key in whichever workspace it
+    // runs (which .gitignore already calls out by name).
     {Match::Exact, "~/.parallel_api_key", true, "this project's API key"},
-    {Match::Exact, "~/.m8/parallel_api_key", true, "this project's API key"},
+    {Match::PathSuffix, ".m8/parallel_api_key", true, "this project's API key"},
+    // MCP. A server entry carries tokens in its env and headers, and both the
+    // workspace file and ~/.m8/mcp.json end in this suffix. The credentials
+    // file is OAuth bearer and refresh tokens outright.
+    {Match::PathSuffix, ".m8/mcp.json", true,
+     "MCP server configuration, which can hold tokens"},
+    {Match::Exact, "~/.m8/mcp_credentials.json", true, "MCP OAuth credentials"},
 };
 
 // ──────────────────────── the ExecutionVector tier ──────────────────────────
@@ -96,6 +108,11 @@ constexpr Entry kExecutionVectors[] = {
      "git configuration (can run commands)"},
     {Match::AnyComponent, ".git", false,
      "a repository's internal git directory (hooks and config run commands)"},
+
+    // MCP server approvals. Writing one approves a workspace's MCP server, and
+    // an approved server's command runs on the next launch.
+    {Match::Exact, "~/.m8/mcp_trust.json", false,
+     "MCP server approvals (an approved server's command runs)"},
 
     // Login and boot persistence, macOS then Linux.
     {Match::Prefix, "~/Library/LaunchAgents", false, "a launchd agent"},
@@ -134,8 +151,9 @@ std::string home_dir() {
 // so the per-call work is comparison only.
 struct Resolved {
   Match match;
-  std::filesystem::path path;  // Empty for AnyComponent.
-  std::string component;       // AnyComponent only.
+  std::filesystem::path path;       // Prefix and Exact only.
+  std::string component;            // AnyComponent only.
+  std::vector<std::string> suffix;  // PathSuffix only.
   bool secret;
   const char* reason;
 };
@@ -166,13 +184,24 @@ const std::vector<Resolved>& entries() {
 
     const auto add = [&out, &home](const Entry& entry) {
       if (entry.match == Match::AnyComponent) {
-        out.push_back(Resolved{entry.match, {}, entry.pattern, entry.secret,
+        out.push_back(Resolved{entry.match, {}, entry.pattern, {}, entry.secret,
                                entry.reason});
+        return;
+      }
+      if (entry.match == Match::PathSuffix) {
+        std::vector<std::string> parts;
+        for (const std::filesystem::path& part :
+             std::filesystem::path(entry.pattern)) {
+          parts.push_back(part.string());
+        }
+        out.push_back(Resolved{entry.match, {}, {}, std::move(parts),
+                               entry.secret, entry.reason});
         return;
       }
       const std::filesystem::path path = canonicalize(entry.pattern, home);
       if (path.empty()) return;  // home-relative with no HOME
-      out.push_back(Resolved{entry.match, path, {}, entry.secret, entry.reason});
+      out.push_back(
+          Resolved{entry.match, path, {}, {}, entry.secret, entry.reason});
     };
 
     for (const Entry& entry : kSecrets) add(entry);
@@ -200,6 +229,15 @@ bool has_component(const std::filesystem::path& path,
   return false;
 }
 
+bool ends_with(const std::filesystem::path& path,
+               const std::vector<std::string>& suffix) {
+  std::vector<std::string> parts;
+  for (const std::filesystem::path& part : path) parts.push_back(part.string());
+  if (suffix.empty() or parts.size() < suffix.size()) return false;
+  return std::equal(suffix.begin(), suffix.end(),
+                    parts.end() - static_cast<std::ptrdiff_t>(suffix.size()));
+}
+
 // The matching entry for `path`, or null.
 const Resolved* find_entry(const std::filesystem::path& resolved) {
   for (const Resolved& entry : entries()) {
@@ -212,6 +250,9 @@ const Resolved* find_entry(const std::filesystem::path& resolved) {
         break;
       case Match::AnyComponent:
         if (has_component(resolved, entry.component)) return &entry;
+        break;
+      case Match::PathSuffix:
+        if (ends_with(resolved, entry.suffix)) return &entry;
         break;
     }
   }
