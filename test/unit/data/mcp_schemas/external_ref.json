@@ -1,0 +1,1 @@
+{"type":"object","properties":{"config":{"$ref":"https://example.com/schemas/config.json"},"name":{"type":"string"}}}

@@ -1,0 +1,1 @@
+{"type":"object","properties":{"a":{"type":"string","required":true},"b":{"type":"object","properties":{"c":{"type":"integer"}},"required":["c",3,null]}},"required":["a",1,null,{"x":1}]}

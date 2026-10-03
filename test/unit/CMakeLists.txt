@@ -60,6 +60,32 @@ target_link_libraries(core_tests
 
 gtest_discover_tests(core_tests)
 
+# The MCP client (src/core/mcp): protocol, schema lowering, tool search, and —
+# from phase 2 on — real transports against a fake server process. Its own
+# binary because those tests spawn processes and run servers on threads, which
+# unit_tests (it chdirs per test) does not tolerate, and they must not share
+# core_tests' singletons.
+add_executable(mcp_tests
+  mcp_json_rpc_test.cpp
+  mcp_sse_test.cpp
+  mcp_schema_test.cpp
+  mcp_content_test.cpp
+  mcp_tool_search_test.cpp
+)
+
+target_include_directories(mcp_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_compile_definitions(mcp_tests PRIVATE
+  M8_MCP_SCHEMA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mcp_schemas"
+)
+
+target_link_libraries(mcp_tests
+  PRIVATE agentcore
+  PRIVATE GTest::gtest_main
+)
+
+gtest_discover_tests(mcp_tests)
+
 # sp's system prompt, slash-command grammar and hand-driven memory operations.
 # Its own binary rather than part of unit_tests for the same reason core_tests
 # is: these drive a MemoryStore over a temp file and run alongside the

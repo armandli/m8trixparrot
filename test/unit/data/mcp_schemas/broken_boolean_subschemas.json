@@ -1,0 +1,1 @@
+{"type":"object","properties":{"anything":true,"nothing":false,"named":{"type":"string"}},"required":["anything","nothing","named"]}

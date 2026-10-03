@@ -13,6 +13,13 @@ add_library(agentcore STATIC
   util/sha256.cpp
   util/text.cpp
   util/uuid.cpp
+  mcp/catalog.cpp
+  mcp/content.cpp
+  mcp/json_rpc.cpp
+  mcp/protocol.cpp
+  mcp/schema.cpp
+  mcp/sse.cpp
+  mcp/tool_search.cpp
   vdb/memory_ops.cpp
   vdb/memory_store.cpp
   oc/basic_ollama_client.cpp
