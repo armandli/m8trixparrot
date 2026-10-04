@@ -56,12 +56,9 @@ bool TrustStore::load(std::string& error) {
 }
 
 bool TrustStore::save(std::string& error) const {
-  std::string text;
-  {
-    std::lock_guard<std::mutex> lock(mMutex);
-    text = mData.dump_pretty() + "\n";
-  }
-  return write_file_atomically(mPath, text, /*private_file=*/true, error);
+  // Held through the write, as McpState::save does.
+  std::lock_guard<std::mutex> lock(mMutex);
+  return write_file_atomically(mPath, mData.dump_pretty() + "\n", /*private_file=*/true, error);
 }
 
 bool TrustStore::approved(const std::string& workspace,
@@ -98,12 +95,11 @@ void McpState::load() {
 
 bool McpState::save(std::string& error) const {
   if (mPath.empty()) return true;
-  std::string text;
-  {
-    std::lock_guard<std::mutex> lock(mMutex);
-    text = mData.dump_pretty() + "\n";
-  }
-  return write_file_atomically(mPath, text, /*private_file=*/false, error);
+  // Held through the write: connect threads save at once, and their writes must
+  // land in snapshot order through the one temp file they share.
+  std::lock_guard<std::mutex> lock(mMutex);
+  return write_file_atomically(mPath, mData.dump_pretty() + "\n", /*private_file=*/false,
+                               error);
 }
 
 Era McpState::era(const ServerConfig& server) const {

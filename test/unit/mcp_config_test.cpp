@@ -4,11 +4,13 @@
 
 #include <sys/stat.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -240,6 +242,51 @@ TEST_F(McpConfigTest, StateRemembersErasAndEnableChoices) {
   EXPECT_EQ(Era::Legacy, reloaded.era(server));
   EXPECT_EQ(false, reloaded.enabled("s").value_or(true));
   EXPECT_FALSE(reloaded.enabled("other").has_value());
+}
+
+// Connect threads record their eras while the UI thread records an enable
+// choice, all saving at once: every save must succeed, and the file must end
+// up with every change, not an older snapshot or two interleaved ones.
+TEST_F(McpConfigTest, ConcurrentSavesKeepEveryChange) {
+  const std::vector<ServerConfig> servers = parse(R"({"mcpServers":{
+      "a":{"command":"x"},"b":{"command":"x"},"c":{"command":"x"},"d":{"command":"x"},
+      "e":{"command":"x"},"f":{"command":"x"},"g":{"command":"x"},"h":{"command":"x"}}})");
+  ASSERT_EQ(8u, servers.size());
+  for (int round = 0; round < 50; ++round) {
+    const std::string path = (dir / ("state-" + std::to_string(round) + ".json")).string();
+    McpState state(path);
+    state.load();
+    std::atomic<bool> go{false};
+    std::atomic<int> failed{0};
+    const auto save = [&state, &failed] {
+      std::string error;
+      if (not state.save(error)) ++failed;
+    };
+    std::vector<std::thread> threads;
+    for (size_t i = 0; i < servers.size(); ++i) {
+      threads.emplace_back([&, i] {
+        while (not go.load()) std::this_thread::yield();
+        state.set_era(servers[i], Era::Legacy);
+        save();
+      });
+    }
+    threads.emplace_back([&] {
+      while (not go.load()) std::this_thread::yield();
+      state.set_enabled("a", false);
+      save();
+    });
+    go.store(true);
+    for (std::thread& thread : threads) thread.join();
+
+    EXPECT_EQ(0, failed.load()) << "round " << round;
+    McpState reloaded(path);
+    reloaded.load();
+    for (const ServerConfig& server : servers) {
+      EXPECT_EQ(Era::Legacy, reloaded.era(server)) << server.name << " in round " << round;
+    }
+    EXPECT_EQ(false, reloaded.enabled("a").value_or(true)) << "round " << round;
+    if (HasFailure()) return;
+  }
 }
 
 }  // namespace
