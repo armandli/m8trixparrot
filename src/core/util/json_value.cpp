@@ -30,16 +30,22 @@ JsonValue from_element(simdjson::dom::element element) {
   switch (element.type()) {
     case simdjson::dom::element_type::ARRAY: {
       JsonValue out = JsonValue::array();
-      for (simdjson::dom::element child : element.get_array().value_unsafe()) {
-        out.push_back(from_element(child));
+      // Named local avoids UB: .value_unsafe() on a temporary simdjson_result
+      // returns a dangling reference on GCC/Linux (Apple Clang tolerates it).
+      simdjson::dom::array arr;
+      if (!element.get_array().get(arr)) {
+        for (simdjson::dom::element child : arr) {
+          out.push_back(from_element(child));
+        }
       }
       return out;
     }
     case simdjson::dom::element_type::OBJECT: {
       JsonValue out = JsonValue::object();
       std::vector<JsonValue::Member>& members = out.members();
-      for (simdjson::dom::key_value_pair field :
-           element.get_object().value_unsafe()) {
+      simdjson::dom::object obj;
+      if (element.get_object().get(obj)) return out;
+      for (simdjson::dom::key_value_pair field : obj) {
         // Appended rather than set(): set() is a linear search, which would make
         // a large object quadratic. A repeated key (which JSON only discourages)
         // is kept twice, and find() answers with the first.
