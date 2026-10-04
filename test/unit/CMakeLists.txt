@@ -39,6 +39,8 @@ gtest_discover_tests(unit_tests)
 # directory and rely on running sequentially.
 add_executable(core_tests
   loopback_server.cpp
+  http_test_server.cpp
+  agent_mcp_test.cpp
   agent_pool_test.cpp
   agent_context_test.cpp
   agent_skills_test.cpp
@@ -70,6 +72,7 @@ add_executable(fake_mcp_server fake_mcp_server.cpp)
 target_link_libraries(fake_mcp_server PRIVATE agentcore)
 
 add_executable(mcp_tests
+  http_test_server.cpp
   mcp_client_test.cpp
   mcp_config_test.cpp
   mcp_json_rpc_test.cpp

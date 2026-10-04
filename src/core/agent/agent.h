@@ -16,6 +16,10 @@
 #include <core/agent/session_store.h>
 #include <core/agent/skills.h>
 #include <core/agent/system_prompt.h>
+#include <core/mcp/catalog.h>
+#include <core/mcp/protocol.h>
+#include <core/mcp/tool_search.h>
+#include <core/mcp/toolbox.h>
 #include <core/tools/tools.h>
 
 namespace agent {
@@ -163,6 +167,19 @@ struct AgentOptions {
   // handler that shows the question and waits for the operator's reply. Copied
   // by value into subagents, like the rest of AgentOptions.
   std::function<std::string(const std::string& prompt)> ask_user_handler;
+
+  // MCP servers' tools. Null means MCP is off — the default, so an app that
+  // does not ask for it sees the same tool set as before. Shared rather than
+  // copied: a subagent gets the pointer with the rest of AgentOptions and
+  // talks to the same running servers as its parent.
+  std::shared_ptr<mcp::Toolbox> mcp;
+
+  // When MCP tool schemas stay out of the tools array behind `tool_search`.
+  mcp::ToolSearchSettings tool_search;
+
+  // MCP tools an agent starts with already loaded. subagent_create fills it
+  // with the parent's, so a child need not search for what its parent found.
+  std::vector<std::string> mcp_initial_tools;
 };
 
 // Forward declaration: the subagent tools reach the pool through
@@ -232,6 +249,11 @@ struct Agent {
   int64_t context_window() const { return mOptions.context_window_tokens; }
   int64_t context_limit() const;
 
+  // The MCP tools this agent has loaded into its tools array, in load order,
+  // and whether its MCP schemas are deferred. Thread-safe, for the UI.
+  std::vector<std::string> loaded_mcp_tools() const { return mLoadedMcpTools.names(); }
+  bool mcp_deferred() const { return mMcpDeferred.load(); }
+
   // The skills available to this agent (name + description in the system
   // prompt; body loaded on demand). Scanned lazily and cached.
   const SkillCatalog& skill_catalog() const;
@@ -266,7 +288,50 @@ protected:
   // needs, not a reason to abandon the turn.
   tools::ToolResult dispatch(const std::string& tool_name, const tools::ToolArgs& args);
 
+  // dispatch() plus the MCP side, which needs the call's raw argument JSON
+  // (ToolArgs cannot hold nested objects): tool_search, mcp_resource, and
+  // mcp__<server>__<tool> — or a bare tool name the model shortened, when it
+  // names exactly one MCP tool and no built-in.
+  tools::ToolResult dispatch_call(const oc::ToolCall& call, const tools::ToolArgs& args);
+
 private:
+  // One tool as advertised: its name and its {"name","description",...} JSON.
+  struct ToolEntry {
+    std::string name;
+    std::string schema;
+  };
+
+  // Everything one model call carries, from one MCP snapshot, so the system
+  // prompt and the tools array can never disagree about what exists.
+  struct StepTools {
+    std::vector<std::string> schemas;
+    std::vector<std::string> names;  // built-ins, tool_search, mcp_resource
+    std::shared_ptr<const mcp::Catalog> catalog;  // null when MCP is off
+    bool deferred = false;
+    bool tool_search = false;
+    bool resources = false;
+    std::vector<std::string> loaded;
+    size_t mcp_tools = 0;    // MCP tool schemas in `schemas`
+    size_t mcp_schemas = 0;  // ... plus tool_search and mcp_resource
+  };
+
+  // The built-in tools, gated by AgentOptions, in advertised order. The one
+  // place that list lives: names and schemas both come from it.
+  std::vector<ToolEntry> builtin_tools() const;
+  StepTools step_tools() const;
+  PromptFacts prompt_facts(const StepTools& step) const;
+  std::string system_prompt(const StepTools& step) const;
+
+  // MCP bookkeeping at the top of a turn: pin the catalog, decide deferral
+  // (sticky once on), and evict loaded tools nobody used — between turns only,
+  // never taking a tool away in the middle of one.
+  void begin_mcp_turn();
+  bool mcp_would_defer(const mcp::Catalog& catalog) const;
+  tools::ToolResult run_tool_search(const tools::ToolArgs& args);
+  tools::ToolResult run_mcp_tool(const std::string& exposed,
+                                 const std::string& raw_arguments);
+  mcp::CallContext mcp_context() const;
+
   // Stamps the event with this agent's id/parent/depth/label and forwards it
   // to the process-wide AgentPool observer.
   void emit(AgentEvent event) const;
@@ -313,6 +378,12 @@ private:
   std::atomic<int64_t> mContextTokens{0};
   mutable std::optional<SkillCatalog> mCatalog;
   std::unique_ptr<tools::BashReplSession> mShell;
+
+  mcp::LoadedTools mLoadedMcpTools;
+  std::atomic<bool> mMcpDeferred{false};
+  std::shared_ptr<const mcp::Catalog> mTurnCatalog;  // this turn's snapshot
+  int mToolSearchCalls = 0;       // this turn
+  bool mMcpSchemasFailed = false;  // Ollama rejected them; this turn goes without
 };
 
 }  // namespace agent

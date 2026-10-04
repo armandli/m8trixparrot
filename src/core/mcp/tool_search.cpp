@@ -152,6 +152,63 @@ std::string first_sentence(const std::string& text, size_t limit = 160) {
 
 }  // namespace
 
+std::optional<ToolSearchSettings> ToolSearchSettings::parse(std::string_view text) {
+  const std::string value = lower(text);
+  ToolSearchSettings settings;
+  if (value == "auto") return settings;
+  if (value == "on" or value == "true") {
+    settings.mode = Mode::On;
+    return settings;
+  }
+  if (value == "off" or value == "false") {
+    settings.mode = Mode::Off;
+    return settings;
+  }
+  if (value.rfind("auto:", 0) == 0) {
+    const std::string number = value.substr(5);
+    if (number.empty() or number.size() > 3 or
+        number.find_first_not_of("0123456789") != std::string::npos) {
+      return std::nullopt;
+    }
+    const int pct = std::stoi(number);
+    if (pct < 1 or pct > 100) return std::nullopt;
+    settings.threshold_pct = pct;
+    return settings;
+  }
+  return std::nullopt;
+}
+
+std::string ToolSearchSettings::text() const {
+  switch (mode) {
+    case Mode::On:
+      return "on";
+    case Mode::Off:
+      return "off";
+    case Mode::Auto:
+    default:
+      return threshold_pct == 10 ? "auto" : "auto:" + std::to_string(threshold_pct);
+  }
+}
+
+int64_t ToolSearchSettings::threshold_tokens(int64_t context_window) const {
+  if (context_window <= 0) return kUnknownWindowTokens;
+  return std::min(context_window * threshold_pct / 100, kMaxThresholdTokens);
+}
+
+bool ToolSearchSettings::defers(int64_t schema_tokens, size_t tool_count,
+                                int64_t context_window) const {
+  switch (mode) {
+    case Mode::On:
+      return true;
+    case Mode::Off:
+      return false;
+    case Mode::Auto:
+    default:
+      return schema_tokens > threshold_tokens(context_window) or
+             tool_count > kMaxUndeferredTools;
+  }
+}
+
 std::vector<std::string> search_terms(std::string_view text) {
   std::vector<std::string> out;
   for (std::string& word : raw_words(text)) {

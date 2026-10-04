@@ -42,7 +42,7 @@ std::string make_system_prompt(const agent::PromptFacts& facts,
          "will read only your final message. ";
   }
   p << "You have " << facts.tool_names.size() << " tools: "
-    << agent::join_tool_names(facts.tool_names) << ". Use them rather than "
+    << agent::tools_sentence(facts) << ". Use them rather than "
        "guessing"
     << (root ? " or asking the user to run things for you" : "") << ".\n\n";
 
@@ -135,6 +135,9 @@ std::string make_system_prompt(const agent::PromptFacts& facts,
 
   const std::string skills = agent::skills_block(facts);
   if (not skills.empty()) p << "\n" << skills;
+
+  const std::string mcp = agent::mcp_block(facts);
+  if (not mcp.empty()) p << "\n" << mcp;
 
   if (not facts.enable_memory) return p.str();
 

@@ -2,7 +2,9 @@
 #define M8_MCP_TOOL_SEARCH_H
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -23,6 +25,34 @@ namespace mcp {
 // schemas. The query forms mirror Claude Code's ToolSearch so a model that
 // knows one knows the other.
 // ---------------------------------------------------------------------------
+
+// When MCP tool schemas are deferred behind tool_search: the same values as
+// Claude Code's ENABLE_TOOL_SEARCH.
+//   auto     defer when the schemas would take more than min(10% of the
+//            context window, 10k tokens), or there are more than 30 tools
+//   auto:N   the same at N%
+//   on       always defer (alias: true)
+//   off      never defer (alias: false)
+// The tool-count trigger is m8's own: local models choose tools noticeably
+// worse past a few dozen, even when the schemas would fit.
+struct ToolSearchSettings {
+  enum struct Mode : uint8_t { Auto, On, Off };
+
+  Mode mode = Mode::Auto;
+  int threshold_pct = 10;
+
+  static constexpr int64_t kMaxThresholdTokens = 10000;
+  static constexpr int64_t kUnknownWindowTokens = 4000;
+  static constexpr size_t kMaxUndeferredTools = 30;
+
+  static std::optional<ToolSearchSettings> parse(std::string_view text);
+  std::string text() const;
+
+  // The schema budget, in tokens, above which `auto` defers.
+  int64_t threshold_tokens(int64_t context_window) const;
+  bool defers(int64_t schema_tokens, size_t tool_count,
+              int64_t context_window) const;
+};
 
 // Lowercase search terms: split on anything that is not a letter or digit, on
 // camelCase and acronym boundaries (getHTTPResponse -> get, http, response) and

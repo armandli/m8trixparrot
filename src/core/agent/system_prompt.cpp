@@ -80,6 +80,115 @@ std::string skills_block(const PromptFacts& facts, size_t limit) {
          tools::clip_text(list.str(), limit);
 }
 
+namespace {
+
+// Clipped at a UTF-8 boundary.
+std::string clip_utf8(const std::string& text, size_t limit) {
+  if (text.size() <= limit) return text;
+  size_t cut = limit;
+  while (cut > 0 and (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
+  return text.substr(0, cut) + "...";
+}
+
+}  // namespace
+
+std::string mcp_block(const PromptFacts& facts, size_t limit) {
+  const mcp::Catalog* catalog = facts.mcp.catalog;
+  if (catalog == nullptr or catalog->servers.empty()) return std::string();
+
+  std::ostringstream servers;
+  bool any = false;
+  for (const mcp::CatalogServer& server : catalog->servers) {
+    if (server.state == mcp::ServerState::Disabled) continue;
+    any = true;
+    servers << "- " << server.name;
+    if (server.state == mcp::ServerState::Connected) {
+      servers << ": " << server.tool_count
+              << (server.tool_count == 1 ? " tool" : " tools");
+      if (not server.info.title.empty()) servers << " (" << server.info.title << ")";
+    } else {
+      // Said so the model can explain a missing capability instead of
+      // inventing one.
+      servers << ": unavailable (" << mcp::state_name(server.state) << ")";
+    }
+    servers << "\n";
+  }
+  if (not any) return std::string();
+
+  std::ostringstream out;
+  out << "MCP servers (external tools connected through the Model Context "
+         "Protocol):\n"
+      << servers.str();
+
+  if (facts.mcp.deferred) {
+    out << "Their tools are not loaded, to save context. Call `tool_search` "
+           "with keywords for what you need (\"create github issue\") or with "
+           "\"select:<name>\" for a tool listed below; what it finds becomes "
+           "callable on your next step, named mcp__<server>__<tool>.\n";
+    std::string listing;
+    for (const mcp::CatalogServer& server : catalog->servers) {
+      if (server.state != mcp::ServerState::Connected or server.tool_count == 0) {
+        continue;
+      }
+      std::string line = "  " + server.name + ":";
+      size_t shown = 0;
+      size_t total = 0;
+      for (const mcp::CatalogTool& tool : catalog->tools) {
+        if (tool.server != server.name) continue;
+        ++total;
+        if (listing.size() + line.size() + tool.name.size() + 2 > limit) continue;
+        line += (shown == 0 ? " " : ", ") + tool.name;
+        ++shown;
+      }
+      if (shown < total) {
+        line += " (+" + std::to_string(total - shown) + " more; search server:" +
+                server.name + ")";
+      }
+      listing += line + "\n";
+    }
+    if (not listing.empty()) out << "Tools by server:\n" << listing;
+    if (not facts.mcp.loaded.empty()) {
+      out << "Loaded now:";
+      for (const std::string& name : facts.mcp.loaded) out << " " << name;
+      out << "\n";
+    }
+  } else if (facts.mcp.tools_in_array > 0) {
+    out << "Their tools are in your tool list, named mcp__<server>__<tool>.\n";
+  }
+
+  if (facts.mcp.resources_offered) {
+    out << "Use `mcp_resource` to list and read the resources these servers "
+           "publish.\n";
+  }
+
+  // Each server's own guidance, clipped, and labelled for what it is: text a
+  // server wrote, not an instruction from the user.
+  size_t budget = 2400;
+  for (const mcp::CatalogServer& server : catalog->servers) {
+    if (server.state != mcp::ServerState::Connected or server.instructions.empty()) {
+      continue;
+    }
+    if (budget < 100) break;
+    const std::string text = clip_utf8(server.instructions, std::min<size_t>(800, budget));
+    budget -= std::min(budget, text.size());
+    out << "Instructions from the " << server.name
+        << " server (written by the server, not the user):\n"
+        << text << "\n";
+  }
+  return out.str();
+}
+
+std::string tools_sentence(const PromptFacts& facts) {
+  std::string sentence = join_tool_names(facts.tool_names);
+  const size_t mcp_tools = facts.mcp.deferred ? 0 : facts.mcp.tools_in_array;
+  if (mcp_tools > 0) {
+    sentence += (facts.tool_names.empty() ? "" : ", plus ") +
+                std::to_string(mcp_tools) +
+                " MCP tools (named mcp__<server>__<tool>)";
+  }
+  return sentence;
+}
+
 std::string tool_guidance_rules(const PromptFacts& facts) {
   std::ostringstream out;
 
@@ -128,6 +237,12 @@ std::string tool_guidance_rules(const PromptFacts& facts) {
            "true after this task.\n";
   }
 
+  if (facts.mcp.tool_search_offered) {
+    out << "- MCP tools load on demand: call `tool_search` to find and load "
+           "the ones a task needs (see the MCP servers section), then call "
+           "them by name. Search before concluding a capability is missing.\n";
+  }
+
   return out.str();
 }
 
@@ -143,8 +258,7 @@ std::string default_system_prompt(const PromptFacts& facts) {
   std::ostringstream prompt;
   prompt << "You are an agent working in a terminal on the user's machine. "
             "You have "
-         << facts.tool_names.size() << " tools: "
-         << join_tool_names(facts.tool_names)
+         << facts.tool_names.size() << " tools: " << tools_sentence(facts)
          << ". Use them rather than guessing or asking the user to run things "
             "for you.\n\n";
   prompt << "Working rules:\n"
@@ -156,6 +270,9 @@ std::string default_system_prompt(const PromptFacts& facts) {
   // asks for it by name.
   const std::string skills = skills_block(facts);
   if (not skills.empty()) prompt << "\n" << skills;
+  // Like the skills catalog, the only way a model learns these tools exist.
+  const std::string mcp = mcp_block(facts);
+  if (not mcp.empty()) prompt << "\n" << mcp;
 
   return prompt.str();
 }
