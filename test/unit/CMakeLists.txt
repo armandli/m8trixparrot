@@ -71,7 +71,9 @@ target_link_libraries(fake_mcp_server PRIVATE agentcore)
 
 add_executable(mcp_tests
   mcp_client_test.cpp
+  mcp_config_test.cpp
   mcp_json_rpc_test.cpp
+  mcp_registry_test.cpp
   mcp_sse_test.cpp
   mcp_schema_test.cpp
   mcp_content_test.cpp

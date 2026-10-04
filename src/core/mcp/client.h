@@ -173,6 +173,9 @@ private:
 
   mutable std::mutex mMutex;  // guards the transport pointer and server facts
   std::shared_ptr<Transport> mTransport;
+  // The transport a connect() is still shaking hands over, so begin_close()
+  // can abort a handshake instead of waiting out its timeout.
+  std::shared_ptr<Transport> mConnecting;
   bool mClosing = false;
   Era mEra = Era::Unknown;
   std::string mVersion;

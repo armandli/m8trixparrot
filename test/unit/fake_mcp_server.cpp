@@ -116,6 +116,7 @@ struct Server {
 
   explicit Server(Options o) : options(std::move(o)) {
     if (not options.record.empty()) record = std::fopen(options.record.c_str(), "a");
+    note("PID " + std::to_string(::getpid()));
   }
 
   void write(const std::string& line) {

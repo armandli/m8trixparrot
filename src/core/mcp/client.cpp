@@ -334,13 +334,32 @@ ConnectResult Client::connect() {
       result.error = error;
       return result;
     }
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      if (mClosing) {
+        transport->begin_close();
+        result.error = "the MCP client is shutting down";
+        return result;
+      }
+      mConnecting = transport;
+    }
 
     if (attempt == 1) mOptions.protocol = "legacy";
     const Handshake shaken = handshake(*transport);
-    if (shaken.ok) {
+    bool closing = false;
+    {
       std::lock_guard<std::mutex> lock(mMutex);
-      mTransport = std::move(transport);
-      result.ok = true;
+      mConnecting.reset();
+      closing = mClosing;
+      if (shaken.ok and not closing) {
+        mTransport = std::move(transport);
+        result.ok = true;
+        return result;
+      }
+    }
+    if (closing) {
+      transport->close();
+      result.error = "the MCP client is shutting down";
       return result;
     }
 
@@ -686,12 +705,16 @@ void Client::on_notification(const RpcMessage& message) {
 
 void Client::begin_close() {
   std::shared_ptr<Transport> transport;
+  std::shared_ptr<Transport> connecting;
   {
     std::lock_guard<std::mutex> lock(mMutex);
     mClosing = true;
     transport = mTransport;
+    connecting = mConnecting;
   }
   if (transport) transport->begin_close();
+  // Failing its pending requests ends the handshake at once.
+  if (connecting) connecting->begin_close();
 }
 
 void Client::wait_closed() {

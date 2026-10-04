@@ -15,13 +15,17 @@ add_library(agentcore STATIC
   util/uuid.cpp
   mcp/catalog.cpp
   mcp/client.cpp
+  mcp/config.cpp
   mcp/content.cpp
   mcp/json_rpc.cpp
   mcp/protocol.cpp
+  mcp/registry.cpp
+  mcp/resource_tool.cpp
   mcp/schema.cpp
   mcp/sse.cpp
   mcp/stdio_transport.cpp
   mcp/tool_search.cpp
+  mcp/trust.cpp
   vdb/memory_ops.cpp
   vdb/memory_store.cpp
   oc/basic_ollama_client.cpp
