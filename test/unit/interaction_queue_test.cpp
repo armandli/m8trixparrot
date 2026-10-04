@@ -5,7 +5,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -58,32 +57,38 @@ TEST(InteractionQueueTest, AnAnswerReachesTheAsker) {
 }
 
 // Two servers asking at once: the second's questions wait until the first's
-// session is over, so a form is never spliced with another.
+// session is over, including the gap between its questions, so a form is never
+// spliced with another.
 TEST(InteractionQueueTest, SessionsDoNotInterleave) {
   InteractionQueue queue;
-  std::mutex mutex;
-  std::vector<std::string> order;
+  std::atomic<bool> second_started{false};
 
   std::thread first([&] {
     InteractionQueue::Session session = queue.begin();
     session.ask(question("a1"));
-    std::this_thread::sleep_for(50ms);  // the second is waiting by now
+    // The gap under test: nothing on screen, but the session still holds the
+    // queue. Once the second asker is running it needs only a moment to block
+    // in begin(); if it takes longer, the run tests less but cannot fail.
+    while (not second_started.load()) std::this_thread::sleep_for(1ms);
+    std::this_thread::sleep_for(20ms);
     session.ask(question("a2"));
   });
-  std::this_thread::sleep_for(20ms);  // first begins first
+  // Waiting for a1, not sleeping: a1 on screen means the first session holds
+  // the first ticket, so the second can only queue behind it. A first thread
+  // slower than any fixed sleep would let b1 go first, correctly.
+  ASSERT_TRUE(wait_for_question(queue).has_value());
   std::thread second([&] {
+    second_started.store(true);
     InteractionQueue::Session session = queue.begin();
     session.ask(question("b1"));
   });
 
+  std::vector<std::string> order;
   uint64_t last = 0;
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 3; ++i) {  // the first pass picks a1 up again
     const auto shown = wait_for_question(queue, last);
     ASSERT_TRUE(shown.has_value());
-    {
-      std::lock_guard<std::mutex> lock(mutex);
-      order.push_back(shown->question.message);
-    }
+    order.push_back(shown->question.message);
     last = shown->id;
     queue.answer(shown->id, {Answer::Kind::Answered, "x"});
   }
