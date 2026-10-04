@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -14,6 +15,7 @@
 
 #include <core/mcp/client.h>
 #include <core/mcp/config.h>
+#include <core/mcp/oauth.h>
 #include <core/mcp/toolbox.h>
 #include <core/mcp/trust.h>
 
@@ -26,6 +28,10 @@ struct RegistryOptions {
   std::string logs_dir;    // one stderr log per stdio server; "" for none
   std::string state_path;  // .m8/mcp_state.json; "" to remember nothing
   std::string trust_path;  // ~/.m8/mcp_trust.json; "" to approve nothing
+  // ~/.m8/mcp_credentials.json; "" for no OAuth at all.
+  std::string credentials_path;
+  // Where m8's OAuth Client ID Metadata Document is hosted, if anywhere.
+  std::string client_metadata_url;
 
   std::chrono::milliseconds probe_timeout{2000};
   std::chrono::milliseconds startup_timeout{30000};
@@ -43,6 +49,11 @@ struct RegistryEvent {
 };
 
 using RegistryObserver = std::function<void(const RegistryEvent&)>;
+
+// A call found the server wants a login (or more permissions): asks the
+// person, and logs in if they agree. True when there is a new login to retry
+// the call with. Runs on the calling agent's thread.
+using LoginPrompt = std::function<bool(const std::string& server, const std::string& reason)>;
 
 // Builds the transport for an HTTP server. Unset, the registry uses
 // make_http_transport (http_transport.h); an app installs its own to wire in
@@ -72,6 +83,7 @@ struct Registry : Toolbox {
   void set_observer(RegistryObserver observer);
   void set_elicitation_handler(ElicitationHandler handler);
   void set_http_factory(HttpTransportFactory factory);
+  void set_login_prompt(LoginPrompt prompt);
 
   // Records the servers and starts connecting the enabled, approved ones on
   // background threads. Returns at once.
@@ -99,6 +111,15 @@ struct Registry : Toolbox {
   std::vector<std::string> pending_approval() const;
   // The configured entry, as loaded (nullopt if unknown).
   std::optional<ServerConfig> config(const std::string& name) const;
+
+  // Logs in to a remote server with OAuth. `show` gets the authorization URL
+  // to open or print; this then blocks until the browser comes back (five
+  // minutes at most), `cancel` turns true, or shutdown(). A server that was
+  // waiting for the login is reconnected (and waited for) before it returns.
+  bool login(const std::string& name, const std::function<void(const std::string& url)>& show,
+             const std::atomic<bool>* cancel, std::string& error);
+  // Forgets the server's tokens and reconnects it (it will ask again).
+  bool logout(const std::string& name, std::string& error);
 
   CallOutcome get_prompt(const std::string& server, const std::string& prompt,
                          const util::JsonValue& arguments,
@@ -142,6 +163,10 @@ private:
   void schedule_refresh(const std::string& name);
   std::shared_ptr<Client> make_client(const ServerConfig& expanded,
                                       std::string& error);
+  // The server's OAuth session, made on first use; null when OAuth does not
+  // apply (stdio, a fixed Authorization header, no credential file).
+  std::shared_ptr<OAuthSession> oauth_session(const ServerConfig& expanded);
+  std::shared_ptr<OAuthSession> existing_oauth_session(const std::string& name);
   // Rebuilds the snapshot and tells the observer what changed.
   void publish(const RegistryEvent* event = nullptr);
 
@@ -158,6 +183,9 @@ private:
   RegistryObserver mObserver;
   ElicitationHandler mElicit;
   HttpTransportFactory mHttpFactory;
+  LoginPrompt mLoginPrompt;
+  std::map<std::string, std::shared_ptr<OAuthSession>> mOAuth;
+  std::vector<std::weak_ptr<PendingLogin>> mLogins;  // cancelled by shutdown()
 
   std::mutex mPublishMutex;  // keeps snapshots and events in order
   std::mutex mTaskMutex;

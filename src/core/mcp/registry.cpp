@@ -178,10 +178,13 @@ std::shared_ptr<Client> Registry::make_client(const ServerConfig& expanded,
       std::lock_guard<std::mutex> lock(mMutex);
       factory = mHttpFactory;
     }
-    if (not factory) factory = make_http_transport;
+    // An app's own factory wires its own credentials; the default carries
+    // the server's OAuth session.
+    std::shared_ptr<OAuthSession> oauth = factory ? nullptr : oauth_session(expanded);
     options.http = true;
-    options.make_transport = [factory, expanded](TransportHandlers handlers) {
-      return factory(expanded, std::move(handlers));
+    options.make_transport = [factory, expanded, oauth](TransportHandlers handlers) {
+      return factory ? factory(expanded, std::move(handlers))
+                     : make_http_transport(expanded, std::move(handlers), oauth);
     };
     return std::make_shared<Client>(std::move(options));
   }
@@ -273,6 +276,10 @@ void Registry::connect(const std::string& name, uint64_t epoch) {
       why += "; its last output: " + tail.substr(tail.size() > 400 ? tail.size() - 400 : 0);
     }
     client->close();
+    if (connected.needs_auth) {
+      // Kept for the login: where the server's metadata is, what scope it wants.
+      if (auto session = existing_oauth_session(name)) session->challenge(connected.www_authenticate);
+    }
     return fail(connected.needs_auth ? ServerState::NeedsAuth : ServerState::Failed, why);
   }
 
@@ -526,6 +533,31 @@ tools::ToolResult Registry::call_tool(const std::string& exposed,
                                   header_values(again->header_params, arguments));
     }
   }
+  if (not outcome.ok and outcome.needs_auth) {
+    // An expired login, or a step-up: ask the person (when the app can), log
+    // in, and go once more.
+    std::shared_ptr<OAuthSession> session = existing_oauth_session(tool->server);
+    if (session) session->challenge(outcome.www_authenticate);
+    LoginPrompt prompt;
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      prompt = mLoginPrompt;
+    }
+    const std::string reason = insufficient_scope(outcome.www_authenticate)
+                                   ? "this call needs more permissions than your login gives"
+                                   : "it needs you to log in";
+    if (prompt and session and prompt(tool->server, reason)) {
+      std::shared_ptr<Client> current;
+      {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (const Server* server = find(tool->server);
+            server != nullptr and server->state == ServerState::Connected) {
+          current = server->client;
+        }
+      }
+      if (current) outcome = current->call_tool(tool->name, arguments, context, headers);
+    }
+  }
   if (not outcome.ok) {
     if (outcome.needs_auth) {
       {
@@ -746,6 +778,112 @@ std::optional<ServerConfig> Registry::config(const std::string& name) const {
   return std::nullopt;
 }
 
+void Registry::set_login_prompt(LoginPrompt prompt) {
+  std::lock_guard<std::mutex> lock(mMutex);
+  mLoginPrompt = std::move(prompt);
+}
+
+std::shared_ptr<OAuthSession> Registry::oauth_session(const ServerConfig& expanded) {
+  if (mOptions.credentials_path.empty() or expanded.type != "http") return nullptr;
+  for (const auto& [header, value] : expanded.headers) {
+    std::string lowered = header;
+    for (char& c : lowered) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    // A fixed token from the config: OAuth stays out of it.
+    if (lowered == "authorization") return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(mMutex);
+  std::shared_ptr<OAuthSession>& session = mOAuth[expanded.name];
+  if (not session or session->options().server_url != expanded.url) {
+    OAuthOptions options;
+    options.server = expanded.name;
+    options.server_url = expanded.url;
+    options.settings = expanded.oauth;
+    options.client_metadata_url = mOptions.client_metadata_url;
+    options.credentials_path = mOptions.credentials_path;
+    session = std::make_shared<OAuthSession>(std::move(options));
+  }
+  return session;
+}
+
+std::shared_ptr<OAuthSession> Registry::existing_oauth_session(const std::string& name) {
+  std::lock_guard<std::mutex> lock(mMutex);
+  if (auto it = mOAuth.find(name); it != mOAuth.end()) return it->second;
+  return nullptr;
+}
+
+bool Registry::login(const std::string& name,
+                     const std::function<void(const std::string& url)>& show,
+                     const std::atomic<bool>* cancel, std::string& error) {
+  const std::optional<ServerConfig> configured = config(name);
+  if (not configured) {
+    error = "no MCP server named '" + name + "'";
+    return false;
+  }
+  if (configured->type != "http") {
+    error = "'" + name + "' is a local server; it takes credentials from its environment, "
+            "not a login";
+    return false;
+  }
+  ServerConfig expanded;
+  if (not expand_server(*configured, expanded, error)) return false;
+  std::shared_ptr<OAuthSession> session = oauth_session(expanded);
+  if (not session) {
+    error = mOptions.credentials_path.empty()
+                ? std::string("there is no home directory to keep a login in")
+                : "'" + name + "' sends a fixed Authorization header from its config; remove it "
+                  "to log in with OAuth instead";
+    return false;
+  }
+  std::shared_ptr<PendingLogin> pending = session->begin_login(error);
+  if (not pending) return false;
+  {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (mShutdown) {
+      error = "m8 is shutting down";
+      return false;
+    }
+    mLogins.push_back(pending);
+  }
+  if (show) show(pending->url());
+  const bool ok = pending->wait(error, cancel);
+  {
+    std::lock_guard<std::mutex> lock(mMutex);
+    std::erase_if(mLogins, [](const std::weak_ptr<PendingLogin>& weak) { return weak.expired(); });
+  }
+  if (not ok) return false;
+
+  // A server that was waiting for this login connects now; one already
+  // connected uses the new token from its next request on.
+  bool waiting = false;
+  {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (const Server* server = find(name)) waiting = server->state != ServerState::Connected;
+  }
+  if (waiting) {
+    reconnect(name);
+    wait_until_settled(mOptions.startup_timeout);
+  }
+  return true;
+}
+
+bool Registry::logout(const std::string& name, std::string& error) {
+  const std::optional<ServerConfig> configured = config(name);
+  if (not configured) {
+    error = "no MCP server named '" + name + "'";
+    return false;
+  }
+  ServerConfig expanded;
+  if (not expand_server(*configured, expanded, error)) return false;
+  std::shared_ptr<OAuthSession> session = oauth_session(expanded);
+  if (not session) {
+    error = "'" + name + "' does not log in with OAuth";
+    return false;
+  }
+  if (not session->logout(error)) return false;
+  reconnect(name);
+  return true;
+}
+
 CallOutcome Registry::get_prompt(const std::string& server_name,
                                  const std::string& prompt,
                                  const util::JsonValue& arguments,
@@ -767,6 +905,17 @@ CallOutcome Registry::get_prompt(const std::string& server_name,
 }
 
 void Registry::shutdown() {
+  // Nobody is coming back from the browser: logins waiting for it end now.
+  std::vector<std::shared_ptr<PendingLogin>> logins;
+  {
+    std::lock_guard<std::mutex> lock(mMutex);
+    for (const std::weak_ptr<PendingLogin>& weak : mLogins) {
+      if (std::shared_ptr<PendingLogin> login = weak.lock()) logins.push_back(std::move(login));
+    }
+    mLogins.clear();
+  }
+  for (const std::shared_ptr<PendingLogin>& login : logins) login->cancel();
+
   std::vector<std::shared_ptr<Client>> clients;
   {
     std::lock_guard<std::mutex> lock(mMutex);
@@ -779,6 +928,7 @@ void Registry::shutdown() {
     }
     mObserver = nullptr;
     mElicit = nullptr;
+    mLoginPrompt = nullptr;
   }
   mChanged.notify_all();
   // Begin every ladder before waiting on any: servers stop in parallel.

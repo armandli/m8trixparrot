@@ -25,8 +25,9 @@ namespace m8 {
 // Everything that changes which servers run (add, add-json, remove, enable,
 // approve, import) refuses inside an m8 agent's shell — m8 marks its children
 // with M8_AGENT_SHELL — because which programs m8 starts on the user's behalf
-// is the user's decision. approve also wants a terminal to ask on. Both are
-// guardrails in the spirit of protected paths, not a sandbox.
+// is the user's decision; so does login, which puts a login page in front of
+// the user. approve also wants a terminal to ask on. Both are guardrails in
+// the spirit of protected paths, not a sandbox.
 struct McpCli {
   // Declares the subcommands under `app`; call before parsing.
   void declare(CLI::App& app);
@@ -39,6 +40,8 @@ struct McpCli {
 
   // Whether stdin and stdout are a terminal. Tests set it.
   bool interactive = false;
+  // m8's OAuth Client ID Metadata Document, from the settings (may be "").
+  std::string client_metadata_url;
 
 private:
   int add(const M8Paths& paths, std::ostream& out, std::ostream& err);

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -129,6 +130,7 @@ const char* kMcpHelpText =
     "/mcp reconnect [server]       restart a connection (all of them without a name)\n"
     "/mcp enable|disable <server>  turn a server on or off in this workspace\n"
     "/mcp approve <server>|--all   let a server from a workspace file run\n"
+    "/mcp login|logout <server>    log in to a remote server (OAuth), or forget it\n"
     "/mcp__<server>__<prompt> [args]  run a server's prompt (listed in /help)\n"
     "\n"
     "servers are added from a shell: m8 mcp add <name> -- <command> [args...]";
@@ -293,6 +295,7 @@ int main(int argc, char** argv) {
   // `m8 mcp ...` manages servers and exits; it needs no model.
   if (mcp_cli.parsed()) {
     mcp_cli.interactive = ::isatty(STDIN_FILENO) == 1 and ::isatty(STDOUT_FILENO) == 1;
+    mcp_cli.client_metadata_url = settings.mcp_oauth_client_metadata_url.value_or("");
     return mcp_cli.run(paths, agent_shell, std::cout, std::cerr, std::cin);
   }
 
@@ -482,6 +485,8 @@ int main(int argc, char** argv) {
     registry_options.logs_dir = paths.mcp_logs();
     registry_options.state_path = paths.mcp_state();
     registry_options.trust_path = paths.mcp_trust();
+    registry_options.credentials_path = paths.mcp_credentials();
+    registry_options.client_metadata_url = settings.mcp_oauth_client_metadata_url.value_or("");
     registry = new mcp::Registry(std::move(registry_options));
     options.mcp = std::shared_ptr<mcp::Toolbox>(registry, [](mcp::Toolbox*) {});
   }
@@ -686,8 +691,10 @@ int main(int argc, char** argv) {
   note = post_notice;
   interactions.set_listener([&screen] { screen.PostEvent(f::Event::Custom); });
 
-  // Links the person agreed to open; only the session being answered touches it.
+  // Links the person agreed to open, and servers they would not log in to;
+  // only the question session being answered touches either.
   std::set<std::string> opened_links;
+  std::set<std::string> login_declined;
   if (registry != nullptr) {
     // A server asking the person something mid-call. Runs on whichever thread
     // waits for that server, and holds the question queue until it is done.
@@ -713,6 +720,69 @@ int main(int argc, char** argv) {
                                                  : "mcp: cancelled " + request.server + "'s request");
       }
       return result;
+    });
+    // An agent's call found its login expired, or too narrow: ask, and log in
+    // while the answer box waits with the link (Esc gives up). A server the
+    // person says no to is not asked about again this run.
+    registry->set_login_prompt([&](const std::string& server, const std::string& reason) {
+      agentui::InteractionQueue::Session session = interactions.begin();
+      if (shutting_down.load() or login_declined.count(server) > 0) return false;
+      agentui::Question question;
+      question.heading = server + " asks you to log in";
+      question.message = "The agent's call to " + server + " stopped: " + reason + ".";
+      question.keys = "y logs in, in your browser \xc2\xb7 Enter or n skips \xc2\xb7 Esc cancels";
+      const agentui::Answer answer = session.ask(std::move(question));
+      std::string word = trim_copy(answer.text);
+      for (char& c : word) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (answer.kind != agentui::Answer::Kind::Answered or (word != "y" and word != "yes")) {
+        login_declined.insert(server);
+        post_notice(TranscriptNode::Kind::Notice,
+                    "mcp: not logging in to " + server + " (/mcp login " + server + " any time)");
+        return false;
+      }
+      std::atomic<bool> cancel{false};
+      std::atomic<bool> finished{false};
+      std::mutex link_mutex;
+      std::condition_variable link_ready;
+      std::string link;
+      bool ok = false;
+      std::string error;
+      std::thread worker([&] {
+        ok = registry->login(
+            server,
+            [&](const std::string& url) {
+              {
+                std::lock_guard<std::mutex> lock(link_mutex);
+                link = url;
+              }
+              link_ready.notify_all();
+              std::string why;
+              util::open_url(url, why);
+            },
+            &cancel, error);
+        finished.store(true);
+        link_ready.notify_all();
+      });
+      std::string shown_link;
+      {
+        std::unique_lock<std::mutex> lock(link_mutex);
+        link_ready.wait(lock, [&] { return not link.empty() or finished.load(); });
+        shown_link = link;
+      }
+      if (not shown_link.empty()) {
+        agentui::Question waiting;
+        waiting.heading = server + ": log in in your browser";
+        waiting.message = "Finish logging in there and the agent's call goes on.";
+        waiting.detail = "link: " + shown_link;
+        waiting.keys = "Esc gives up";
+        if (session.ask_until(std::move(waiting), [&] { return finished.load(); })) {
+          cancel.store(true);
+        }
+      }
+      worker.join();
+      post_notice(ok ? TranscriptNode::Kind::Notice : TranscriptNode::Kind::Error,
+                  ok ? "mcp: logged in to " + server : "mcp: login to " + server + " failed: " + error);
+      return ok;
     });
     // Called on the registry's threads, never under its lock (it takes ours).
     registry->set_observer([&](const mcp::RegistryEvent& event) {
@@ -861,9 +931,34 @@ int main(int argc, char** argv) {
           push_notice(TranscriptNode::Kind::Error, "mcp: " + error);
         }
       }
-    } else if (sub == "login" or sub == "logout") {
-      push_notice(TranscriptNode::Kind::Error,
-                  "mcp: OAuth login for remote servers is not available yet");
+    } else if ((sub == "login" or sub == "logout") and name.empty()) {
+      push_notice(TranscriptNode::Kind::Notice, "usage: /mcp " + sub + " <server>");
+    } else if (sub == "login") {
+      // Typing it is the consent to open the browser. The wait for the
+      // browser (up to five minutes) is off the UI thread.
+      std::thread([&post_notice, registry, name] {
+        std::string error;
+        const bool ok = registry->login(
+            name,
+            [&](const std::string& url) {
+              std::string why;
+              const bool opened = util::open_url(url, why);
+              post_notice(TranscriptNode::Kind::Notice,
+                          "mcp: log in to " + name + (opened ? " in the browser m8 opened" : "") +
+                              ":\n" + url +
+                              (opened ? std::string() : "\n(could not open a browser: " + why + ")"));
+            },
+            nullptr, error);
+        post_notice(ok ? TranscriptNode::Kind::Notice : TranscriptNode::Kind::Error,
+                    ok ? "mcp: logged in to " + name : "mcp: login to " + name + " failed: " + error);
+      }).detach();
+    } else if (sub == "logout") {
+      std::string error;
+      if (registry->logout(name, error)) {
+        push_notice(TranscriptNode::Kind::Notice, "mcp: logged out of " + name);
+      } else {
+        push_notice(TranscriptNode::Kind::Error, "mcp: " + error);
+      }
     } else {
       push_notice(TranscriptNode::Kind::Notice, kMcpHelpText);
     }

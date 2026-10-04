@@ -205,9 +205,10 @@ machine instead of once per checkout. And `~/.parallel_api_key` is the key the
 standalone `tool_websearch` command reads, since that command is run from
 anywhere rather than from a workspace root (see [Web search](#web-search)).
 `~/.m8/` also holds what belongs to you rather than to a checkout: your own MCP
-servers (`mcp.json`) and the approvals you gave workspace servers
-(`mcp_trust.json`), which must live where a repository cannot write its own
-(see [MCP servers](#mcp-servers)).
+servers (`mcp.json`), the approvals you gave workspace servers
+(`mcp_trust.json`), which must live where a repository cannot write its own,
+and your logins to remote servers (`mcp_credentials.json`) (see
+[MCP servers](#mcp-servers)).
 
 Slash commands: `/help`, `/session`, `/context`, `/skills`, `/reset`, `/quit`,
 `/mcp` (see [MCP servers](#mcp-servers)), `/mcp__<server>__<prompt>` for an MCP
@@ -1030,6 +1031,7 @@ standard keys (`command`, `args`, `env`, `cwd` for a local server; `type`,
 | `timeout` / `startupTimeout` | milliseconds, per tool call / to connect |
 | `protocol` | `auto` (the default), `modern` or `legacy` |
 | `inheritEnv` | give the server m8's whole environment |
+| `oauth` | for a remote server: `clientId`, `clientSecret`, `scopes`, `callbackPort` (see [Logging in](#logging-in-to-a-remote-server)) |
 
 A server gets a minimal environment — `HOME`, `USER`, `LOGNAME`, `PATH`,
 `SHELL`, `TERM`, `LANG` and `LC_*`, `TMPDIR`, `XDG_*` — plus its own `env`, so a
@@ -1053,9 +1055,9 @@ tool filter or a timeout keeps the approval.)
 `~/.m8/mcp.json` need no approval.
 
 The agent cannot approve servers for itself. `m8 mcp add`, `add-json`,
-`approve`, `enable` and `remove` refuse to run inside a shell m8 started (m8
-marks them with `M8_AGENT_SHELL`, including `!` commands), and under the `sane`
-policy they are refused as commands as well. Like the
+`approve`, `enable`, `remove` and `login` refuse to run inside a shell m8
+started (m8 marks them with `M8_AGENT_SHELL`, including `!` commands), and
+under the `sane` policy they are refused as commands as well. Like the
 [protected paths](#protected-paths), these are guardrails, not a sandbox.
 
 An approved server's tools are then called without asking, the way `bash_repl`
@@ -1069,7 +1071,7 @@ runs commands.
 - `/mcp tools [server]` — every MCP tool, marked loaded, deferred or always
   loaded. `/mcp resources [server]` — what the servers offer to read.
 - `/mcp reconnect [server]`, `/mcp enable|disable <server>`,
-  `/mcp approve <server>|--all`.
+  `/mcp approve <server>|--all`, `/mcp login|logout <server>`.
 - `/mcp__<server>__<prompt> [args]` sends a server's prompt as your next message
   (`/help` lists them). A prompt with one argument takes the rest of the line;
   otherwise arguments go in order, or as `name=value`.
@@ -1078,6 +1080,42 @@ runs commands.
   (`mcp: 57 tools · loaded 5 (~1.6k) · deferred 52 (~7.9k saved per call)`).
 
 A call shows in the transcript as `server › tool`.
+
+### Logging in to a remote server
+
+A remote server that answers `401` shows as **needs login**, and m8 says so when
+it starts. `/mcp login <server>` (or `m8 mcp login <server>` from a shell) opens
+your browser at the server's authorization page; once you approve, the browser
+comes back to m8 on `127.0.0.1` and the server connects. `/mcp logout <server>`
+forgets the login.
+
+m8 follows the 2026-07-28 authorization spec. It finds the authorization server
+through the server's protected resource metadata (RFC 9728) and that server's
+own metadata (RFC 8414 or OpenID discovery), which must name itself exactly and
+support PKCE with S256 — m8 refuses otherwise. It identifies itself with, in
+order: an `"oauth": {"clientId": ...}` from the server's config (a client you
+registered yourself; GitHub, for one, requires it), m8's Client ID Metadata
+Document when the authorization server accepts one and
+`mcp_oauth_client_metadata_url` names where you host it (a template is in
+[`docs/oauth/m8-client-metadata.json`](docs/oauth/m8-client-metadata.json)), or
+dynamic registration, remembered per authorization server. The request carries
+PKCE, a `state` and the server as the `resource` (RFC 8707); the answer is
+checked for the `state` and, per RFC 9207, for the issuer it comes from, so a
+code is never sent to the wrong server.
+
+Tokens are kept in `~/.m8/mcp_credentials.json` (mode 0600, on the
+[protected paths](#protected-paths) list), only ever sent to the server they
+were issued for, and refreshed before they expire — a rotated refresh token is
+saved before the new access token is used, and two m8s refreshing at once take
+turns on a file lock. A call that finds its login expired, or a server asking
+for more permissions than it has (`403 insufficient_scope`), asks you in the
+answer box; `y` logs in again — keeping the permissions you already granted —
+and the call goes once more.
+
+Over SSH the browser comes back to the machine you are sitting at, not the one
+running m8: forward the port (`ssh -L 8765:127.0.0.1:8765`) and fix it with
+`"oauth": {"callbackPort": 8765}`. A server whose config sends its own
+`Authorization` header never uses OAuth.
 
 ### When a server asks you something
 
@@ -1153,8 +1191,7 @@ Connections are reused between requests. m8 never follows a redirect — a serve
 that moved says so, rather than m8 sending its headers, and your token,
 somewhere else.
 
-OAuth login is in progress. Not planned: the deprecated HTTP+SSE transport,
-sampling and roots.
+Not planned: the deprecated HTTP+SSE transport, sampling and roots.
 
 ## Memory
 

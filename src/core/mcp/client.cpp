@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <thread>
 
+#include <core/mcp/oauth.h>
+
 namespace mcp {
 
 namespace {
@@ -577,7 +579,8 @@ CallOutcome Client::call_with_input(
     if (not reply.ok) {
       outcome.error = reply.error;
       outcome.timed_out = reply.timed_out;
-      outcome.needs_auth = reply.http_status == 401;
+      outcome.needs_auth = reply.http_status == 401 or
+                           (reply.http_status == 403 and insufficient_scope(reply.www_authenticate));
       outcome.www_authenticate = reply.www_authenticate;
       return outcome;
     }

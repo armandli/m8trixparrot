@@ -194,7 +194,8 @@ TEST_F(McpCliTest, ChangesAreRefusedInAnAgentsShell) {
       {"mcp", "add-json", "srv", R"({"command":"cmd"})"},
       {"mcp", "remove", "srv"},
       {"mcp", "enable", "srv"},
-      {"mcp", "approve", "srv"}};
+      {"mcp", "approve", "srv"},
+      {"mcp", "login", "srv"}};
   for (const std::vector<std::string>& args : changes) {
     const CliRun r = run(args, /*interactive=*/true, /*agent_shell=*/true);
     EXPECT_EQ(r.status, 1) << args[1];
@@ -400,10 +401,17 @@ TEST_F(McpCliTest, TheModelArgumentStillWorks) {
   }
 }
 
-TEST_F(McpCliTest, ASubcommandIsRequiredAndLoginIsNotHereYet) {
-  EXPECT_EQ(run({"mcp"}).status, -1);
-  EXPECT_EQ(run({"mcp", "login", "srv"}).status, 1);
-  EXPECT_EQ(run({"mcp", "logout", "srv"}).status, 1);
+TEST_F(McpCliTest, ASubcommandIsRequired) { EXPECT_EQ(run({"mcp"}).status, -1); }
+
+// Only remote servers log in; a local one gets its credentials from -e.
+TEST_F(McpCliTest, LoginIsForRemoteServers) {
+  ASSERT_EQ(run({"mcp", "add", "-s", "user", "local", "--", "cmd"}).status, 0);
+  CliRun r = run({"mcp", "login", "local"});
+  EXPECT_EQ(r.status, 1);
+  EXPECT_NE(r.err.find("local server"), npos) << r.err;
+  r = run({"mcp", "logout", "nope"});
+  EXPECT_EQ(r.status, 1);
+  EXPECT_NE(r.err.find("no MCP server"), npos) << r.err;
 }
 
 }  // namespace

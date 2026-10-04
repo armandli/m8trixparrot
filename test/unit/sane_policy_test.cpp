@@ -144,11 +144,14 @@ TEST_F(SanePolicyTest, ChangingWhichMcpServersRunIsRefused) {
   EXPECT_TRUE(bash_denied("env -u M8_AGENT_SHELL m8 mcp approve evil"));
   EXPECT_TRUE(bash_denied("cd /tmp && m8 mcp add -s user x -- y"));
   EXPECT_TRUE(bash_denied("sh -c 'm8 mcp approve evil'"));
+  // A login page put in front of the user is theirs to ask for.
+  EXPECT_TRUE(bash_denied("m8 mcp login github"));
 
   // Looking is fine, and so is turning a server off.
   EXPECT_FALSE(bash_denied("m8 mcp list"));
   EXPECT_FALSE(bash_denied("m8 mcp get github"));
   EXPECT_FALSE(bash_denied("m8 mcp disable github"));
+  EXPECT_FALSE(bash_denied("m8 mcp logout github"));
   EXPECT_FALSE(bash_denied("m8 -m mcp"));
 
   tools::ToolArgs args;

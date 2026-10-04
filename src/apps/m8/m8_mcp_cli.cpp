@@ -7,8 +7,10 @@
 #include <utility>
 
 #include <core/mcp/config.h>
+#include <core/mcp/oauth.h>
 #include <core/mcp/registry.h>
 #include <core/mcp/trust.h>
+#include <core/util/open_url.h>
 
 #include <m8_mcp_view.h>
 
@@ -81,12 +83,15 @@ std::string entry_problem(const std::string& name, const util::JsonValue& entry)
   return parsed.front().problem;
 }
 
-mcp::RegistryOptions registry_options(const M8Paths& paths) {
+mcp::RegistryOptions registry_options(const M8Paths& paths,
+                                      const std::string& client_metadata_url = "") {
   mcp::RegistryOptions options;
   options.workspace = workspace_key(paths);
   options.logs_dir = paths.mcp_logs();
   options.state_path = paths.mcp_state();
   options.trust_path = paths.mcp_trust();
+  options.credentials_path = paths.mcp_credentials();
+  options.client_metadata_url = client_metadata_url;
   return options;
 }
 
@@ -258,7 +263,7 @@ int McpCli::run(const M8Paths& paths, bool agent_shell, std::ostream& out,
                 std::ostream& err, std::istream& in) {
   const bool changes_servers = mAdd->parsed() or mAddJson->parsed() or
                                mRemove->parsed() or mEnable->parsed() or
-                               mApprove->parsed();
+                               mApprove->parsed() or mLogin->parsed();
   if (changes_servers and agent_shell) {
     err << "refused: this changes which MCP servers m8 runs, which is for the "
            "user to decide, and this is an m8 agent's shell (M8_AGENT_SHELL is "
@@ -522,11 +527,62 @@ int McpCli::approve(const M8Paths& paths, std::ostream& out, std::ostream& err,
 
 int McpCli::login(const M8Paths& paths, bool logout, std::ostream& out,
                   std::ostream& err) {
-  (void)paths;
-  (void)out;
-  err << "m8 mcp " << (logout ? "logout" : "login")
-      << ": OAuth for remote MCP servers is not available yet\n";
-  return 1;
+  const mcp::LoadedConfig loaded = mcp::load_config(config_files(paths));
+  const std::optional<mcp::ServerConfig> server = find_server(loaded, mName);
+  if (not server) {
+    err << "no MCP server named '" << mName << "'\n";
+    return 1;
+  }
+  if (server->type != "http") {
+    err << "'" << mName << "' is a local server; it takes its credentials from its "
+           "environment (-e), not a login\n";
+    return 1;
+  }
+  mcp::Registry registry(registry_options(paths, client_metadata_url));
+  registry.start({*server});
+  std::string error;
+  if (logout) {
+    const bool ok = registry.logout(mName, error);
+    registry.shutdown();
+    if (not ok) {
+      err << error << "\n";
+      return 1;
+    }
+    out << "Logged out of '" << mName << "'.\n";
+    return 0;
+  }
+
+  // Connecting first hears the server's challenge: where its metadata is,
+  // which scopes it wants.
+  registry.wait_until_settled(std::chrono::seconds(30));
+  const bool ok = registry.login(
+      mName,
+      [&](const std::string& url) {
+        out << "To log in to " << mName << ", open this link:\n\n  " << url << "\n\n";
+        std::string why;
+        if (util::open_url(url, why)) {
+          out << "(It is open in your browser.)\n";
+        } else {
+          out << "(Could not open a browser: " << why << ".)\n";
+        }
+        out << "The browser comes back to this machine on 127.0.0.1; over SSH, forward "
+               "that port (set \"oauth\": {\"callbackPort\": N} to fix it).\n"
+            << "Waiting for it, up to five minutes (Ctrl+C gives up)...\n"
+            << std::flush;
+      },
+      nullptr, error);
+  if (not ok) {
+    registry.shutdown();
+    err << "login failed: " << error << "\n";
+    return 1;
+  }
+  const auto catalog = registry.wait_until_settled(std::chrono::seconds(30));
+  out << "Logged in to '" << mName << "'.\n";
+  if (const mcp::CatalogServer* status = catalog->server(mName)) {
+    out << server_line(*status) << "\n";
+  }
+  registry.shutdown();
+  return 0;
 }
 
 }  // namespace m8

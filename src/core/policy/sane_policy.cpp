@@ -226,7 +226,8 @@ bool is_wrapper_noise(const std::string& text) {
 constexpr std::string_view kMcpChangePrefix = "`m8 mcp ";
 
 // `m8 mcp add|add-json|approve|enable|remove|import` changes which programs m8
-// starts on the user's behalf — the user's decision, not the agent's. m8 also
+// starts on the user's behalf — the user's decision, not the agent's — and
+// `login` puts a login page in front of the user. m8 also
 // refuses these itself in an agent's shell (it marks it M8_AGENT_SHELL); this
 // catches a shell where the mark was unset. Matched anywhere in a command, not
 // only in command position: a wrapper's own options (`env -u NAME`) can hide
@@ -245,7 +246,7 @@ std::string mcp_change_problem(const std::vector<Token>& tokens) {
     if (not word(k)) continue;
     const std::string& sub = tokens[k].text;
     if (sub == "add" or sub == "add-json" or sub == "approve" or sub == "enable" or
-        sub == "remove" or sub == "import") {
+        sub == "remove" or sub == "import" or sub == "login") {
       return std::string(kMcpChangePrefix) + sub +
              "` is refused: which MCP servers m8 runs is for the user to "
              "decide. Tell the user the command so they can run it themselves.";

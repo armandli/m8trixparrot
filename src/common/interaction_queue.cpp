@@ -1,5 +1,6 @@
 #include <common/interaction_queue.h>
 
+#include <chrono>
 #include <utility>
 
 namespace agentui {
@@ -45,6 +46,42 @@ Answer InteractionQueue::Session::ask(Question question) {
     std::unique_lock<std::mutex> lock(queue.mMutex);
     queue.mChanged.wait(lock, [&] { return queue.mAnswer.has_value() or queue.mCancelled; });
     if (queue.mAnswer) answer = std::move(*queue.mAnswer);
+    queue.mShown.reset();
+    queue.mAnswer.reset();
+  }
+  queue.notify();
+  return answer;
+}
+
+std::optional<Answer> InteractionQueue::Session::ask_until(Question question,
+                                                         const std::function<bool()>& done) {
+  InteractionQueue& queue = *mQueue;
+  {
+    std::lock_guard<std::mutex> lock(queue.mMutex);
+    if (queue.mCancelled) return Answer{};
+    queue.mShown = Shown{queue.mNextId++, std::move(question)};
+    queue.mAnswer.reset();
+  }
+  queue.notify();
+
+  std::optional<Answer> answer;
+  {
+    std::unique_lock<std::mutex> lock(queue.mMutex);
+    while (true) {
+      if (queue.mAnswer) {
+        answer = std::move(*queue.mAnswer);
+        break;
+      }
+      if (queue.mCancelled) {
+        answer = Answer{};
+        break;
+      }
+      lock.unlock();
+      const bool finished = done();
+      lock.lock();
+      if (finished and not queue.mAnswer) break;  // withdrawn
+      queue.mChanged.wait_for(lock, std::chrono::milliseconds(100));
+    }
     queue.mShown.reset();
     queue.mAnswer.reset();
   }

@@ -47,6 +47,10 @@ public:
     // Shows `question` and blocks until the person answers it, or the queue
     // is cancelled (then: Cancelled).
     Answer ask(Question question);
+    // The same, but `done` (polled) may withdraw the question first — for a
+    // panel that waits on something else, like a login in the browser.
+    // nullopt when it was withdrawn rather than answered.
+    std::optional<Answer> ask_until(Question question, const std::function<bool()>& done);
 
   private:
     friend class InteractionQueue;

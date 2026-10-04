@@ -17,6 +17,7 @@
 namespace mcp {
 
 struct ServerConfig;  // config.h
+class OAuthSession;   // oauth.h
 
 struct HttpConfig {
   std::string server;  // the configured name, for messages
@@ -27,6 +28,9 @@ struct HttpConfig {
   // where OAuth plugs in. Not consulted when `headers` has an Authorization.
   // Called from any thread that makes a request.
   std::function<std::string()> authorization;
+  // After a 401, with the server's challenge: refresh the credentials (or
+  // pick up newer ones). True sends the request once more.
+  std::function<bool(const std::string& www_authenticate)> renew;
 
   std::chrono::milliseconds connect_timeout{10000};
   // For what the transport sends on its own: notifications, answers to a
@@ -138,9 +142,11 @@ private:
 };
 
 // The transport for an `http` server entry, already expanded; what the
-// registry builds when the app installs no factory of its own.
+// registry builds when the app installs no factory of its own. With `oauth`,
+// requests carry its token and a 401 renews it.
 std::unique_ptr<Transport> make_http_transport(const ServerConfig& expanded,
-                                               TransportHandlers handlers);
+                                               TransportHandlers handlers,
+                                               std::shared_ptr<OAuthSession> oauth = nullptr);
 
 }  // namespace mcp
 

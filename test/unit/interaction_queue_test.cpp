@@ -135,5 +135,33 @@ TEST(InteractionQueueTest, CancelAllReleasesEveryoneNowAndLater) {
   EXPECT_FALSE(queue.current().has_value());
 }
 
+// A panel that waits on something else (a login in the browser) goes away by
+// itself when that finishes — or is answered first.
+TEST(InteractionQueueTest, AQuestionCanBeWithdrawn) {
+  InteractionQueue queue;
+  std::atomic<bool> finished{false};
+  std::optional<Answer> got = Answer{Answer::Kind::Answered, "unset"};
+  std::thread waiting([&] {
+    InteractionQueue::Session session = queue.begin();
+    got = session.ask_until(question("finish in the browser"), [&] { return finished.load(); });
+  });
+  ASSERT_TRUE(wait_for_question(queue).has_value());
+  finished.store(true);
+  waiting.join();
+  EXPECT_FALSE(got.has_value());
+  EXPECT_FALSE(queue.current().has_value());
+
+  std::thread answered([&] {
+    InteractionQueue::Session session = queue.begin();
+    got = session.ask_until(question("again"), [] { return false; });
+  });
+  const auto shown = wait_for_question(queue);
+  ASSERT_TRUE(shown.has_value());
+  queue.answer(shown->id, {Answer::Kind::Cancelled, ""});
+  answered.join();
+  ASSERT_TRUE(got.has_value());
+  EXPECT_EQ(got->kind, Answer::Kind::Cancelled);
+}
+
 }  // namespace
 }  // namespace agentui

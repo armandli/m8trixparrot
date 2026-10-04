@@ -19,9 +19,11 @@ add_library(agentcore STATIC
   mcp/client.cpp
   mcp/config.cpp
   mcp/content.cpp
+  mcp/credential_store.cpp
   mcp/elicitation.cpp
   mcp/http_transport.cpp
   mcp/json_rpc.cpp
+  mcp/oauth.cpp
   mcp/protocol.cpp
   mcp/registry.cpp
   mcp/resource_tool.cpp

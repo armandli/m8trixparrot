@@ -8,6 +8,7 @@
 #include <optional>
 
 #include <core/mcp/config.h>
+#include <core/mcp/oauth.h>
 #include <core/mcp/schema.h>
 #include <core/mcp/sse.h>
 #include <core/util/text.h>
@@ -513,6 +514,7 @@ Reply HttpTransport::exchange(const RequestSpec& spec) {
 
   Verb verb = Verb::Post;
   Headers resume_headers;
+  bool renewed = false;
   for (int resumes = 0;; ++resumes) {
     std::string error;
     Stop stop = transfer(ex, verb, verb == Verb::Post ? body : std::string(),
@@ -537,7 +539,21 @@ Reply HttpTransport::exchange(const RequestSpec& spec) {
     // otherwise pass for the server's answer.
     if (error.empty() and ex.status == 401) {
       reply.www_authenticate = join(ex.www_authenticate, ", ");
+      // An expired or revoked token: renewed, the request goes once more.
+      if (mConfig.renew and not renewed and verb == Verb::Post) {
+        renewed = true;
+        if (mConfig.renew(reply.www_authenticate)) {
+          ex.reset_response();
+          continue;
+        }
+      }
       reply.error = "the server requires authorization (HTTP 401)";
+      return reply;
+    }
+    if (error.empty() and ex.status == 403 and
+        insufficient_scope(join(ex.www_authenticate, ", "))) {
+      reply.www_authenticate = join(ex.www_authenticate, ", ");
+      reply.error = "the server wants more permissions than this login has (HTTP 403)";
       return reply;
     }
     if (error.empty() and ex.status == 404 and sent_session) {
@@ -828,11 +844,19 @@ std::string HttpTransport::session_id() const {
 }
 
 std::unique_ptr<Transport> make_http_transport(const ServerConfig& expanded,
-                                               TransportHandlers handlers) {
+                                               TransportHandlers handlers,
+                                               std::shared_ptr<OAuthSession> oauth) {
   HttpConfig config;
   config.server = expanded.name;
   config.url = expanded.url;
   config.headers = expanded.headers;
+  if (oauth) {
+    config.authorization = [oauth] { return oauth->authorization(); };
+    config.renew = [oauth](const std::string& challenge) {
+      oauth->challenge(challenge);
+      return oauth->renew_after_rejection();
+    };
+  }
   return std::make_unique<HttpTransport>(std::move(config), std::move(handlers));
 }
 
