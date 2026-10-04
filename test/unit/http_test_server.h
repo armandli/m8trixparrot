@@ -5,6 +5,7 @@
 #include <chrono>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -32,6 +33,9 @@ struct HttpReply {
   // and the connection closed after (a streamed text/event-stream response).
   std::vector<std::string> chunks;
   std::chrono::milliseconds delay{0};
+  // Or written piece by piece as this returns them, until it returns nullopt;
+  // it may block, to stream something only once it has happened.
+  std::function<std::optional<std::string>()> stream;
 };
 
 // A real HTTP/1.1 server on 127.0.0.1 for tests, unlike LoopbackServer:
@@ -53,6 +57,8 @@ struct HttpTestServer {
 
   std::vector<HttpRequest> requests() const;
   size_t request_count() const;
+  // Streamed replies the client stopped reading before they ended.
+  int aborted_streams() const { return mAborted.load(); }
 
 private:
   void accept_loop();
@@ -62,6 +68,7 @@ private:
   int mListen = -1;
   int mPort = 0;
   std::atomic<bool> mStopping{false};
+  std::atomic<int> mAborted{0};
   std::thread mAcceptor;
 
   mutable std::mutex mMutex;

@@ -44,8 +44,9 @@ struct RegistryEvent {
 
 using RegistryObserver = std::function<void(const RegistryEvent&)>;
 
-// Builds the transport for an HTTP server (http_transport.h); unset until the
-// app installs one, which keeps this file free of libcurl.
+// Builds the transport for an HTTP server. Unset, the registry uses
+// make_http_transport (http_transport.h); an app installs its own to wire in
+// credentials, and tests to observe the traffic.
 using HttpTransportFactory = std::function<std::unique_ptr<Transport>(
     const ServerConfig& expanded, TransportHandlers handlers)>;
 

@@ -12,11 +12,13 @@ add_library(agentcore STATIC
   util/secure_random.cpp
   util/sha256.cpp
   util/text.cpp
+  util/url.cpp
   util/uuid.cpp
   mcp/catalog.cpp
   mcp/client.cpp
   mcp/config.cpp
   mcp/content.cpp
+  mcp/http_transport.cpp
   mcp/json_rpc.cpp
   mcp/protocol.cpp
   mcp/registry.cpp

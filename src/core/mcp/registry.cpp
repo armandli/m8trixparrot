@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include <core/mcp/content.h>
+#include <core/mcp/http_transport.h>
 #include <core/mcp/schema.h>
 #include <core/mcp/stdio_transport.h>
 #include <core/util/process.h>
@@ -167,10 +168,7 @@ std::shared_ptr<Client> Registry::make_client(const ServerConfig& expanded,
       std::lock_guard<std::mutex> lock(mMutex);
       factory = mHttpFactory;
     }
-    if (not factory) {
-      error = "HTTP MCP servers are not available in this build";
-      return nullptr;
-    }
+    if (not factory) factory = make_http_transport;
     options.http = true;
     options.make_transport = [factory, expanded](TransportHandlers handlers) {
       return factory(expanded, std::move(handlers));
@@ -506,7 +504,18 @@ tools::ToolResult Registry::call_tool(const std::string& exposed,
       http ? header_values(tool->header_params, arguments)
            : std::vector<std::pair<std::string, std::string>>{};
 
-  const CallOutcome outcome = client->call_tool(tool->name, arguments, context, headers);
+  CallOutcome outcome = client->call_tool(tool->name, arguments, context, headers);
+  if (not outcome.ok and http and outcome.rpc_code == kHeaderMismatch) {
+    // The tool's x-mcp-header annotations changed since it was listed. As the
+    // spec advises: list the tools again and retry once with the headers the
+    // new schema asks for.
+    refresh(tool->server);
+    const std::shared_ptr<const Catalog> fresh = snapshot();
+    if (const CatalogTool* again = fresh->find(exposed)) {
+      outcome = client->call_tool(again->name, arguments, context,
+                                  header_values(again->header_params, arguments));
+    }
+  }
   if (not outcome.ok) {
     if (outcome.needs_auth) {
       {

@@ -415,40 +415,45 @@ Reply Client::request(const std::string& method, util::JsonValue params,
                       std::chrono::milliseconds timeout, const std::string& name,
                       const std::vector<std::pair<std::string, std::string>>& headers,
                       const std::atomic<bool>* cancel) {
-  std::string error;
-  if (not ensure_connected(error)) {
-    Reply reply;
-    reply.error = error;
+  if (not params.is_object()) params = util::JsonValue::object();
+  for (int attempt = 0;; ++attempt) {
+    std::string error;
+    if (not ensure_connected(error)) {
+      Reply reply;
+      reply.error = error;
+      return reply;
+    }
+
+    std::shared_ptr<Transport> transport;
+    Era era = Era::Unknown;
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      transport = mTransport;
+      era = mEra;
+    }
+
+    RequestSpec spec;
+    spec.id = next_id();
+    spec.method = method;
+    spec.params = params;
+    // Progress notifications for a tool call extend its deadline; the
+    // request's own id is the token, so the transport can match them up.
+    const bool progress = method == "tools/call";
+    if (era == Era::Modern) {
+      spec.params.set("_meta", request_meta(progress, spec.id));
+    } else if (progress) {
+      spec.params["_meta"].set("progressToken", spec.id);
+    }
+    spec.name = name;
+    spec.headers = headers;
+    spec.deadline = Clock::now() + timeout;
+    spec.cancel = cancel;
+    Reply reply = transport->request(std::move(spec));
+    // A legacy HTTP server that forgot our session never ran the request:
+    // ensure_connected() starts a new session, and it goes again, once.
+    if (reply.session_expired and attempt == 0) continue;
     return reply;
   }
-
-  std::shared_ptr<Transport> transport;
-  Era era = Era::Unknown;
-  {
-    std::lock_guard<std::mutex> lock(mMutex);
-    transport = mTransport;
-    era = mEra;
-  }
-
-  RequestSpec spec;
-  spec.id = next_id();
-  spec.method = method;
-  // Progress notifications for a tool call extend its deadline; the request's
-  // own id is the token, so the transport can match them up.
-  const bool progress = method == "tools/call";
-  if (era == Era::Modern) {
-    if (not params.is_object()) params = util::JsonValue::object();
-    params.set("_meta", request_meta(progress, spec.id));
-  } else if (progress) {
-    if (not params.is_object()) params = util::JsonValue::object();
-    params["_meta"].set("progressToken", spec.id);
-  }
-  spec.params = std::move(params);
-  spec.name = name;
-  spec.headers = headers;
-  spec.deadline = Clock::now() + timeout;
-  spec.cancel = cancel;
-  return transport->request(std::move(spec));
 }
 
 bool Client::list_all(const std::string& method, const char* key,

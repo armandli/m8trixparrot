@@ -19,6 +19,7 @@ add_executable(unit_tests
   tools_websearch_test.cpp
   json_value_test.cpp
   util_codec_test.cpp
+  util_url_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -75,6 +76,7 @@ add_executable(mcp_tests
   http_test_server.cpp
   mcp_client_test.cpp
   mcp_config_test.cpp
+  mcp_http_test.cpp
   mcp_json_rpc_test.cpp
   mcp_registry_test.cpp
   mcp_sse_test.cpp

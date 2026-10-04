@@ -42,6 +42,9 @@ struct Reply {
   // Streamable HTTP only.
   long http_status = 0;
   std::string www_authenticate;
+  // A legacy HTTP server no longer knows our session, so it never ran the
+  // request: safe to resend once a new session is started.
+  bool session_expired = false;
 };
 
 using ReplyFuture = std::shared_future<Reply>;
@@ -67,8 +70,10 @@ struct Transport {
 
   virtual bool start(std::string& error) = 0;
 
-  // Sends a request without waiting; the future resolves with the reply, a
-  // timeout, a cancellation or the server's exit. Never blocks on a server.
+  // Sends a request; the future resolves with the reply, a timeout, a
+  // cancellation or the server's exit. Over stdio it never blocks on the
+  // server, which is what lets the client race two handshakes; Streamable HTTP
+  // runs the exchange on the calling thread and returns it resolved.
   virtual ReplyFuture send(RequestSpec spec) = 0;
 
   // Fire and forget. False if it could not even be queued.

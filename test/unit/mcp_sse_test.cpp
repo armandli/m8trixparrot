@@ -68,6 +68,37 @@ TEST_P(McpSseTest, KeepsOnlyOneLeadingSpaceOfAValue) {
 
 INSTANTIATE_TEST_SUITE_P(WholeAndBytewise, McpSseTest, ::testing::Bool());
 
+// A 2025-11-25 server primes a stream with an id and no data; the id still
+// becomes the reconnect point, and it persists across later events.
+TEST(McpSseResumeTest, KeepsTheLastEventIdEvenFromAnEventWithoutData) {
+  std::vector<SseEvent> events;
+  SseParser parser;
+  const auto on_event = [&](const SseEvent& event) { events.push_back(event); };
+
+  parser.feed("id: prime-1\n\n", on_event);
+  EXPECT_TRUE(events.empty());
+  EXPECT_EQ("prime-1", parser.last_event_id());
+
+  parser.feed("id: 7\ndata: {}\n\ndata: no id here\n\n", on_event);
+  ASSERT_EQ(2u, events.size());
+  EXPECT_EQ("7", events[0].id);
+  EXPECT_EQ("7", parser.last_event_id());
+
+  // An id with a NUL in it is ignored rather than adopted.
+  parser.feed(std::string("id: a\0b\n\n", 9), on_event);
+  EXPECT_EQ("7", parser.last_event_id());
+}
+
+TEST(McpSseResumeTest, ReadsRetryOnlyWhenItIsAllDigits) {
+  SseParser parser;
+  const auto ignore = [](const SseEvent&) {};
+  EXPECT_EQ(-1, parser.retry_ms());
+  parser.feed("retry: 2500\n\n", ignore);
+  EXPECT_EQ(2500, parser.retry_ms());
+  parser.feed("retry: soon\n\nretry: -5\n\n", ignore);
+  EXPECT_EQ(2500, parser.retry_ms());
+}
+
 TEST(McpSseLimitTest, DropsAnOversizedEventButKeepsTheNext) {
   std::vector<SseEvent> events;
   SseParser parser(16);

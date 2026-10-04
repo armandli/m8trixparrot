@@ -21,8 +21,15 @@ std::string lower(std::string_view text) {
 }
 
 bool send_all(int fd, std::string_view data) {
+  // A client that hung up must not kill the test with SIGPIPE (Linux has no
+  // SO_NOSIGPIPE).
+#if defined(MSG_NOSIGNAL)
+  constexpr int kFlags = MSG_NOSIGNAL;
+#else
+  constexpr int kFlags = 0;
+#endif
   while (not data.empty()) {
-    const ssize_t n = ::send(fd, data.data(), data.size(), 0);
+    const ssize_t n = ::send(fd, data.data(), data.size(), kFlags);
     if (n <= 0) return false;
     data.remove_prefix(static_cast<size_t>(n));
   }
@@ -189,7 +196,7 @@ void HttpTestServer::serve(int fd) {
       if (not has_type and not reply.body.empty()) {
         out += "Content-Type: application/json\r\n";
       }
-      if (reply.chunks.empty()) {
+      if (reply.chunks.empty() and not reply.stream) {
         out += "Content-Length: " + std::to_string(reply.body.size()) + "\r\n\r\n";
         out += reply.body;
         if (not send_all(fd, out)) goto done;
@@ -199,7 +206,20 @@ void HttpTestServer::serve(int fd) {
       if (not send_all(fd, out)) goto done;
       for (const std::string& piece : reply.chunks) {
         if (reply.delay.count() > 0) std::this_thread::sleep_for(reply.delay);
-        if (mStopping.load() or not send_all(fd, piece)) goto done;
+        if (mStopping.load()) goto done;
+        if (not send_all(fd, piece)) {
+          ++mAborted;
+          goto done;
+        }
+      }
+      if (reply.stream) {
+        while (std::optional<std::string> piece = reply.stream()) {
+          if (mStopping.load()) goto done;
+          if (not send_all(fd, *piece)) {
+            ++mAborted;
+            goto done;
+          }
+        }
       }
       goto done;
     }

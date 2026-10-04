@@ -986,6 +986,7 @@ installed into it, and its tools, resources and prompts become the agent's.
 
 ```sh
 m8 mcp add everything -- npx -y @modelcontextprotocol/server-everything
+m8 mcp add -s user github https://api.githubcopilot.com/mcp/ -H 'Authorization: Bearer ${GITHUB_TOKEN}'
 m8 mcp add-json db '{"command":"uvx","args":["mcp-server-sqlite","--db-path","app.db"]}'
 m8 mcp add -s user -e API_KEY='${MY_API_KEY}' tracker -- tracker-mcp --stdio
 m8 mcp list             # every server, and whether it connects
@@ -1009,6 +1010,8 @@ On a name clash the more specific file wins: project, then shared, then user.
 
 ```json
 { "mcpServers": {
+    "github":     { "type": "http", "url": "https://api.githubcopilot.com/mcp/",
+                    "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" } },
     "everything": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"],
                     "env": { "LOG": "${LOG:-0}" }, "disabledTools": ["trigger_long_running_operation"] } } }
 ```
@@ -1016,7 +1019,8 @@ On a name clash the more specific file wins: project, then shared, then user.
 Values can name the environment as `${VAR}` or `${VAR:-default}`, so a token
 stays in your shell rather than the file; a server whose variable is unset (with
 no default) is not started, rather than started with an empty token. Beside the
-standard keys (`command`, `args`, `env`, `cwd`, `type`) m8 reads:
+standard keys (`command`, `args`, `env`, `cwd` for a local server; `type`,
+`url`, `headers` for a remote one) m8 reads:
 
 | Key | |
 |---|---|
@@ -1040,8 +1044,9 @@ approve it: a cloned repository must not be able to start a process by shipping
 a config. m8 names the waiting servers when it starts; `/mcp approve <name>` (or
 `--all`) in the TUI, or `m8 mcp approve`, approves one after showing what it
 runs. The approval is kept in `~/.m8/mcp_trust.json` against a fingerprint of
-everything in the entry that decides what runs — command, arguments,
-environment, `inheritEnv`, working directory — so a server whose entry changes,
+everything in the entry that decides what runs and where requests go —
+command, arguments, environment, `inheritEnv`, working directory, URL,
+headers — so a server whose entry changes,
 by a pull or by an agent, waits for approval again. (Toggling `alwaysLoad`, a
 tool filter or a timeout keeps the approval.)
 `m8 mcp add` run at a terminal approves what it adds. Servers in your own
@@ -1113,8 +1118,20 @@ Resources reach the model through one `mcp_resource` tool (`list`, `templates`,
 five minutes; after that it stays down until `/mcp reconnect`. If Ollama rejects
 an MCP tool's schema, m8 retries that step without MCP tools and says so.
 
-Local (stdio) servers are supported; remote servers over Streamable HTTP, with
-OAuth login, and servers asking you questions mid-call (elicitation) are in
+Remote servers speak Streamable HTTP in both of its shapes: 2026-07-28's
+stateless one, each request's metadata mirrored into `MCP-Protocol-Version`,
+`Mcp-Method`, `Mcp-Name` and `Mcp-Param-*` headers (a tool whose `x-mcp-header`
+annotations changed is listed again and the call retried); and the earlier one,
+with an `Mcp-Session-Id` that is renewed if the server forgets it (the request
+is sent again) and ended with a DELETE on exit, requests from the server on a
+response stream, and streams the server closes early resumed with
+`Last-Event-ID`. Answers come as JSON or as an SSE stream whose progress
+notifications keep a long call from timing out; cancelling closes the stream.
+Connections are reused between requests. m8 never follows a redirect — a server
+that moved says so, rather than m8 sending its headers, and your token,
+somewhere else.
+
+OAuth login and servers asking you questions mid-call (elicitation) are in
 progress. Not planned: the deprecated HTTP+SSE transport, sampling and roots.
 
 ## Memory

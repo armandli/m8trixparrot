@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -45,6 +46,14 @@ std::vector<std::pair<std::string, std::string>> string_map(const JsonValue& val
     }
   }
   return out;
+}
+
+// http(s)://..., or a ${VAR} that will expand to the whole URL.
+bool http_url(std::string_view url) {
+  std::string head(url.substr(0, 8));
+  for (char& c : head) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return head.rfind("http://", 0) == 0 or head.rfind("https://", 0) == 0 or
+         url.rfind("${", 0) == 0;
 }
 
 ServerConfig parse_entry(const std::string& name, const JsonValue& value,
@@ -114,6 +123,8 @@ ServerConfig parse_entry(const std::string& name, const JsonValue& value,
     server.problem = "a stdio server needs a \"command\"";
   } else if (type == "http" and server.url.empty()) {
     server.problem = "an http server needs a \"url\"";
+  } else if (type == "http" and not http_url(server.url)) {
+    server.problem = "\"url\" must start with http:// or https://";
   } else if (type != "stdio" and type != "http") {
     server.problem = type.empty() ? "it needs a \"command\" (stdio) or a \"url\" (http)"
                                   : "unknown \"type\" \"" + type + "\"";

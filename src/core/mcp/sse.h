@@ -35,6 +35,14 @@ struct SseParser {
 
   bool overflowed() const { return mOverflowed; }
 
+  // What a reconnecting client sends as Last-Event-ID: the most recent `id:`,
+  // kept across events — and recorded even from an event with no data, which
+  // is how a 2025-11-25 server primes the client for a reconnect.
+  const std::string& last_event_id() const { return mLastEventId; }
+  // The server's `retry:` (ms) — how long to wait before reconnecting; -1
+  // until it sends one.
+  long retry_ms() const { return mRetryMs; }
+
 private:
   void line(std::string_view text, const Handler& on_event);
   void dispatch(const Handler& on_event);
@@ -47,6 +55,9 @@ private:
   bool mOverflowed = false;
   bool mSawCr = false;       // the previous chunk ended with CR
   bool mStartOfStream = true;  // for the optional UTF-8 BOM
+  std::string mIdBuffer;     // WHATWG's "last event ID buffer"
+  std::string mLastEventId;
+  long mRetryMs = -1;
 };
 
 }  // namespace mcp

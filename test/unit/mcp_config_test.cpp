@@ -77,13 +77,24 @@ TEST_F(McpConfigTest, UnusableEntriesAreKeptWithTheReason) {
       "old":{"type":"sse","url":"https://e.com/sse"},
       "nothing":{},
       "bad name":{"command":"x"},
-      "weird":{"command":"x","protocol":"v2"}}})", Scope::User, "f.json", warnings);
-  ASSERT_EQ(4u, servers.size());
+      "weird":{"command":"x","protocol":"v2"},
+      "ftp":{"type":"http","url":"ftp://e.com/mcp"}}})", Scope::User, "f.json", warnings);
+  ASSERT_EQ(5u, servers.size());
   EXPECT_NE(std::string::npos, servers[0].problem.find("Streamable HTTP"));
   EXPECT_NE("", servers[1].problem);
   EXPECT_NE("", servers[2].problem);
   EXPECT_NE("", servers[3].problem);
-  EXPECT_EQ(4u, warnings.size());
+  EXPECT_NE(std::string::npos, servers[4].problem.find("http://"));
+  EXPECT_EQ(5u, warnings.size());
+
+  // A URL that is all one variable is checked once it is expanded.
+  warnings.clear();
+  const std::vector<ServerConfig> deferred = parse_config(
+      R"({"mcpServers":{"v":{"type":"http","url":"${MCP_URL}"},
+                        "u":{"url":"HTTPS://E.COM/mcp"}}})", Scope::User, "f.json", warnings);
+  ASSERT_EQ(2u, deferred.size());
+  EXPECT_EQ("", deferred[0].problem);
+  EXPECT_EQ("", deferred[1].problem);
 }
 
 TEST_F(McpConfigTest, MalformedFilesWarnInsteadOfFailing) {

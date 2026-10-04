@@ -70,12 +70,24 @@ void SseParser::line(std::string_view text, const Handler& on_event) {
   } else if (field == "event") {
     mEvent.event = std::string(value);
   } else if (field == "id") {
-    mEvent.id = std::string(value);
+    if (value.find('\0') == std::string_view::npos) {
+      mIdBuffer = std::string(value);
+      mEvent.id = mIdBuffer;
+    }
+  } else if (field == "retry") {
+    // Digits only, or the field is ignored; nine of them is over a week.
+    if (not value.empty() and value.size() <= 9 and
+        value.find_first_not_of("0123456789") == std::string_view::npos) {
+      mRetryMs = std::stol(std::string(value));
+    }
   }
-  // `retry:` and unknown fields are ignored: 2026-07-28 streams do not resume.
+  // Unknown fields are ignored.
 }
 
 void SseParser::dispatch(const Handler& on_event) {
+  // Before the no-data check, as WHATWG orders it: an event that only carries
+  // an id still moves the reconnect point.
+  mLastEventId = mIdBuffer;
   if (mHasData and not mDropping) {
     if (mEvent.event.empty()) mEvent.event = "message";
     on_event(mEvent);
