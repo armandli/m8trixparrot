@@ -206,6 +206,19 @@ TEST_F(ProtectedPathsTest, McpApprovalsAreAnExecutionVector) {
   EXPECT_FALSE(read_denied(home() + "/.m8/mcp_trust.json"));
 }
 
+// Writing an enable choice turns on a server the user turned off — and one from
+// their own ~/.m8/mcp.json needs no approval to run. In every workspace, home
+// included; reading the choices gives nothing away.
+TEST_F(ProtectedPathsTest, McpEnableChoicesAreAnExecutionVector) {
+  EXPECT_TRUE(write_denied(".m8/mcp_state.json"));
+  EXPECT_TRUE(write_denied("other/checkout/.m8/mcp_state.json"));
+  EXPECT_TRUE(write_denied(home() + "/.m8/mcp_state.json"));
+  EXPECT_FALSE(read_denied(".m8/mcp_state.json"));
+  EXPECT_FALSE(is_protected_secret(".m8/mcp_state.json"));
+  // The tool-list cache beside it starts nothing.
+  EXPECT_FALSE(write_denied(".m8/mcp_cache.json"));
+}
+
 // The suffix is whole components, and only at the end: the shared .mcp.json
 // (approval-gated by its hash instead) and the rest of .m8/ stay usable.
 TEST_F(ProtectedPathsTest, SuffixMatchesWholeTrailingComponentsOnly) {

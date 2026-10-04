@@ -146,8 +146,12 @@ TEST_F(SanePolicyTest, ChangingWhichMcpServersRunIsRefused) {
   EXPECT_TRUE(bash_denied("sh -c 'm8 mcp approve evil'"));
   // A login page put in front of the user is theirs to ask for.
   EXPECT_TRUE(bash_denied("m8 mcp login github"));
+  // Nor by writing the enable choice that `m8 mcp enable` would have made.
+  EXPECT_TRUE(bash_denied("echo '{\"enabled\":{\"github\":true}}' > .m8/mcp_state.json"));
+  EXPECT_TRUE(bash_denied("cp state.json .m8/mcp_state.json"));
 
   // Looking is fine, and so is turning a server off.
+  EXPECT_FALSE(bash_denied("cat .m8/mcp_state.json"));
   EXPECT_FALSE(bash_denied("m8 mcp list"));
   EXPECT_FALSE(bash_denied("m8 mcp get github"));
   EXPECT_FALSE(bash_denied("m8 mcp disable github"));

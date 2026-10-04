@@ -109,10 +109,13 @@ constexpr Entry kExecutionVectors[] = {
     {Match::AnyComponent, ".git", false,
      "a repository's internal git directory (hooks and config run commands)"},
 
-    // MCP server approvals. Writing one approves a workspace's MCP server, and
-    // an approved server's command runs on the next launch.
+    // MCP server approvals and enable choices. Writing either approves or turns
+    // on a server, whose command then runs on the next launch — or at once, on
+    // the next `m8 mcp list` or `get`. The state file is per workspace.
     {Match::Exact, "~/.m8/mcp_trust.json", false,
      "MCP server approvals (an approved server's command runs)"},
+    {Match::PathSuffix, ".m8/mcp_state.json", false,
+     "MCP server enable choices (an enabled server's command runs)"},
 
     // Login and boot persistence, macOS then Linux.
     {Match::Prefix, "~/Library/LaunchAgents", false, "a launchd agent"},

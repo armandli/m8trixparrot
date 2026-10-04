@@ -913,7 +913,7 @@ genuinely needs changing, you change it.
 | Tier | Refused to | Examples |
 |---|---|---|
 | Secret | `read`, `write`, `edit`, and skipped by `grep`/`find` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.git-credentials`, `~/.netrc`, `~/.npmrc`, `/etc/sudoers`, `~/.parallel_api_key`, `.m8/parallel_api_key`, `~/.m8/mcp.json` and `.m8/mcp.json` (MCP server entries carry tokens), `~/.m8/mcp_credentials.json` |
-| Execution vector | `write`, `edit` — **reading stays allowed** | `~/.zshrc` and the other shell startup files, `~/.gitconfig`, any `.git/` directory, launchd and systemd units, crontabs, `/etc`, `/usr`, `/bin`, `/System`, `~/.m8/mcp_trust.json` (an approval there starts a server) |
+| Execution vector | `write`, `edit` — **reading stays allowed** | `~/.zshrc` and the other shell startup files, `~/.gitconfig`, any `.git/` directory, launchd and systemd units, crontabs, `/etc`, `/usr`, `/bin`, `/System`, `~/.m8/mcp_trust.json` (an approval there starts a server), `.m8/mcp_state.json` (so does an enable choice) |
 
 Reading `~/.zshrc` to answer a question about it is useful and harmless; writing
 it is code execution on your next login. Reading `~/.ssh/id_rsa` is the whole
