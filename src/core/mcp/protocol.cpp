@@ -108,6 +108,50 @@ std::vector<ResourceTemplateInfo> parse_resource_templates(
   return out;
 }
 
+util::JsonValue tools_json(const std::vector<ToolInfo>& tools) {
+  util::JsonValue out = util::JsonValue::array();
+  for (const ToolInfo& tool : tools) {
+    util::JsonValue entry = util::JsonValue::object();
+    entry.set("name", tool.name);
+    if (not tool.title.empty()) entry.set("title", tool.title);
+    if (not tool.description.empty()) entry.set("description", tool.description);
+    entry.set("inputSchema", tool.input_schema);
+    if (tool.has_output_schema) entry.set("outputSchema", util::JsonValue::object());
+    util::JsonValue annotations = util::JsonValue::object();
+    const auto hint = [&](const char* key, const std::optional<bool>& value) {
+      if (value) annotations.set(key, *value);
+    };
+    hint("readOnlyHint", tool.annotations.read_only);
+    hint("destructiveHint", tool.annotations.destructive);
+    hint("idempotentHint", tool.annotations.idempotent);
+    hint("openWorldHint", tool.annotations.open_world);
+    if (annotations.size() > 0) entry.set("annotations", std::move(annotations));
+    out.push_back(std::move(entry));
+  }
+  return out;
+}
+
+util::JsonValue prompts_json(const std::vector<PromptInfo>& prompts) {
+  util::JsonValue out = util::JsonValue::array();
+  for (const PromptInfo& prompt : prompts) {
+    util::JsonValue entry = util::JsonValue::object();
+    entry.set("name", prompt.name);
+    if (not prompt.title.empty()) entry.set("title", prompt.title);
+    if (not prompt.description.empty()) entry.set("description", prompt.description);
+    util::JsonValue arguments = util::JsonValue::array();
+    for (const PromptArgument& argument : prompt.arguments) {
+      util::JsonValue arg = util::JsonValue::object();
+      arg.set("name", argument.name);
+      if (not argument.description.empty()) arg.set("description", argument.description);
+      if (argument.required) arg.set("required", true);
+      arguments.push_back(std::move(arg));
+    }
+    if (arguments.size() > 0) entry.set("arguments", std::move(arguments));
+    out.push_back(std::move(entry));
+  }
+  return out;
+}
+
 std::vector<PromptInfo> parse_prompts(const util::JsonValue& prompts) {
   std::vector<PromptInfo> out;
   for (const util::JsonValue& prompt : prompts.items()) {

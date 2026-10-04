@@ -32,6 +32,7 @@ add_library(agentcore STATIC
   mcp/stdio_transport.cpp
   mcp/tool_search.cpp
   mcp/trust.cpp
+  mcp/wire_log.cpp
   vdb/memory_ops.cpp
   vdb/memory_store.cpp
   oc/basic_ollama_client.cpp

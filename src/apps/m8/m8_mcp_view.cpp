@@ -173,6 +173,7 @@ std::string mcp_status_text(const mcp::Catalog& catalog,
       out << "needs login \xe2\x80\x94 /mcp login " << server.name;
     } else {
       out << mcp::state_name(server.state);
+      if (server.cached) out << " (" << server.tool_count << " tools from last time)";
       if (not server.error.empty()) out << ": " << server.error;
     }
     out << "\n";
@@ -200,8 +201,9 @@ std::string mcp_tools_text(const mcp::Catalog& catalog, const std::string& serve
   size_t shown = 0;
   for (const mcp::CatalogServer& entry : catalog.servers) {
     if (not server.empty() and entry.name != server) continue;
-    if (entry.state != mcp::ServerState::Connected) continue;
-    out << entry.name << " (" << entry.tool_count << " tools):\n";
+    if (entry.state != mcp::ServerState::Connected and not entry.cached) continue;
+    out << entry.name << " (" << entry.tool_count << " tools"
+        << (entry.cached ? ", from last time while it connects" : "") << "):\n";
     for (const mcp::CatalogTool& tool : catalog.tools) {
       if (tool.server != entry.name) continue;
       ++shown;

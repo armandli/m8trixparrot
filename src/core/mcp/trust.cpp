@@ -135,4 +135,43 @@ void McpState::set_enabled(const std::string& name, bool enabled) {
   mData["enabled"].set(name, enabled);
 }
 
+ToolCache::ToolCache(std::string path) : mPath(std::move(path)) {}
+
+std::optional<ToolCache::Entry> ToolCache::get(const ServerConfig& server) const {
+  if (mPath.empty()) return std::nullopt;
+  std::lock_guard<std::mutex> lock(mMutex);
+  bool exists = false;
+  const std::optional<util::JsonValue> data = read_json(mPath, exists);
+  if (not data) return std::nullopt;
+  const util::JsonValue* entry = data->get("servers").find(era_key(server));
+  if (entry == nullptr or not entry->is_object()) return std::nullopt;
+  Entry out;
+  out.tools = parse_tools(entry->get("tools"));
+  out.prompts = parse_prompts(entry->get("prompts"));
+  return out;
+}
+
+bool ToolCache::put(const ServerConfig& server, const std::vector<ToolInfo>& tools,
+                    const std::vector<PromptInfo>& prompts, std::string& error) {
+  if (mPath.empty()) return true;
+  std::lock_guard<std::mutex> lock(mMutex);
+  bool exists = false;
+  std::optional<util::JsonValue> data = read_json(mPath, exists);
+  if (not data or not data->is_object()) data = util::JsonValue::object();
+  // One entry per server name: an edited config replaces its old list.
+  const std::string key = era_key(server);
+  const std::string prefix = std::string(scope_name(server.scope)) + ":" + server.name + ":";
+  util::JsonValue& servers = (*data)["servers"];
+  std::vector<std::string> stale;
+  for (const util::JsonValue::Member& member : servers.members()) {
+    if (member.key.rfind(prefix, 0) == 0 and member.key != key) stale.push_back(member.key);
+  }
+  for (const std::string& old : stale) servers.erase(old);
+  util::JsonValue entry = util::JsonValue::object();
+  entry.set("tools", tools_json(tools));
+  entry.set("prompts", prompts_json(prompts));
+  servers.set(key, std::move(entry));
+  return write_file_atomically(mPath, data->dump() + "\n", /*private_file=*/false, error);
+}
+
 }  // namespace mcp

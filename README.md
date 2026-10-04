@@ -113,7 +113,7 @@ missing command is never something the model is told it has.
 ## Testing
 
 ```sh
-make test              # the hermetic suite, ~640 cases
+make test              # the hermetic suite, ~730 cases
 make integration-test  # live tests against a real Ollama; each self-skips
 make tsan-test         # vdb, agent pool and MCP client under ThreadSanitizer
 ```
@@ -122,6 +122,14 @@ make tsan-test         # vdb, agent pool and MCP client under ThreadSanitizer
 selects it. The live tests need a pulled model (`qwen3.8:27b-mlx` by default,
 override with `M8_TEST_MODEL`) and put this build's `tool_*` binaries on `PATH`
 themselves, so they run without `make install`.
+
+The MCP client has its own binary, `mcp_tests`, run against real processes: a
+scripted MCP server (`fake_mcp_server`) that speaks either protocol era and
+misbehaves on request, and an HTTP test server playing Streamable HTTP servers
+and OAuth authorization servers, with a scripted browser. The live suite adds
+`@modelcontextprotocol/server-everything` over stdio and Streamable HTTP (via
+npx), every lowered schema sent to Ollama, and a model finding a tool through
+`tool_search`.
 
 ## Running chat_tui
 
@@ -195,6 +203,7 @@ directories deep still uses the repository's state rather than making its own:
   parallel_api_key     the websearch tool call's key, if you use one  (never committed)
   mcp.json             this workspace's MCP servers
   mcp_state.json       detected MCP protocol eras, servers you disabled here
+  mcp_cache.json       each MCP server's last tool list, shown while it starts
   logs/mcp/<name>.log  each stdio MCP server's stderr
 ```
 
@@ -241,7 +250,7 @@ flowchart TD
         Registry[mcp::Registry\nconnections, catalog snapshots\nBM25 tool search index]
     end
 
-    Servers[MCP servers\none process group each]
+    Servers[MCP servers\nlocal: one process group each\nremote: OAuth-protected HTTP]
 
     Input --> Bang
     Bang -- yes --> BashDirect[BashTool.execute\nno policy check, no model call]
@@ -258,7 +267,7 @@ flowchart TD
     Tools -- command --> Shell
     Shell -- runs --> Installed
     Tools -- MCP calls --> Registry
-    Registry -- JSON-RPC over stdio --> Servers
+    Registry -- JSON-RPC over stdio or Streamable HTTP --> Servers
     Registry -- server notices, header --> Transcript
     Tools -- result --> Agent
     Agent -- subagent_create --> Pool
@@ -994,7 +1003,13 @@ m8 mcp list             # every server, and whether it connects
 m8 mcp get everything   # one server: its entry (secrets masked), tools, prompts
 m8 mcp disable db       # or enable: remembered for this workspace only
 m8 mcp remove db
+m8 mcp import ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```
+
+`m8 mcp import` copies the servers of another tool's config — Claude Desktop's,
+Cursor's `~/.cursor/mcp.json`, VS Code's `.vscode/mcp.json`, any `.mcp.json` —
+into one of m8's files, skipping (and naming) what m8 cannot run and names it
+already has.
 
 ### Where servers are configured
 
@@ -1178,6 +1193,14 @@ Resources reach the model through one `mcp_resource` tool (`list`, `templates`,
 five minutes; after that it stays down until `/mcp reconnect`. If Ollama rejects
 an MCP tool's schema, m8 retries that step without MCP tools and says so.
 
+A server's tool list stays current: m8 holds a `subscriptions/listen` request
+open on every 2026-07-28 server that announces list changes (an earlier HTTP
+server's GET stream; earlier stdio servers just write them), re-opening it when
+the connection comes back, and re-lists a server whose list outlived the
+time-to-live it gave. Each server's last list is kept in `.m8/mcp_cache.json`,
+so one that takes seconds to start (npx fetching a package) has its tools in
+the very first turn; a call to one of them waits for it.
+
 Remote servers speak Streamable HTTP in both of its shapes: 2026-07-28's
 stateless one, each request's metadata mirrored into `MCP-Protocol-Version`,
 `Mcp-Method`, `Mcp-Name` and `Mcp-Param-*` headers (a tool whose `x-mcp-header`
@@ -1192,6 +1215,21 @@ that moved says so, rather than m8 sending its headers, and your token,
 somewhere else.
 
 Not planned: the deprecated HTTP+SSE transport, sampling and roots.
+
+### Troubleshooting
+
+- `m8 mcp list` and `m8 mcp get <server>` connect outside the TUI and print
+  what went wrong; `/mcp` shows the same, with the end of a failed server's
+  stderr.
+- A stdio server's stderr goes to `.m8/logs/mcp/<server>.log`.
+- `M8_MCP_DEBUG=1 m8 ...` writes every message to and from each server to
+  `.m8/logs/mcp/<server>.wire.log` (mode 0600), with values under anything that
+  looks like a token, secret, code or password redacted.
+- A server that works in your shell but not in m8 is usually missing an
+  environment variable: m8 passes only `HOME`, `USER`, `PATH` and their kind, so
+  give it what it needs in `env` (or set `"inheritEnv": true`).
+- A server you changed in a workspace file waits for approval again; one whose
+  `${VAR}` is unset does not start, and says which variable.
 
 ## Memory
 

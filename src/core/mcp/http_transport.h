@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <core/mcp/transport.h>
+#include <core/mcp/wire_log.h>
 
 namespace mcp {
 
@@ -31,6 +32,8 @@ struct HttpConfig {
   // After a 401, with the server's challenge: refresh the credentials (or
   // pick up newer ones). True sends the request once more.
   std::function<bool(const std::string& www_authenticate)> renew;
+
+  std::shared_ptr<WireLog> wire;  // M8_MCP_DEBUG's message log, if on
 
   std::chrono::milliseconds connect_timeout{10000};
   // For what the transport sends on its own: notifications, answers to a
@@ -82,6 +85,9 @@ struct HttpTransport : Transport {
   bool alive() const override;
   void set_protocol(Era era, const std::string& version) override;
   std::string exit_reason() const override;
+  // The 2025-era GET stream: notifications (and requests) the server sends
+  // on its own. 2026-07-28 servers use subscriptions/listen instead.
+  bool listen(const std::atomic<bool>* cancel, std::string& error) override;
 
   std::string session_id() const;
 
@@ -146,7 +152,8 @@ private:
 // requests carry its token and a 401 renews it.
 std::unique_ptr<Transport> make_http_transport(const ServerConfig& expanded,
                                                TransportHandlers handlers,
-                                               std::shared_ptr<OAuthSession> oauth = nullptr);
+                                               std::shared_ptr<OAuthSession> oauth = nullptr,
+                                               std::shared_ptr<WireLog> wire = nullptr);
 
 }  // namespace mcp
 

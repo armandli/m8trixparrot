@@ -2,8 +2,10 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <utility>
 
 #include <core/mcp/config.h>
@@ -90,6 +92,7 @@ mcp::RegistryOptions registry_options(const M8Paths& paths,
   options.logs_dir = paths.mcp_logs();
   options.state_path = paths.mcp_state();
   options.trust_path = paths.mcp_trust();
+  options.cache_path = paths.mcp_cache();
   options.credentials_path = paths.mcp_credentials();
   options.client_metadata_url = client_metadata_url;
   return options;
@@ -255,6 +258,14 @@ void McpCli::declare(CLI::App& app) {
   mLogin->add_option("name", mName, "The server")->required();
   mLogout = mMcp->add_subcommand("logout", "Forget a remote MCP server's login");
   mLogout->add_option("name", mName, "The server")->required();
+
+  mImport = mMcp->add_subcommand(
+      "import", "Copy MCP servers from another tool's config file (Claude Desktop, Cursor, "
+                "VS Code, a .mcp.json)");
+  mImport->add_option("file", mFile, "The file to copy from")->required();
+  mImport->add_option("-s,--scope", mScope, "project, user or shared")
+      ->check(CLI::IsMember({"project", "user", "shared"}))
+      ->capture_default_str();
 }
 
 bool McpCli::parsed() const { return mMcp != nullptr and mMcp->parsed(); }
@@ -263,7 +274,8 @@ int McpCli::run(const M8Paths& paths, bool agent_shell, std::ostream& out,
                 std::ostream& err, std::istream& in) {
   const bool changes_servers = mAdd->parsed() or mAddJson->parsed() or
                                mRemove->parsed() or mEnable->parsed() or
-                               mApprove->parsed() or mLogin->parsed();
+                               mApprove->parsed() or mLogin->parsed() or
+                               mImport->parsed();
   if (changes_servers and agent_shell) {
     err << "refused: this changes which MCP servers m8 runs, which is for the "
            "user to decide, and this is an m8 agent's shell (M8_AGENT_SHELL is "
@@ -280,6 +292,7 @@ int McpCli::run(const M8Paths& paths, bool agent_shell, std::ostream& out,
   if (mApprove->parsed()) return approve(paths, out, err, in);
   if (mLogin->parsed()) return login(paths, false, out, err);
   if (mLogout->parsed()) return login(paths, true, out, err);
+  if (mImport->parsed()) return import_file(paths, out, err);
   err << "unknown mcp subcommand\n";
   return 1;
 }
@@ -522,6 +535,54 @@ int McpCli::approve(const M8Paths& paths, std::ostream& out, std::ostream& err,
     return 0;
   }
   out << "Approved " << approved << " of " << asked << ".\n";
+  return 0;
+}
+
+int McpCli::import_file(const M8Paths& paths, std::ostream& out, std::ostream& err) {
+  std::ifstream in(mFile, std::ios::binary);
+  if (not in) {
+    err << "cannot read " << mFile << "\n";
+    return 1;
+  }
+  std::stringstream text;
+  text << in.rdbuf();
+  std::string parse_error;
+  const std::optional<util::JsonValue> document = util::JsonValue::parse(text.str(), &parse_error);
+  if (not document or not document->is_object()) {
+    err << mFile << " is not a JSON object" << (parse_error.empty() ? "" : " (" + parse_error + ")")
+        << "\n";
+    return 1;
+  }
+  // Claude Desktop, Claude Code and Cursor say mcpServers; VS Code says servers.
+  const util::JsonValue* servers = document->find("mcpServers");
+  if (servers == nullptr) servers = document->find("servers");
+  if (servers == nullptr or not servers->is_object() or servers->size() == 0) {
+    err << mFile << " has no MCP servers (no \"mcpServers\" or \"servers\" object)\n";
+    return 1;
+  }
+  std::string error;
+  const std::string path = scope_path(paths, mScope, out, error);
+  if (not error.empty()) {
+    err << error << "\n";
+    return 1;
+  }
+
+  int added = 0;
+  for (const util::JsonValue::Member& member : servers->members()) {
+    if (const std::string problem = entry_problem(member.key, member.value); not problem.empty()) {
+      out << "  skipped " << member.key << ": " << problem << "\n";
+      continue;
+    }
+    const mcp::EditResult result = mcp::add_server(path, member.key, member.value);
+    if (not result.ok) {
+      out << "  skipped " << member.key << ": " << result.error << "\n";
+      continue;
+    }
+    out << "  added " << member.key << "\n";
+    approve_added(paths, member.key, interactive, out, err);
+    ++added;
+  }
+  out << "Imported " << added << " of " << servers->size() << " into " << path << ".\n";
   return 0;
 }
 

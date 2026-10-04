@@ -378,6 +378,69 @@ TEST(McpClientTest, ListChangedReachesTheClient) {
   EXPECT_TRUE(eventually([&] { return changed.load() > 0; }));
 }
 
+// 2026-07-28: list changes come on a subscription the client holds open — one
+// request, acknowledged, and exempt from the timeouts every other request has.
+TEST(McpClientTest, AModernServerIsListenedToOnASubscription) {
+  const std::string record = (std::filesystem::temp_directory_path() /
+                              "m8-mcp-client-subscription.record").string();
+  std::filesystem::remove(record);
+  std::atomic<int> changed{0};
+  ClientOptions options = fake_options({"--era=modern", "--list-changed", "--record=" + record});
+  options.call_timeout = 300ms;
+  options.list_timeout = 300ms;
+  options.on_list_changed = [&changed] { ++changed; };
+  Client client(std::move(options));
+  ASSERT_TRUE(client.connect().ok);
+  ASSERT_TRUE(eventually([&] { return slurp(record).find("SUBSCRIBED") != std::string::npos; }));
+  EXPECT_NE(slurp(record).find(R"("toolsListChanged":true)"), std::string::npos);
+
+  // Longer than any request may take: still open.
+  std::this_thread::sleep_for(700ms);
+  EXPECT_EQ(slurp(record).find("SUBSCRIPTION-CANCELLED"), std::string::npos);
+
+  EXPECT_TRUE(call(client, "echo", R"({"message":"x"})").ok);
+  EXPECT_TRUE(eventually([&] { return changed.load() > 0; }));
+  client.close();
+  std::filesystem::remove(record);
+}
+
+// Without a listener (nobody set on_list_changed) nothing is held open.
+TEST(McpClientTest, NoOneListeningMeansNoSubscription) {
+  const std::string record = (std::filesystem::temp_directory_path() /
+                              "m8-mcp-client-no-subscription.record").string();
+  std::filesystem::remove(record);
+  Client client(fake_options({"--era=modern", "--record=" + record}));
+  ASSERT_TRUE(client.connect().ok);
+  EXPECT_TRUE(call(client, "echo", R"({"message":"x"})").ok);
+  EXPECT_EQ(slurp(record).find("subscriptions/listen"), std::string::npos);
+  client.close();
+  std::filesystem::remove(record);
+}
+
+// A server restarted after a crash gets the subscription again: the old one
+// died with the old process.
+TEST(McpClientTest, TheSubscriptionIsRenewedAfterARestart) {
+  const std::string record = (std::filesystem::temp_directory_path() /
+                              "m8-mcp-client-resubscribe.record").string();
+  std::filesystem::remove(record);
+  // discover (1), subscriptions/listen (2), echo (3); the 4th request crashes it.
+  ClientOptions options = fake_options({"--era=modern", "--crash-after=3", "--record=" + record});
+  options.on_list_changed = [] {};
+  Client client(std::move(options));
+  ASSERT_TRUE(client.connect().ok);
+  ASSERT_TRUE(eventually([&] { return slurp(record).find("SUBSCRIBED") != std::string::npos; }));
+  EXPECT_TRUE(call(client, "echo", R"({"message":"one"})").ok);
+  EXPECT_FALSE(call(client, "echo", R"({"message":"crash"})").ok);
+  EXPECT_TRUE(call(client, "echo", R"({"message":"restarted"})").ok);
+  EXPECT_TRUE(eventually([&] {
+    const std::string text = slurp(record);
+    const size_t first = text.find("SUBSCRIBED");
+    return first != std::string::npos and text.find("SUBSCRIBED", first + 1) != std::string::npos;
+  }));
+  client.close();
+  std::filesystem::remove(record);
+}
+
 TEST(McpClientTest, BannerNoiseAndStderrAreTolerated) {
   Client client(fake_options({"--era=modern", "--banner", "--stderr-spam"}));
   ASSERT_TRUE(client.connect().ok);

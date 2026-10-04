@@ -93,6 +93,14 @@ struct Transport {
     (void)era;
     (void)version;
   }
+  // Holds the server's own notification stream open — 2025-era Streamable
+  // HTTP's GET — until it ends or `cancel` turns true. False at once when the
+  // server offers none. stdio servers just write their notifications.
+  virtual bool listen(const std::atomic<bool>* cancel, std::string& error) {
+    (void)cancel;
+    error = "this transport has no notification stream";
+    return false;
+  }
   // What the server said on stderr lately (stdio), for error messages.
   virtual std::string stderr_tail() const { return std::string(); }
   // Why the transport died, once it has.

@@ -324,6 +324,37 @@ TEST_F(McpCliTest, ApproveAllAsksAboutEachWaitingServer) {
             npos);
 }
 
+// Another tool's config, copied entry by entry: what m8 cannot use is skipped
+// with why, and a name already there is left alone.
+TEST_F(McpCliTest, ImportCopiesAnotherToolsServers) {
+  const std::string claude = (mRoot / "claude_desktop_config.json").string();
+  std::ofstream(claude) << R"({"globalShortcut":"x","mcpServers":{
+    "files":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/tmp"]},
+    "old":{"type":"sse","url":"https://e.example/sse"},
+    "taken":{"command":"other"}}})";
+  ASSERT_EQ(run({"mcp", "add", "taken", "--", "mine"}).status, 0);
+
+  CliRun r = run({"mcp", "import", claude});
+  ASSERT_EQ(r.status, 0) << r.err;
+  EXPECT_NE(r.out.find("added files"), npos) << r.out;
+  EXPECT_NE(r.out.find("skipped old"), npos) << r.out;
+  EXPECT_NE(r.out.find("skipped taken"), npos) << r.out;
+  EXPECT_NE(r.out.find("Imported 1 of 3"), npos) << r.out;
+  EXPECT_EQ(entry(mPaths.mcp_config(), "files").get("command").string_or(""), "npx");
+  EXPECT_EQ(entry(mPaths.mcp_config(), "taken").get("command").string_or(""), "mine");
+
+  // VS Code's files say "servers".
+  const std::string vscode = (mRoot / "mcp.json").string();
+  std::ofstream(vscode) << R"({"servers":{"web":{"type":"http","url":"https://web.example/mcp"}}})";
+  r = run({"mcp", "import", "-s", "user", vscode});
+  ASSERT_EQ(r.status, 0) << r.err;
+  EXPECT_EQ(entry(mPaths.user_mcp_config(), "web").get("url").string_or(""),
+            "https://web.example/mcp");
+
+  EXPECT_EQ(run({"mcp", "import", (mRoot / "missing.json").string()}).status, 1);
+  EXPECT_EQ(run({"mcp", "import", claude}, false, /*agent_shell=*/true).status, 1);
+}
+
 // In a directory under $HOME with no nearer marker the workspace is $HOME, and
 // its .m8/mcp.json IS the user file: written once, read once, as the user's.
 TEST_F(McpCliTest, AWorkspaceAtHomeWritesTheUserFile) {

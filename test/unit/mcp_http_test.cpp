@@ -847,6 +847,115 @@ TEST(McpHttpTest, AStreamClosedEarlyIsResumedFromItsLastEventId) {
   EXPECT_EQ(gets[0].header("MCP-Protocol-Version"), "2025-11-25");
 }
 
+// ─────────────────────────── listening for changes ──────────────────────────
+
+// 2026-07-28: subscriptions/listen is a POST whose SSE stream stays open and
+// carries the list changes asked for; closing the client closes it.
+TEST(McpHttpTest, AModernServerIsListenedToOnASubscriptionStream) {
+  FakeHttpServer server(FakeHttpServer::Kind::Modern);
+  std::atomic<bool> subscribed{false};
+  server.set_hook([&](const HttpRequest&, const RpcMessage& message) -> std::optional<HttpReply> {
+    if (message.method == "server/discover") {
+      return json_reply(200, make_result(message.id, json(R"({"resultType":"complete",
+        "supportedVersions":["2026-07-28"],"capabilities":{"tools":{"listChanged":true}},
+        "_meta":{"io.modelcontextprotocol/serverInfo":{"name":"x","version":"1"}}})")));
+    }
+    if (message.method != "subscriptions/listen") return std::nullopt;
+    EXPECT_TRUE(message.params.get("notifications").get("toolsListChanged").as_bool());
+    subscribed.store(true);
+    const std::string id = message.id.dump();
+    HttpReply reply = sse_reply({});
+    auto step = std::make_shared<int>(0);
+    reply.stream = [step, id]() -> std::optional<std::string> {
+      const int n = (*step)++;
+      if (n == 0) {
+        return event(R"({"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":)" +
+                     id + R"(},"notifications":{"toolsListChanged":true}}})");
+      }
+      if (n == 1) {
+        return event(R"({"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":)" +
+                     id + "}}}");
+      }
+      if (n > 200) return std::nullopt;
+      std::this_thread::sleep_for(50ms);
+      return std::string(":\n\n");
+    };
+    return reply;
+  });
+
+  ClientOptions options = client_options(server.url());
+  std::atomic<int> changed{0};
+  options.on_list_changed = [&] { ++changed; };
+  Client client(options);
+  ASSERT_TRUE(client.connect().ok);
+  for (int i = 0; i < 100 and changed.load() == 0; ++i) std::this_thread::sleep_for(20ms);
+  EXPECT_TRUE(subscribed.load());
+  EXPECT_GE(changed.load(), 1);
+
+  const auto started = Clock::now();
+  client.close();
+  EXPECT_LT(Clock::now() - started, 1s);
+  for (int i = 0; i < 40 and server.http.aborted_streams() == 0; ++i) std::this_thread::sleep_for(50ms);
+  EXPECT_GE(server.http.aborted_streams(), 1);
+}
+
+// Before 2026-07-28: the GET stream, carrying the session.
+TEST(McpHttpTest, AnOlderServerIsListenedToOnItsGetStream) {
+  FakeHttpServer server(FakeHttpServer::Kind::Stateful);
+  std::atomic<int> gets{0};
+  server.set_hook([&](const HttpRequest& request, const RpcMessage& message) -> std::optional<HttpReply> {
+    if (message.method == "initialize") {
+      HttpReply reply = json_reply(200, make_result(message.id, json(R"({"protocolVersion":"2025-11-25",
+        "capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"x","version":"1"}})")));
+      reply.headers.emplace_back("Mcp-Session-Id", "session-1");
+      return reply;
+    }
+    if (request.method != "GET") return std::nullopt;
+    ++gets;
+    EXPECT_EQ(request.header("Mcp-Session-Id"), "session-1");
+    EXPECT_EQ(request.header("Accept"), "text/event-stream");
+    HttpReply reply = sse_reply({});
+    auto step = std::make_shared<int>(0);
+    reply.stream = [step]() -> std::optional<std::string> {
+      const int n = (*step)++;
+      if (n == 0) return event(R"({"jsonrpc":"2.0","method":"notifications/tools/list_changed"})");
+      if (n > 200) return std::nullopt;
+      std::this_thread::sleep_for(50ms);
+      return std::string(":\n\n");
+    };
+    return reply;
+  });
+
+  ClientOptions options = client_options(server.url());
+  std::atomic<int> changed{0};
+  options.on_list_changed = [&] { ++changed; };
+  Client client(options);
+  ASSERT_TRUE(client.connect().ok);
+  for (int i = 0; i < 100 and changed.load() == 0; ++i) std::this_thread::sleep_for(20ms);
+  EXPECT_GE(gets.load(), 1);
+  EXPECT_GE(changed.load(), 1);
+  client.close();
+}
+
+// A server that does not stream (405) is not asked again on the same connection.
+TEST(McpHttpTest, AServerWithoutAStreamIsNotPestered) {
+  FakeHttpServer server(FakeHttpServer::Kind::Stateful);
+  server.set_hook([&](const HttpRequest&, const RpcMessage& message) -> std::optional<HttpReply> {
+    if (message.method != "initialize") return std::nullopt;
+    HttpReply reply = json_reply(200, make_result(message.id, json(R"({"protocolVersion":"2025-11-25",
+      "capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"x","version":"1"}})")));
+    reply.headers.emplace_back("Mcp-Session-Id", "session-1");
+    return reply;
+  });
+  ClientOptions options = client_options(server.url());
+  options.on_list_changed = [] {};
+  Client client(options);
+  ASSERT_TRUE(client.connect().ok);
+  std::this_thread::sleep_for(500ms);
+  EXPECT_EQ(server.requests("GET").size(), 1u);
+  client.close();
+}
+
 // ─────────────────────────────── registry ───────────────────────────────────
 
 struct McpHttpRegistryTest : ::testing::Test {

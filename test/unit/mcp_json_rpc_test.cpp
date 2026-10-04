@@ -1,11 +1,18 @@
 // JSON-RPC framing for MCP: classifying what arrives, building what leaves.
 
+#include <sys/stat.h>
+
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <memory>
 #include <string>
 
 #include <gtest/gtest.h>
 
 #include <core/mcp/json_rpc.h>
 #include <core/mcp/protocol.h>
+#include <core/mcp/wire_log.h>
 
 namespace mcp {
 namespace {
@@ -92,6 +99,42 @@ TEST(McpProtocolTest, KnowsTheLegacyVersions) {
   }
   EXPECT_FALSE(is_known_legacy_version(kModernVersion));
   EXPECT_FALSE(is_known_legacy_version("1.0"));
+}
+
+// M8_MCP_DEBUG's wire log never holds a credential.
+TEST(McpWireLogTest, SecretLookingValuesAreRedacted) {
+  const std::string logged = redact_for_log(
+      R"({"jsonrpc":"2.0","id":1,"result":{"access_token":"at","refresh_token":"rt",)"
+      R"("nested":[{"client_secret":"cs","Authorization":"Bearer x","code":"c","name":"kept"}]}})");
+  for (const char* secret : {"\"at\"", "\"rt\"", "\"cs\"", "Bearer x", "\"c\""}) {
+    EXPECT_EQ(logged.find(secret), std::string::npos) << secret << " in " << logged;
+  }
+  EXPECT_NE(logged.find("\"kept\""), std::string::npos) << logged;
+  EXPECT_NE(logged.find("[redacted]"), std::string::npos) << logged;
+  EXPECT_EQ(redact_for_log("not json at all"), "(15 bytes, not JSON)");
+}
+
+TEST(McpWireLogTest, OnlyWithTheDebugSwitch) {
+  const std::string path =
+      (std::filesystem::temp_directory_path() / "m8-mcp-wire-test.log").string();
+  std::filesystem::remove(path);
+  ::unsetenv("M8_MCP_DEBUG");
+  EXPECT_EQ(WireLog::open_if_enabled(path), nullptr);
+  ::setenv("M8_MCP_DEBUG", "1", 1);
+  {
+    std::shared_ptr<WireLog> log = WireLog::open_if_enabled(path);
+    ASSERT_NE(log, nullptr);
+    log->write('>', R"({"jsonrpc":"2.0","id":1,"method":"tools/list"})");
+  }
+  ::unsetenv("M8_MCP_DEBUG");
+  std::ifstream in(path);
+  std::string line;
+  std::getline(in, line);
+  EXPECT_NE(line.find("> {\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"), std::string::npos) << line;
+  struct stat info {};
+  ASSERT_EQ(::stat(path.c_str(), &info), 0);
+  EXPECT_EQ(info.st_mode & 0777, 0600);
+  std::filesystem::remove(path);
 }
 
 }  // namespace

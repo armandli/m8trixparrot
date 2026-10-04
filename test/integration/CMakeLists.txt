@@ -6,6 +6,7 @@ include(GoogleTest)
 # or the network is unavailable.
 add_executable(integration_tests
   agent_bash_integration_test.cpp
+  mcp_integration_test.cpp
   websearch_integration_test.cpp
 )
 

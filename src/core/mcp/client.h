@@ -3,12 +3,14 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -42,7 +44,8 @@ struct ClientOptions {
 
   // Unset: no elicitation capability is declared, so servers do not ask.
   ElicitationHandler elicit;
-  // A server said its tools, prompts or resources changed.
+  // A server said its tools, prompts or resources changed. Set, the client
+  // also keeps a notification stream open to hear it (see Client).
   std::function<void()> on_list_changed;
 };
 
@@ -76,6 +79,13 @@ struct CallOutcome {
 // arrives first decides, so a modern server slow to start (npx downloading a
 // package) is not mistaken for a silent legacy one. Over HTTP the first modern
 // request is the probe.
+//
+// A server that announces list changes is listened to, on a thread of the
+// client's own: a 2026-07-28 server through one subscriptions/listen request
+// held open (exempt from timeouts, cancelled on close), a 2025-era HTTP server
+// through its GET stream; stdio servers of that era write their notifications
+// unasked. The stream is re-opened when it ends and when the connection is
+// re-established — never itself the reason a dead server is restarted.
 //
 // Thread-safe: any number of agents may call the same server at once.
 struct Client {
@@ -168,6 +178,8 @@ private:
 
   util::JsonValue next_id();
 
+  void listen_loop();
+
   ClientOptions mOptions;
   std::atomic<int64_t> mNextId{1};
 
@@ -185,6 +197,11 @@ private:
   int64_t mToolsTtlMs = 0;
   std::deque<Clock::time_point> mRestarts;
   std::mutex mConnectMutex;  // one (re)connect at a time
+
+  std::thread mListener;  // guarded by mMutex
+  std::atomic<bool> mStopListening{false};
+  std::condition_variable mListenWake;
+  uint64_t mConnections = 0;  // successful connects so far
 };
 
 }  // namespace mcp

@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <core/mcp/config.h>
 #include <core/mcp/protocol.h>
@@ -62,6 +63,26 @@ private:
   std::string mPath;
   mutable std::mutex mMutex;
   util::JsonValue mData;  // {"eras": {key: "modern"|"legacy"}, "enabled": {name: bool}}
+};
+
+// <workspace>/.m8/mcp_cache.json: each server's last tool and prompt lists,
+// for this exact configuration, so a server that takes seconds to start (npx
+// fetching a package) shows its tools at once. Kept apart from the state
+// file, which stays small enough to read.
+struct ToolCache {
+  explicit ToolCache(std::string path);
+
+  struct Entry {
+    std::vector<ToolInfo> tools;
+    std::vector<PromptInfo> prompts;
+  };
+  std::optional<Entry> get(const ServerConfig& server) const;
+  bool put(const ServerConfig& server, const std::vector<ToolInfo>& tools,
+           const std::vector<PromptInfo>& prompts, std::string& error);
+
+private:
+  std::string mPath;
+  mutable std::mutex mMutex;
 };
 
 }  // namespace mcp

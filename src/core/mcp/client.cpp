@@ -355,9 +355,17 @@ ConnectResult Client::connect() {
       closing = mClosing;
       if (shaken.ok and not closing) {
         mTransport = std::move(transport);
+        ++mConnections;
+        // Someone wants to hear about list changes: keep a stream open.
+        if (mOptions.on_list_changed and not mListener.joinable()) {
+          mListener = std::thread([this] { listen_loop(); });
+        }
         result.ok = true;
-        return result;
       }
+    }
+    if (result.ok) {
+      mListenWake.notify_all();
+      return result;
     }
     if (closing) {
       transport->close();
@@ -720,6 +728,10 @@ void Client::begin_close() {
     transport = mTransport;
     connecting = mConnecting;
   }
+  // Cancels the open subscription: notifications/cancelled over stdio, a
+  // closed stream over HTTP.
+  mStopListening.store(true);
+  mListenWake.notify_all();
   if (transport) transport->begin_close();
   // Failing its pending requests ends the handshake at once.
   if (connecting) connecting->begin_close();
@@ -727,11 +739,76 @@ void Client::begin_close() {
 
 void Client::wait_closed() {
   std::shared_ptr<Transport> transport;
+  std::thread listener;
   {
     std::lock_guard<std::mutex> lock(mMutex);
     transport = mTransport;
+    listener = std::move(mListener);
   }
   if (transport) transport->wait_closed();
+  if (listener.joinable()) listener.join();
+}
+
+void Client::listen_loop() {
+  enum struct Outcome : uint8_t { Ended, Unsupported, Nothing };
+  auto pause = std::chrono::seconds(1);
+  while (true) {
+    std::shared_ptr<Transport> transport;
+    Era era = Era::Unknown;
+    ServerCapabilities capabilities;
+    uint64_t connection = 0;
+    {
+      // A live connection to listen on, or the end. A dead one waits for
+      // whoever restarts it: listening alone never brings a server back.
+      std::unique_lock<std::mutex> lock(mMutex);
+      mListenWake.wait(lock, [&] { return mClosing or (mTransport and mTransport->alive()); });
+      if (mClosing) return;
+      transport = mTransport;
+      era = mEra;
+      capabilities = mCapabilities;
+      connection = mConnections;
+    }
+
+    const bool announces = capabilities.tools_list_changed or
+                           capabilities.prompts_list_changed or
+                           capabilities.resources_list_changed;
+    Outcome outcome = Outcome::Nothing;
+    const Clock::time_point started = Clock::now();
+    if (announces and era == Era::Modern) {
+      RequestSpec spec;
+      spec.id = next_id();
+      spec.method = "subscriptions/listen";
+      spec.params = util::JsonValue::object();
+      spec.params.set("_meta", request_meta());
+      util::JsonValue filter = util::JsonValue::object();
+      if (capabilities.tools_list_changed) filter.set("toolsListChanged", true);
+      if (capabilities.prompts_list_changed) filter.set("promptsListChanged", true);
+      if (capabilities.resources_list_changed) filter.set("resourcesListChanged", true);
+      spec.params.set("notifications", std::move(filter));
+      spec.cancel = &mStopListening;  // no deadline: it is meant to stay open
+      const Reply reply = transport->request(std::move(spec));
+      outcome = reply.ok and reply.message.kind == MessageKind::Error and
+                        reply.message.error.code == kMethodNotFound
+                    ? Outcome::Unsupported
+                    : Outcome::Ended;
+    } else if (announces and mOptions.http) {
+      std::string error;
+      outcome = transport->listen(&mStopListening, error) ? Outcome::Ended : Outcome::Unsupported;
+    }
+
+    std::unique_lock<std::mutex> lock(mMutex);
+    if (mClosing) return;
+    if (outcome == Outcome::Ended) {
+      // Back soon; sooner when the last one lasted.
+      pause = Clock::now() - started > std::chrono::minutes(1)
+                  ? std::chrono::seconds(1)
+                  : std::min<std::chrono::seconds>(pause * 2, std::chrono::seconds(30));
+      mListenWake.wait_for(lock, pause, [&] { return mClosing; });
+    } else {
+      // Nothing to listen to on this connection; a new one may differ.
+      mListenWake.wait(lock, [&] { return mClosing or mConnections != connection; });
+    }
+  }
 }
 
 Era Client::era() const {

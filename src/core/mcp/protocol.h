@@ -143,6 +143,10 @@ std::vector<ResourceTemplateInfo> parse_resource_templates(
     const util::JsonValue& templates);
 std::vector<PromptInfo> parse_prompts(const util::JsonValue& prompts);
 
+// The inverse, as a server would send them: what the tool cache keeps.
+util::JsonValue tools_json(const std::vector<ToolInfo>& tools);
+util::JsonValue prompts_json(const std::vector<PromptInfo>& prompts);
+
 }  // namespace mcp
 
 #endif  // M8_MCP_PROTOCOL_H

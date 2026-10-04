@@ -21,6 +21,7 @@ namespace m8 {
 //   m8 mcp enable <name> | disable <name>
 //   m8 mcp approve <name> | --all
 //   m8 mcp login <name> | logout <name>
+//   m8 mcp import <file> [-s ...]   (Claude Desktop, Cursor, VS Code, .mcp.json)
 //
 // Everything that changes which servers run (add, add-json, remove, enable,
 // approve, import) refuses inside an m8 agent's shell — m8 marks its children
@@ -55,6 +56,7 @@ private:
               std::istream& in);
   int login(const M8Paths& paths, bool logout, std::ostream& out,
             std::ostream& err);
+  int import_file(const M8Paths& paths, std::ostream& out, std::ostream& err);
 
   CLI::App* mMcp = nullptr;
   CLI::App* mAdd = nullptr;
@@ -67,6 +69,7 @@ private:
   CLI::App* mApprove = nullptr;
   CLI::App* mLogin = nullptr;
   CLI::App* mLogout = nullptr;
+  CLI::App* mImport = nullptr;
 
   std::string mName;
   std::string mTarget;
@@ -76,6 +79,7 @@ private:
   std::vector<std::string> mEnv;
   std::vector<std::string> mHeaders;
   std::string mJson;
+  std::string mFile;
   bool mAll = false;
 };
 

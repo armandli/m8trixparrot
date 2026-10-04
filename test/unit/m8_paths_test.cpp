@@ -108,6 +108,7 @@ TEST_F(M8PathsTest, LaysEveryPathOutUnderTheWorkspaceRoot) {
   EXPECT_EQ(paths.mcp_config(), root + "/.m8/mcp.json");
   EXPECT_EQ(paths.shared_mcp_config(), root + "/.mcp.json");
   EXPECT_EQ(paths.mcp_state(), root + "/.m8/mcp_state.json");
+  EXPECT_EQ(paths.mcp_cache(), root + "/.m8/mcp_cache.json");
   EXPECT_EQ(paths.mcp_logs(), root + "/.m8/logs/mcp");
 }
 

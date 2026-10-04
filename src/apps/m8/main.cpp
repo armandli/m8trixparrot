@@ -485,6 +485,7 @@ int main(int argc, char** argv) {
     registry_options.logs_dir = paths.mcp_logs();
     registry_options.state_path = paths.mcp_state();
     registry_options.trust_path = paths.mcp_trust();
+    registry_options.cache_path = paths.mcp_cache();
     registry_options.credentials_path = paths.mcp_credentials();
     registry_options.client_metadata_url = settings.mcp_oauth_client_metadata_url.value_or("");
     registry = new mcp::Registry(std::move(registry_options));

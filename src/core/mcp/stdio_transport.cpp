@@ -276,6 +276,7 @@ void StdioTransport::expire(Clock::time_point now) {
 }
 
 void StdioTransport::handle_line(std::string_view line) {
+  if (mConfig.wire) mConfig.wire->write('<', line);
   RpcMessage message = parse_message(line);
   switch (message.kind) {
     case MessageKind::Result:
@@ -397,13 +398,19 @@ void StdioTransport::io_loop() {
 
   while (true) {
     bool closing = false;
+    bool took = false;
     {
       std::lock_guard<std::mutex> lock(mMutex);
       closing = mClosing;
       if (mWriting.empty() and not mOutbox.empty() and not stdin_closed) {
         mWriting = std::move(mOutbox.front());
         mOutbox.pop_front();
+        took = true;
       }
+    }
+    // mWriting is this thread's alone: logged outside the lock.
+    if (took and mConfig.wire) {
+      mConfig.wire->write('>', std::string_view(mWriting).substr(0, mWriting.size() - 1));
     }
 
     const Clock::time_point now = Clock::now();

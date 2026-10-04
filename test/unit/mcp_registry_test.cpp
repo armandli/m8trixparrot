@@ -285,6 +285,69 @@ TEST_F(McpRegistryTest, ShutdownDoesNotWaitOutASlowHandshake) {
   EXPECT_LT(std::chrono::steady_clock::now() - started, 2500ms);
 }
 
+// Last run's tool list shows at once while a slow server starts (npx fetching
+// a package), and a call to one of its tools waits for it instead of failing.
+TEST_F(McpRegistryTest, LastRunsToolsShowWhileASlowServerStarts) {
+  RegistryOptions o = options();
+  o.cache_path = (dir / "ws/.m8/mcp_cache.json").string();
+  const std::vector<std::string> args = {"--era=modern", "--slow-start-ms=1000"};
+  {
+    Registry first(o);
+    first.start({server("slow", args)});
+    ASSERT_EQ(first.wait_until_settled(10s)->server("slow")->state, ServerState::Connected);
+    first.shutdown();
+  }
+
+  Registry second(o);
+  second.start({server("slow", args)});
+  const auto at_once = second.snapshot();
+  const CatalogServer* entry = at_once->server("slow");
+  ASSERT_NE(entry, nullptr);
+  EXPECT_EQ(entry->state, ServerState::Connecting);
+  EXPECT_TRUE(entry->cached);
+  EXPECT_NE(at_once->find("mcp__slow__echo"), nullptr);
+
+  const tools::ToolResult result =
+      second.call_tool("mcp__slow__echo", R"({"message":"waited"})", CallContext{});
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_NE(result.output.find("waited"), std::string::npos);
+  EXPECT_FALSE(second.snapshot()->server("slow")->cached);
+  second.shutdown();
+}
+
+// A failed connect takes last run's tools away with it.
+TEST_F(McpRegistryTest, CachedToolsGoWhenTheServerFails) {
+  RegistryOptions o = options();
+  o.cache_path = (dir / "ws/.m8/mcp_cache.json").string();
+  // The same entry both runs (the cache is per exact configuration); what
+  // differs is a variable it expands when it starts.
+  const auto entry = [] {
+    util::JsonValue server = util::JsonValue::object();
+    server.set("command", M8_FAKE_MCP_SERVER);
+    server["args"].push_back("--era=modern");
+    server["env"].set("FAKE_MCP_EXIT_AT_START", "${M8_TEST_EXIT_AT_START:-0}");
+    util::JsonValue root = util::JsonValue::object();
+    root["mcpServers"].set("fake", server);
+    std::vector<std::string> warnings;
+    return parse_config(root.dump(), Scope::User, "test", warnings).front();
+  };
+  ::unsetenv("M8_TEST_EXIT_AT_START");
+  {
+    Registry first(o);
+    first.start({entry()});
+    ASSERT_EQ(first.wait_until_settled(10s)->server("fake")->state, ServerState::Connected);
+    first.shutdown();
+  }
+  ::setenv("M8_TEST_EXIT_AT_START", "1", 1);
+  Registry second(o);
+  second.start({entry()});
+  EXPECT_NE(second.snapshot()->find("mcp__fake__echo"), nullptr);  // shown at once
+  EXPECT_EQ(second.wait_until_settled(10s)->server("fake")->state, ServerState::Failed);
+  EXPECT_EQ(second.snapshot()->find("mcp__fake__echo"), nullptr);
+  second.shutdown();
+  ::unsetenv("M8_TEST_EXIT_AT_START");
+}
+
 TEST_F(McpRegistryTest, ElicitationReachesTheHandler) {
   Registry registry(options());
   std::atomic<int> asked{0};

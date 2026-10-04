@@ -28,6 +28,7 @@ struct RegistryOptions {
   std::string logs_dir;    // one stderr log per stdio server; "" for none
   std::string state_path;  // .m8/mcp_state.json; "" to remember nothing
   std::string trust_path;  // ~/.m8/mcp_trust.json; "" to approve nothing
+  std::string cache_path;  // .m8/mcp_cache.json; "" to cache no tool lists
   // ~/.m8/mcp_credentials.json; "" for no OAuth at all.
   std::string credentials_path;
   // Where m8's OAuth Client ID Metadata Document is hosted, if anywhere.
@@ -143,6 +144,7 @@ private:
     std::shared_ptr<Client> connecting;  // mid-handshake, for shutdown()
     std::vector<CatalogTool> tools;
     std::vector<PromptInfo> prompts;
+    bool cached = false;  // tools and prompts are last run's, until it connects
     Clock::time_point listed_at{};
     int64_t ttl_ms = 0;
     bool refreshing = false;
@@ -169,10 +171,16 @@ private:
   std::shared_ptr<OAuthSession> existing_oauth_session(const std::string& name);
   // Rebuilds the snapshot and tells the observer what changed.
   void publish(const RegistryEvent* event = nullptr);
+  // A server's tools as the model will see them: filtered by the config and
+  // lowered; what could not be offered goes into `notes`.
+  static std::vector<CatalogTool> build_tools(const ServerConfig& config,
+                                              const std::vector<ToolInfo>& tools,
+                                              std::vector<std::string>* notes);
 
   RegistryOptions mOptions;
   TrustStore mTrust;
   McpState mState;
+  ToolCache mCache;
 
   mutable std::mutex mMutex;
   std::condition_variable mChanged;

@@ -39,7 +39,8 @@ tools::ToolResult failure(std::string message) {
 Registry::Registry(RegistryOptions options)
     : mOptions(std::move(options)),
       mTrust(mOptions.trust_path),
-      mState(mOptions.state_path) {
+      mState(mOptions.state_path),
+      mCache(mOptions.cache_path) {
   mSnapshot = finalize_catalog(Catalog{});
 }
 
@@ -118,6 +119,12 @@ void Registry::start(std::vector<ServerConfig> servers) {
         server->state = ServerState::NeedsApproval;
       } else {
         server->state = ServerState::Connecting;
+        // Last run's lists, shown until this run's arrive.
+        if (std::optional<ToolCache::Entry> cached = mCache.get(c)) {
+          server->tools = build_tools(c, cached->tools, nullptr);
+          server->prompts = std::move(cached->prompts);
+          server->cached = true;
+        }
       }
       mServers.push_back(std::move(server));
     }
@@ -181,10 +188,14 @@ std::shared_ptr<Client> Registry::make_client(const ServerConfig& expanded,
     // An app's own factory wires its own credentials; the default carries
     // the server's OAuth session.
     std::shared_ptr<OAuthSession> oauth = factory ? nullptr : oauth_session(expanded);
+    std::shared_ptr<WireLog> wire =
+        mOptions.logs_dir.empty()
+            ? nullptr
+            : WireLog::open_if_enabled(mOptions.logs_dir + "/" + expanded.name + ".wire.log");
     options.http = true;
-    options.make_transport = [factory, expanded, oauth](TransportHandlers handlers) {
+    options.make_transport = [factory, expanded, oauth, wire](TransportHandlers handlers) {
       return factory ? factory(expanded, std::move(handlers))
-                     : make_http_transport(expanded, std::move(handlers), oauth);
+                     : make_http_transport(expanded, std::move(handlers), oauth, wire);
     };
     return std::make_shared<Client>(std::move(options));
   }
@@ -210,6 +221,7 @@ std::shared_ptr<Client> Registry::make_client(const ServerConfig& expanded,
   stdio.cwd = cwd;
   if (not mOptions.logs_dir.empty()) {
     stdio.log_path = mOptions.logs_dir + "/" + expanded.name + ".log";
+    stdio.wire = WireLog::open_if_enabled(mOptions.logs_dir + "/" + expanded.name + ".wire.log");
   }
   stdio.close_grace = mOptions.close_grace;
   stdio.term_grace = mOptions.term_grace;
@@ -239,6 +251,7 @@ void Registry::connect(const std::string& name, uint64_t epoch) {
       server->client.reset();
       server->tools.clear();
       server->prompts.clear();
+      server->cached = false;
     }
     const RegistryEvent event{name, state,
                               state == ServerState::NeedsAuth
@@ -294,21 +307,9 @@ void Registry::connect(const std::string& name, uint64_t epoch) {
     notes.push_back("could not list prompts: " + error);
   }
 
-  std::vector<CatalogTool> catalog_tools;
-  for (const ToolInfo& tool : tools) {
-    if (not config.enabled_tools.empty() and not listed(config.enabled_tools, tool.name)) {
-      continue;
-    }
-    if (listed(config.disabled_tools, tool.name)) continue;
-    CatalogTool built;
-    std::string problem;
-    if (make_catalog_tool(name, tool, config.always_load, config.type == "http",
-                          built, problem)) {
-      catalog_tools.push_back(std::move(built));
-    } else {
-      notes.push_back("tool '" + tool.name + "' skipped: " + problem);
-    }
-  }
+  std::vector<CatalogTool> catalog_tools = build_tools(config, tools, &notes);
+  std::string cache_error;
+  mCache.put(config, tools, prompts, cache_error);
 
   bool orphaned = false;
   {
@@ -322,6 +323,7 @@ void Registry::connect(const std::string& name, uint64_t epoch) {
       server->error.clear();
       server->tools = std::move(catalog_tools);
       server->prompts = std::move(prompts);
+      server->cached = false;
       server->listed_at = Clock::now();
       server->ttl_ms = client->tools_ttl_ms();
     }
@@ -345,6 +347,27 @@ void Registry::connect(const std::string& name, uint64_t epoch) {
   for (const std::string& note : notes) text += "\n  " + note;
   const RegistryEvent event{name, ServerState::Connected, text};
   publish(&event);
+}
+
+std::vector<CatalogTool> Registry::build_tools(const ServerConfig& config,
+                                              const std::vector<ToolInfo>& tools,
+                                              std::vector<std::string>* notes) {
+  std::vector<CatalogTool> out;
+  for (const ToolInfo& tool : tools) {
+    if (not config.enabled_tools.empty() and not listed(config.enabled_tools, tool.name)) {
+      continue;
+    }
+    if (listed(config.disabled_tools, tool.name)) continue;
+    CatalogTool built;
+    std::string problem;
+    if (make_catalog_tool(config.name, tool, config.always_load, config.type == "http", built,
+                          problem)) {
+      out.push_back(std::move(built));
+    } else if (notes != nullptr) {
+      notes->push_back("tool '" + tool.name + "' skipped: " + problem);
+    }
+  }
+  return out;
 }
 
 void Registry::schedule_refresh(const std::string& name) {
@@ -382,25 +405,16 @@ void Registry::refresh(const std::string& name) {
   if (capabilities.tools and not client->list_tools(tools, error)) return;
   if (capabilities.prompts) client->list_prompts(prompts, error);
 
-  std::vector<CatalogTool> catalog_tools;
-  for (const ToolInfo& tool : tools) {
-    if (not config.enabled_tools.empty() and not listed(config.enabled_tools, tool.name)) {
-      continue;
-    }
-    if (listed(config.disabled_tools, tool.name)) continue;
-    CatalogTool built;
-    std::string problem;
-    if (make_catalog_tool(name, tool, config.always_load, config.type == "http",
-                          built, problem)) {
-      catalog_tools.push_back(std::move(built));
-    }
-  }
+  std::vector<CatalogTool> catalog_tools = build_tools(config, tools, nullptr);
+  std::string cache_error;
+  mCache.put(config, tools, prompts, cache_error);
   {
     std::lock_guard<std::mutex> lock(mMutex);
     Server* server = find(name);
     if (server == nullptr or server->client != client) return;
     server->tools = std::move(catalog_tools);
     server->prompts = std::move(prompts);
+    server->cached = false;
     server->listed_at = Clock::now();
     server->ttl_ms = client->tools_ttl_ms();
   }
@@ -449,7 +463,10 @@ void Registry::publish(const RegistryEvent* event) {
           entry.stderr_tail = server->client->stderr_tail();
         }
       }
-      if (server->state == ServerState::Connected) {
+      const bool listed_now = server->state == ServerState::Connected;
+      const bool from_cache = server->state == ServerState::Connecting and server->cached;
+      if (listed_now or from_cache) {
+        entry.cached = from_cache;
         entry.prompts = server->prompts;
         for (const CatalogTool& tool : server->tools) catalog.tools.push_back(tool);
       }
@@ -499,7 +516,7 @@ tools::ToolResult Registry::call_tool(const std::string& exposed,
   ServerState state = ServerState::Failed;
   std::string server_error;
   bool http = false;
-  {
+  const auto look = [&] {
     std::lock_guard<std::mutex> lock(mMutex);
     if (const Server* server = find(tool->server)) {
       client = server->client;
@@ -507,6 +524,12 @@ tools::ToolResult Registry::call_tool(const std::string& exposed,
       server_error = server->error;
       http = server->config.type == "http";
     }
+  };
+  look();
+  if (state == ServerState::Connecting) {
+    // Known from last run, still starting: worth waiting for.
+    wait_until_settled(mOptions.startup_timeout);
+    look();
   }
   if (state != ServerState::Connected or not client) {
     return failure("the MCP server '" + tool->server + "' is " + state_name(state) +
@@ -726,6 +749,7 @@ bool Registry::set_enabled(const std::string& name, bool enabled, std::string& e
       server->state = ServerState::Disabled;
       server->tools.clear();
       server->prompts.clear();
+      server->cached = false;
     } else if (server->state == ServerState::Disabled) {
       if (needs_approval(server->config) and
           not mTrust.approved(mOptions.workspace, server->config)) {
@@ -754,6 +778,7 @@ void Registry::reconnect(const std::string& name) {
       if (server->client) stopping.push_back(std::move(server->client));
       server->tools.clear();
       server->prompts.clear();
+      server->cached = false;
       start_connect(*server);
     }
   }

@@ -511,6 +511,7 @@ Reply HttpTransport::exchange(const RequestSpec& spec) {
     }
   }
   const std::string body = make_request(spec.id, spec.method, spec.params);
+  if (mConfig.wire) mConfig.wire->write('>', body);
 
   Verb verb = Verb::Post;
   Headers resume_headers;
@@ -569,6 +570,7 @@ Reply HttpTransport::exchange(const RequestSpec& spec) {
       return reply;
     }
     std::optional<RpcMessage> message = std::move(ex.answer);
+    if (mConfig.wire and not ex.sse and not ex.body.empty()) mConfig.wire->write('<', ex.body);
     if (not message and not ex.sse and error.empty() and not ex.overflow and
         not ex.body.empty()) {
       RpcMessage parsed = parse_message(ex.body);
@@ -659,6 +661,7 @@ Reply HttpTransport::exchange(const RequestSpec& spec) {
 
 void HttpTransport::on_event(Exchange& exchange, const std::string& data) {
   if (data.empty()) return;  // a priming event: only its id mattered
+  if (mConfig.wire) mConfig.wire->write('<', data);
   RpcMessage message = parse_message(data);
   switch (message.kind) {
     case MessageKind::Result:
@@ -720,6 +723,7 @@ bool HttpTransport::post_message(const std::string& body, const std::string& met
 
   Exchange ex(*this);
   ex.deadline = Clock::now() + mConfig.message_timeout;
+  if (mConfig.wire) mConfig.wire->write('>', body);
   const Stop stop = transfer(ex, Verb::Post, body, protocol_headers(method, false), true, error);
   if (stop != Stop::None and stop != Stop::Answered) {
     error = stop == Stop::Deadline ? "the server did not accept it in time" : "cancelled";
@@ -743,6 +747,47 @@ void HttpTransport::cancel_on_wire(const util::JsonValue& id, const std::string&
   params.set("requestId", id);
   params.set("reason", reason);
   notify("notifications/cancelled", params);
+}
+
+bool HttpTransport::listen(const std::atomic<bool>* cancel, std::string& error) {
+  {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (mClosing or mDead or not mStarted) {
+      error = "the connection to the MCP server is closed";
+      return false;
+    }
+    if (mEra == Era::Modern) {
+      error = "2026-07-28 servers stream notifications through subscriptions/listen";
+      return false;
+    }
+    ++mInFlight;
+  }
+  struct Done {
+    HttpTransport& transport;
+    ~Done() {
+      {
+        std::lock_guard<std::mutex> lock(transport.mMutex);
+        --transport.mInFlight;
+      }
+      transport.mIdle.notify_all();
+    }
+  } done{*this};
+
+  Exchange ex(*this);  // no id: nothing on it is an answer of ours
+  ex.cancel = cancel;
+  const Stop stop = transfer(ex, Verb::Get, std::string(), protocol_headers(std::string(), false),
+                             true, error);
+  if (stop != Stop::None) return true;  // ended from our side
+  if (not error.empty()) return false;
+  if (ex.status == 405) {
+    error = "the server offers no notification stream";
+    return false;
+  }
+  if (not ex.sse) {
+    error = "the server's notification stream answered HTTP " + std::to_string(ex.status);
+    return false;
+  }
+  return true;
 }
 
 // ─────────────────────── what legacy servers ask of us ──────────────────────
@@ -845,11 +890,13 @@ std::string HttpTransport::session_id() const {
 
 std::unique_ptr<Transport> make_http_transport(const ServerConfig& expanded,
                                                TransportHandlers handlers,
-                                               std::shared_ptr<OAuthSession> oauth) {
+                                               std::shared_ptr<OAuthSession> oauth,
+                                               std::shared_ptr<WireLog> wire) {
   HttpConfig config;
   config.server = expanded.name;
   config.url = expanded.url;
   config.headers = expanded.headers;
+  config.wire = std::move(wire);
   if (oauth) {
     config.authorization = [oauth] { return oauth->authorization(); };
     config.renew = [oauth](const std::string& challenge) {

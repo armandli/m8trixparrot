@@ -44,6 +44,8 @@ struct CatalogServer {
   std::string stderr_tail;
   ServerCapabilities capabilities;
   bool always_load = false;
+  // Still connecting, but showing last run's tools (calls wait for it).
+  bool cached = false;
   size_t tool_count = 0;
   int64_t schema_tokens = 0;
   std::vector<PromptInfo> prompts;

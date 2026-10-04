@@ -43,6 +43,8 @@ struct M8Paths {
   std::string shared_mcp_config() const { return root + "/.mcp.json"; }
   // Detected protocol eras and the user's enable/disable choices.
   std::string mcp_state() const { return dir() + "/mcp_state.json"; }
+  // Each server's last tool list, shown while it starts.
+  std::string mcp_cache() const { return dir() + "/mcp_cache.json"; }
   // One stderr log per stdio server.
   std::string mcp_logs() const { return dir() + "/logs/mcp"; }
 

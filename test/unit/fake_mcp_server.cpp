@@ -112,6 +112,7 @@ struct Server {
   int calls = 0;
   int server_ids = 0;
   std::set<std::string> cancelled;
+  std::optional<JsonValue> listening;  // the open subscriptions/listen request's id
   std::FILE* record = nullptr;
 
   explicit Server(Options o) : options(std::move(o)) {
@@ -368,6 +369,11 @@ struct Server {
           note(pong ? "PING-ANSWERED" : "PING-UNANSWERED");
         }
       }
+      if (message.method == "notifications/cancelled" and listening and
+          mcp::id_key(message.params.get("requestId")) == mcp::id_key(*listening)) {
+        listening.reset();
+        note("SUBSCRIPTION-CANCELLED\n");
+      }
       return;
     }
     if (message.kind != MessageKind::Request) return;
@@ -455,6 +461,23 @@ struct Server {
       return respond(message, complete(result, is_modern));
     }
 
+    if (method == "subscriptions/listen") {
+      if (not is_modern) return error(message, mcp::kMethodNotFound, "Method not found");
+      // Acknowledged first, then held open: what it asked for that this
+      // server does, list changes, arrive on it until it is cancelled.
+      listening = message.id;
+      JsonValue params = JsonValue::object();
+      params["_meta"].set("io.modelcontextprotocol/subscriptionId", message.id);
+      JsonValue granted = JsonValue::object();
+      if (message.params.get("notifications").get("toolsListChanged").as_bool()) {
+        granted.set("toolsListChanged", true);
+      }
+      params.set("notifications", granted);
+      write(mcp::make_notification("notifications/subscriptions/acknowledged", params));
+      note("SUBSCRIBED\n");
+      return;
+    }
+
     if (method == "tools/call") {
       std::optional<JsonValue> result = call_tool(message);
       if (not result) {
@@ -464,7 +487,14 @@ struct Server {
       }
       respond(message, *result);
       if (options.list_changed and calls == 1) {
-        write(mcp::make_notification("notifications/tools/list_changed", JsonValue()));
+        if (not is_modern) {
+          // Before 2026-07-28 servers announced changes unasked.
+          write(mcp::make_notification("notifications/tools/list_changed", JsonValue()));
+        } else if (listening) {
+          JsonValue params = JsonValue::object();
+          params["_meta"].set("io.modelcontextprotocol/subscriptionId", *listening);
+          write(mcp::make_notification("notifications/tools/list_changed", params));
+        }
       }
       return;
     }
@@ -539,6 +569,11 @@ struct Server {
 }  // namespace
 
 int main(int argc, char** argv) {
+  // For a test that needs the same configuration to fail on a second run.
+  if (const char* exit_now = std::getenv("FAKE_MCP_EXIT_AT_START");
+      exit_now != nullptr and std::string(exit_now) == "1") {
+    return 4;
+  }
   const Options options = parse(argc, argv);
   if (options.ignore_term) ::signal(SIGTERM, SIG_IGN);
   if (options.stderr_spam) {

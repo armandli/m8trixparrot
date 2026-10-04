@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <core/mcp/transport.h>
+#include <core/mcp/wire_log.h>
 #include <core/util/process.h>
 
 namespace mcp {
@@ -24,6 +25,7 @@ struct StdioConfig {
   util::EnvList env;  // the child's whole environment
   std::string cwd;
   std::string log_path;  // where stderr goes; empty for nowhere but the ring
+  std::shared_ptr<WireLog> wire;  // M8_MCP_DEBUG's message log, if on
 
   size_t max_line_bytes = 32u << 20;
   size_t stderr_ring_bytes = 64u << 10;
