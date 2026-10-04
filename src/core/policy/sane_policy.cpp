@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -32,6 +33,20 @@ bool is_wrapper_command(const std::string& base) {
 bool is_shell_command(const std::string& base) {
   return base == "sh" or base == "bash" or base == "zsh" or base == "dash" or
          base == "ksh";
+}
+
+// NAME=value before a command sets its environment; the command is the next
+// word. Read as the command itself, `FOO=1 sudo x` would hide the sudo.
+bool is_assignment(const std::string& text) {
+  if (text.empty() or not (std::isalpha(static_cast<unsigned char>(text[0])) or
+                           text[0] == '_')) {
+    return false;
+  }
+  for (const char c : text) {
+    if (c == '=') return true;
+    if (not std::isalnum(static_cast<unsigned char>(c)) and c != '_') return false;
+  }
+  return false;
 }
 
 // Commands whose job is to put bytes somewhere. Their destination arguments
@@ -207,6 +222,38 @@ bool is_wrapper_noise(const std::string& text) {
          (slash == std::string::npos or equals < slash);
 }
 
+// Refusals of `m8 mcp ...` start with this, and explain themselves.
+constexpr std::string_view kMcpChangePrefix = "`m8 mcp ";
+
+// `m8 mcp add|add-json|approve|enable|remove|import` changes which programs m8
+// starts on the user's behalf — the user's decision, not the agent's. m8 also
+// refuses these itself in an agent's shell (it marks it M8_AGENT_SHELL); this
+// catches a shell where the mark was unset. Matched anywhere in a command, not
+// only in command position: a wrapper's own options (`env -u NAME`) can hide
+// which word is the command, and over-matching here costs nothing.
+std::string mcp_change_problem(const std::vector<Token>& tokens) {
+  const auto word = [&](size_t i) {
+    return i < tokens.size() and tokens[i].kind == Token::Kind::Word;
+  };
+  for (size_t i = 0; i < tokens.size(); ++i) {
+    if (not word(i) or basename_of(tokens[i].text) != "m8") continue;
+    size_t j = i + 1;
+    while (word(j) and tokens[j].text != "mcp") ++j;
+    if (not word(j)) continue;
+    size_t k = j + 1;
+    while (word(k) and is_flag(tokens[k].text)) ++k;
+    if (not word(k)) continue;
+    const std::string& sub = tokens[k].text;
+    if (sub == "add" or sub == "add-json" or sub == "approve" or sub == "enable" or
+        sub == "remove" or sub == "import") {
+      return std::string(kMcpChangePrefix) + sub +
+             "` is refused: which MCP servers m8 runs is for the user to "
+             "decide. Tell the user the command so they can run it themselves.";
+    }
+  }
+  return std::string();
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -293,6 +340,9 @@ std::string SanePolicy::inspect_command(const std::string& command) const {
   } guard;
 
   const std::vector<Token> tokens = tokenize(command);
+  if (std::string problem = mcp_change_problem(tokens); not problem.empty()) {
+    return problem;
+  }
 
   bool command_position = true;
   bool expect_wrapped_command = false;
@@ -369,6 +419,9 @@ std::string SanePolicy::inspect_command(const std::string& command) const {
       if (expect_wrapped_command and is_wrapper_noise(token.text)) {
         continue;  // Still looking for the command the wrapper runs.
       }
+      if (command_position and is_assignment(token.text)) {
+        continue;  // Still looking for the command it is set for.
+      }
 
       if (is_privilege_command(base)) {
         return "`" + base +
@@ -418,6 +471,7 @@ PolicyResult SanePolicy::verify(std::string_view tool_name,
     if (not command) return PolicyResult::allow();
     const std::string problem = inspect_command(*command);
     if (problem.empty()) return PolicyResult::allow();
+    if (problem.rfind(kMcpChangePrefix, 0) == 0) return PolicyResult::deny(problem);
     return PolicyResult::deny(
         problem +
         ". Files may only be written under the working directory or /tmp, and "

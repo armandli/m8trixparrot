@@ -105,6 +105,25 @@ TEST_F(M8PathsTest, LaysEveryPathOutUnderTheWorkspaceRoot) {
   EXPECT_EQ(paths.memory(), root + "/.m8/vdb/memory.m8db");
   EXPECT_EQ(paths.sessions(), root + "/.m8/sessions");
   EXPECT_EQ(paths.api_key(), root + "/.m8/parallel_api_key");
+  EXPECT_EQ(paths.mcp_config(), root + "/.m8/mcp.json");
+  EXPECT_EQ(paths.shared_mcp_config(), root + "/.mcp.json");
+  EXPECT_EQ(paths.mcp_state(), root + "/.m8/mcp_state.json");
+  EXPECT_EQ(paths.mcp_logs(), root + "/.m8/logs/mcp");
+}
+
+// The user's own MCP servers follow them everywhere, and the approvals for a
+// workspace's servers must live where the workspace cannot write its own.
+TEST_F(M8PathsTest, KeepsUserMcpFilesInTheHomeDirectory) {
+  mkdirs("repo/.git");
+  M8Paths paths = resolve_m8_paths((mRoot / "repo").string(), "/home/ada");
+  EXPECT_EQ(paths.user_mcp_config(), "/home/ada/.m8/mcp.json");
+  EXPECT_EQ(paths.mcp_trust(), "/home/ada/.m8/mcp_trust.json");
+  EXPECT_EQ(paths.mcp_credentials(), "/home/ada/.m8/mcp_credentials.json");
+
+  paths = resolve_m8_paths((mRoot / "repo").string(), "");
+  EXPECT_EQ(paths.user_mcp_config(), "");
+  EXPECT_EQ(paths.mcp_trust(), "");
+  EXPECT_EQ(paths.mcp_credentials(), "");
 }
 
 // The bash_search index describes PATH, which belongs to the machine rather than
@@ -212,7 +231,8 @@ TEST_F(M8PathsTest, WritesADefaultConfigNamingEveryKnob) {
   for (const char* key : {"model", "policy", "max_steps", "max_depth",
                           "max_agents", "enable_skills", "enable_subagents",
                           "enable_bash_repl", "enable_bash_search",
-                          "enable_memory", "enable_web_search"}) {
+                          "enable_memory", "enable_web_search", "enable_mcp",
+                          "tool_search", "mcp_oauth_client_metadata_url"}) {
     EXPECT_NE(text.find(key), std::string::npos) << key << " missing";
   }
 }

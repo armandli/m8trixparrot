@@ -64,7 +64,11 @@ constexpr const char* kDefaultConfig = R"json({
   "enable_memory": true,
   "memory_embed_model": "nomic-embed-text-v2-moe:latest",
 
-  "enable_web_search": false
+  "enable_web_search": false,
+
+  "enable_mcp": true,
+  "tool_search": "auto",
+  "mcp_oauth_client_metadata_url": ""
 }
 )json";
 

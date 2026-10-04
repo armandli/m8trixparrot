@@ -39,6 +39,13 @@ struct StartupSettings {
   std::optional<std::string> memory_path;
   std::optional<std::string> memory_embed_model;
 
+  // m8 only: MCP servers (core/mcp/). tool_search takes the values of Claude
+  // Code's ENABLE_TOOL_SEARCH (auto, auto:N, on, off); a JSON true or false is
+  // read as on or off. The caller validates it.
+  std::optional<bool> enable_mcp;
+  std::optional<std::string> tool_search;
+  std::optional<std::string> mcp_oauth_client_metadata_url;
+
   // m8trixsh only; the other apps ignore these.
   std::optional<std::string> shell;            // the shell to run in the PTY pane
   std::optional<std::string> mode_switch_key;  // toggles shell/ai mode

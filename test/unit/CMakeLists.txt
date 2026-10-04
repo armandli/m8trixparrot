@@ -126,14 +126,26 @@ gtest_discover_tests(sp_tests)
 add_executable(m8_tests
   m8_prompt_test.cpp
   m8_paths_test.cpp
+  m8_mcp_cli_test.cpp
+  m8_mcp_view_test.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_prompt.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_paths.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_mcp_cli.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_mcp_view.cpp
 )
 
 target_include_directories(m8_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8)
 
+# `m8 mcp list` and `get` start real servers; the tests point them at the
+# scripted one.
+target_compile_definitions(m8_tests PRIVATE
+  M8_FAKE_MCP_SERVER="$<TARGET_FILE:fake_mcp_server>"
+)
+add_dependencies(m8_tests fake_mcp_server)
+
 target_link_libraries(m8_tests
   PRIVATE agentcore
+  PRIVATE CLI11::CLI11
   PRIVATE GTest::gtest_main
 )
 

@@ -250,9 +250,13 @@ struct Agent {
   int64_t context_limit() const;
 
   // The MCP tools this agent has loaded into its tools array, in load order,
-  // and whether its MCP schemas are deferred. Thread-safe, for the UI.
+  // and whether its MCP schemas are deferred: already, or — given `catalog` —
+  // as its next turn will decide. Thread-safe, for the UI.
   std::vector<std::string> loaded_mcp_tools() const { return mLoadedMcpTools.names(); }
   bool mcp_deferred() const { return mMcpDeferred.load(); }
+  bool mcp_deferred(const mcp::Catalog& catalog) const {
+    return mMcpDeferred.load() or mcp_would_defer(catalog);
+  }
 
   // The skills available to this agent (name + description in the system
   // prompt; body loaded on demand). Scanned lazily and cached.
