@@ -31,9 +31,9 @@ namespace tools {
 // It is not a sandbox, and it is important not to mistake it for one.
 //
 // It is stronger than policy::SanePolicy in one specific way: it runs inside the
-// tool, on the final resolved path, so it cannot be fooled by `eval`, base64, a
-// variable, or a path assembled at runtime — whatever the caller did, the tool
-// sees where the bytes are actually going.
+// tool, on the final path, both as written and as resolved, so it cannot be
+// fooled by `eval`, base64, a variable, or a path assembled at runtime —
+// whatever the caller did, the tool sees where the bytes are actually going.
 //
 // But it only guards the tools that call it. A shell can reach the same file
 // with a redirect, sed -i, tee, cp, or an interpreter one-liner, and nothing
@@ -58,10 +58,10 @@ enum struct PathAccess : int { Read, Write };
 // Empty when the access is fine; otherwise the reason to refuse.
 //
 // The message is written for the model that is about to read it, and says three
-// things deliberately: the resolved path (so a symlink or `..` shows what was
-// actually hit), that there is no override, and what to do instead. Without the
-// last part a model reads "permission problem" and reaches for `cat >` next,
-// which is the outcome this exists to prevent.
+// things deliberately: the path that matched (where a symlink or `..` actually
+// led, or the protected name a link stands at), that there is no override, and
+// what to do instead. Without the last part a model reads "permission problem"
+// and reaches for `cat >` next, which is the outcome this exists to prevent.
 //
 // `tool_name` is the name the caller is known by — "write", "edit", "read".
 std::string protected_path_reason(const std::string& path, PathAccess access,
@@ -84,6 +84,11 @@ bool is_protected_secret(const std::string& path);
 //     path that exists. That is what catches a link pointing at a protected
 //     file, and a link standing in for a protected parent directory.
 //     `canonical` would be wrong: a write target usually does not exist yet.
+//
+// It is half of what gets matched. The path as written (the same expansion,
+// `..` collapsed by name, no link followed) is matched too, because a protected
+// name that is itself a link, like .m8/mcp.json -> ../server-config.json or a
+// linked .m8/, resolves to a name no suffix entry knows.
 //
 // Never throws; falls back to a lexically normalized absolute path.
 std::filesystem::path resolve_for_guard(const std::string& path);

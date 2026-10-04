@@ -25,7 +25,9 @@ enum struct Match : int {
   // A path whose last components are exactly these, wherever it lives. For
   // files every workspace has its own copy of, like `.m8/mcp.json`: an absolute
   // pattern cannot name them, and a component match on `.m8` would take the
-  // whole directory, sessions and skills included.
+  // whole directory, sessions and skills included. A suffix knows names, not
+  // targets, so each one's copy under ~ is kept as an Exact entry too (see
+  // entries()): without it, a linked ~/.m8 leaves the files it leads to open.
   PathSuffix,
 };
 
@@ -199,6 +201,15 @@ const std::vector<Resolved>& entries() {
         }
         out.push_back(Resolved{entry.match, {}, {}, std::move(parts),
                                entry.secret, entry.reason});
+        // And its copy under ~, canonicalized like the absolute entries: when
+        // ~/.m8 is a link, the file it leads to is protected by its own name,
+        // which no suffix can know.
+        const std::filesystem::path home_copy =
+            canonicalize(std::string("~/") + entry.pattern, home);
+        if (not home_copy.empty()) {
+          out.push_back(Resolved{Match::Exact, home_copy, {}, {}, entry.secret,
+                                 entry.reason});
+        }
         return;
       }
       const std::filesystem::path path = canonicalize(entry.pattern, home);
@@ -262,6 +273,58 @@ const Resolved* find_entry(const std::filesystem::path& resolved) {
   return nullptr;
 }
 
+// The same path read two ways. `named` is how it was written: ~ and $HOME
+// expanded, made absolute against the current directory, `..` collapsed by
+// name. `resolved` is where it really leads.
+struct GuardPaths {
+  std::filesystem::path named;
+  std::filesystem::path resolved;
+};
+
+GuardPaths guard_paths(const std::string& path) {
+  std::error_code ec;
+  std::filesystem::path target(expand_home(path));
+  if (target.is_relative()) {
+    std::filesystem::path cwd = std::filesystem::current_path(ec);
+    if (not ec and not cwd.empty()) target = cwd / target;
+  }
+
+  GuardPaths out;
+  out.named = target.lexically_normal();
+  // Normalizes `..` and follows symlinks on the part that exists, which is what
+  // catches a link standing in for a protected file or for its parent
+  // directory. canonical() would fail outright on a file yet to be created.
+  out.resolved = std::filesystem::weakly_canonical(target, ec);
+  if (ec or out.resolved.empty()) out.resolved = out.named;
+  return out;
+}
+
+// What a path hits, and the reading of it that hit.
+struct Hit {
+  const Resolved* entry = nullptr;
+  std::filesystem::path path;
+};
+
+// Both readings are matched, because a link hides a protected file in either
+// direction. Resolved, a link pointing AT one is caught (innocent.txt ->
+// ~/.ssh/id_rsa). By name, a protected name that IS a link is caught: a suffix
+// entry knows names, not targets, and .m8/mcp.json -> ../server-config.json, or
+// a linked .m8/, resolves to a name it has never heard of. A secret by either
+// reading is a secret.
+Hit find_hit(const std::string& path) {
+  const GuardPaths paths = guard_paths(path);
+  const Resolved* by_target = find_entry(paths.resolved);
+  const Resolved* by_name =
+      paths.named == paths.resolved ? nullptr : find_entry(paths.named);
+  if (by_name != nullptr and by_name->secret and
+      (by_target == nullptr or not by_target->secret)) {
+    return Hit{by_name, paths.named};
+  }
+  if (by_target != nullptr) return Hit{by_target, paths.resolved};
+  if (by_name != nullptr) return Hit{by_name, paths.named};
+  return Hit{};
+}
+
 }  // namespace
 
 bool is_pseudo_device(const std::string& path) {
@@ -286,28 +349,14 @@ std::string expand_home(const std::string& path) {
 }
 
 std::filesystem::path resolve_for_guard(const std::string& path) {
-  const std::string text = expand_home(path);
-
-  std::error_code ec;
-  std::filesystem::path target(text);
-  if (target.is_relative()) {
-    std::filesystem::path cwd = std::filesystem::current_path(ec);
-    if (not ec and not cwd.empty()) target = cwd / target;
-  }
-
-  // Normalizes `..` and follows symlinks on the part that exists, which is what
-  // catches a link standing in for a protected file or for its parent
-  // directory. canonical() would fail outright on a file yet to be created.
-  std::filesystem::path resolved = std::filesystem::weakly_canonical(target, ec);
-  if (ec or resolved.empty()) resolved = target.lexically_normal();
-  return resolved;
+  return guard_paths(path).resolved;
 }
 
 bool is_protected_secret(const std::string& path) {
   if (path.empty()) return false;
   if (is_pseudo_device(path)) return false;
-  const Resolved* entry = find_entry(resolve_for_guard(path));
-  return entry != nullptr and entry->secret;
+  const Hit hit = find_hit(path);
+  return hit.entry != nullptr and hit.entry->secret;
 }
 
 std::string protected_path_reason(const std::string& path, PathAccess access,
@@ -317,16 +366,15 @@ std::string protected_path_reason(const std::string& path, PathAccess access,
   if (path.empty()) return std::string();
   if (is_pseudo_device(path)) return std::string();
 
-  const std::filesystem::path resolved = resolve_for_guard(path);
-  const Resolved* entry = find_entry(resolved);
-  if (entry == nullptr) return std::string();
+  const Hit hit = find_hit(path);
+  if (hit.entry == nullptr) return std::string();
   // An ExecutionVector is dangerous to write, not to read.
-  if (access == PathAccess::Read and not entry->secret) return std::string();
+  if (access == PathAccess::Read and not hit.entry->secret) return std::string();
 
   const bool reading = access == PathAccess::Read;
-  std::string message = resolved.string();
+  std::string message = hit.path.string();
   message += " is a protected path (";
-  message += entry->reason;
+  message += hit.entry->reason;
   message += ") and cannot be ";
   message += reading ? "read" : "written";
   message += " with tool_";

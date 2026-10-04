@@ -923,9 +923,9 @@ attack, so that one is refused outright.
 `pre-commit` hook or a `core.sshCommand` in `.git/config` is arbitrary command
 execution. `.github/` is a different component and stays writable.
 
-The check runs **inside the tool**, on the path after `~`/`$HOME` expansion,
-`..` normalization and symlink resolution. So all four of these hit the same
-refusal:
+The check runs **inside the tool**, after `~`/`$HOME` expansion and `..`
+normalization, on the path both as written and with its symlinks resolved. So
+all four of these hit the same refusal:
 
 ```sh
 tool_write ~/.ssh/authorized_keys        # the obvious one
@@ -935,6 +935,12 @@ tool_write ./innocent                    # through a symlink
 tool_write ~/.config/../.ssh/authorized_keys
 ```
 
+Matching the path as written as well covers the other direction, a protected
+name that is itself a link: a `.m8/mcp.json` pointing at `../server-config.json`,
+or a whole `.m8/` linked from a shared directory, is refused by its name rather
+than waved through by where it leads. And when `~/.m8` is a link, say into a
+dotfiles checkout, the files it leads to stay protected under their own names.
+
 `policy::SanePolicy` consults the same list, so under that policy it also covers
 shell redirections and the other write commands — `echo k >> ~/.ssh/authorized_keys`,
 `cp evil ~/.ssh/authorized_keys`, `tee ~/.zshrc`, `dd of=/etc/hosts`.
@@ -943,10 +949,10 @@ shell redirections and the other write commands — `echo k >> ~/.ssh/authorized
 
 It is not a sandbox, and it matters not to mistake it for one.
 
-Where it applies it is stronger than the policy layer: it sees the final
-resolved path at the moment of the write, so `eval`, base64, a variable, or a
-path assembled at runtime make no difference. But it only guards the tools that
-call it. A shell reaches the same file with `sed -i`, an interpreter one-liner,
+Where it applies it is stronger than the policy layer: it sees the final path,
+as written and as resolved, at the moment of the write, so `eval`, base64, a
+variable, or a path assembled at runtime make no difference. But it only guards
+the tools that call it. A shell reaches the same file with `sed -i`, an interpreter one-liner,
 or a script written and then executed, and nothing here sees any of that.
 `SanePolicy` catches the straightforward shell forms, but **`m8trixsh` defaults
 to `yolo` and `sp` hardcodes it**, and even under `sane` the bypasses its own

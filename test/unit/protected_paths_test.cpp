@@ -12,6 +12,8 @@
 // that a directory was not created — it uses /etc, which exists everywhere and
 // which the tests only ever read or fail to write.
 
+#include <unistd.h>
+
 #include <cstdlib>
 
 #include <filesystem>
@@ -146,6 +148,80 @@ TEST_F(ProtectedPathsTest, FollowsASymlinkedParentDirectory) {
   // does not.
   EXPECT_TRUE(write_denied("cfg/brand-new-file"));
   EXPECT_TRUE(write_denied("cfg/hosts"));
+}
+
+// The other direction: the protected name is itself the link. A suffix entry
+// knows names, not targets, so .m8/mcp.json -> ../server-config.json resolves
+// to a name it has never heard of; the path as written still says what it is.
+TEST_F(ProtectedPathsTest, ALinkAtAProtectedNameIsStillProtected) {
+  write_file("server-config.json", "{\"mcpServers\":{}}");
+  write_file(".git/config", "");
+  std::filesystem::create_directories(dir() / ".m8");
+  std::error_code ec;
+  std::filesystem::create_symlink("../server-config.json", dir() / ".m8" / "mcp.json", ec);
+  if (ec) GTEST_SKIP() << "cannot create symlinks here: " << ec.message();
+
+  EXPECT_TRUE(read_denied(".m8/mcp.json"));
+  EXPECT_TRUE(write_denied(".m8/mcp.json"));
+  EXPECT_TRUE(is_protected_secret(".m8/mcp.json"));
+  // The refusal names the protected path, not where the link happens to lead.
+  const std::string reason = protected_path_reason(".m8/mcp.json", PathAccess::Read, "read");
+  EXPECT_NE(reason.find(".m8/mcp.json"), std::string::npos) << reason;
+
+  // A secret's name over a file that is only an execution vector is still a
+  // secret to read.
+  std::filesystem::create_symlink("../.git/config", dir() / ".m8" / "parallel_api_key", ec);
+  ASSERT_FALSE(ec) << ec.message();
+  EXPECT_TRUE(read_denied(".m8/parallel_api_key"));
+}
+
+// A linked .m8/ (shared between checkouts, say) hides every per-workspace entry
+// at once when the directory it leads to has another name.
+TEST_F(ProtectedPathsTest, ALinkedM8DirectoryIsStillProtected) {
+  std::filesystem::create_directories(dir() / "shared-m8");
+  std::error_code ec;
+  std::filesystem::create_directory_symlink("shared-m8", dir() / ".m8", ec);
+  if (ec) GTEST_SKIP() << "cannot create symlinks here: " << ec.message();
+
+  EXPECT_TRUE(read_denied(".m8/mcp.json"));
+  EXPECT_TRUE(read_denied(".m8/parallel_api_key"));
+  EXPECT_TRUE(write_denied(".m8/mcp_state.json"));
+  EXPECT_FALSE(read_denied(".m8/mcp_state.json"));
+  // The rest of .m8/ stays usable through the link.
+  EXPECT_FALSE(write_denied(".m8/skills/x/SKILL.md"));
+}
+
+// ────────────────────────────── a linked ~/.m8 ──────────────────────────────
+// The suffix entries' copies under ~ are canonicalized at startup like the
+// absolute entries, so when ~/.m8 is a link (a dotfiles checkout, say) the files
+// it leads to stay protected by their own names, which no suffix can know. The
+// table is built once per process from the HOME it starts with, so the check
+// runs in a fresh process with a HOME of its own: gtest's threadsafe death-test
+// style re-executes the binary. Nothing dies.
+TEST(ProtectedPathsDeathTest, ALinkedHomeM8KeepsItsTargetsProtected) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_EXIT(
+      {
+        const std::filesystem::path root =
+            std::filesystem::temp_directory_path() /
+            ("m8-linked-home-" + std::to_string(::getpid()));
+        const std::filesystem::path home = root / "home";
+        // m8, not .m8: a target named .m8 would match the suffix entries anyway.
+        const std::filesystem::path dotfiles = root / "dotfiles" / "m8";
+        std::error_code ec;
+        std::filesystem::create_directories(home, ec);
+        std::filesystem::create_directories(dotfiles, ec);
+        std::filesystem::create_directory_symlink(dotfiles, home / ".m8", ec);
+        if (ec) std::exit(2);
+        ::setenv("HOME", home.c_str(), 1);
+        const bool ok = read_denied((dotfiles / "mcp.json").string()) and
+                        read_denied((dotfiles / "parallel_api_key").string()) and
+                        write_denied((dotfiles / "mcp_state.json").string()) and
+                        not read_denied((dotfiles / "notes.txt").string());
+        std::filesystem::remove_all(root, ec);
+        std::exit(ok ? 0 : 1);
+      },
+      ::testing::ExitedWithCode(0), "");
 }
 
 // ─────────────────────── component-wise, not substring ──────────────────────
