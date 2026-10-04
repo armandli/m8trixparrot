@@ -47,11 +47,13 @@ tsan:
 	cmake -S . -B $(TSAN_DIR) -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	  -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" \
 	  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
-	cmake --build $(TSAN_DIR) -j$(JOBS) --target core_tests
+	cmake --build $(TSAN_DIR) -j$(JOBS) --target core_tests mcp_tests
 
+# The MCP client is threaded too: an I/O loop per server, a worker for the
+# requests a server sends back, and any number of agents calling at once.
 tsan-test: tsan
 	ctest --test-dir $(TSAN_DIR) --output-on-failure \
-	  -R "VectorStoreTest|MemoryStoreTest|AgentPoolTest"
+	  -R "VectorStoreTest|MemoryStoreTest|AgentPoolTest|Mcp"
 
 install: build
 	cmake --install $(BUILD_DIR)

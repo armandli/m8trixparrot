@@ -1,0 +1,1 @@
+{"type":"object","properties":{"t1":{"type":5},"t2":{"type":["string",7,"bogus"]},"t3":{"enum":[1,"a",{"x":1},[2],null]},"t4":{"description":{"nested":"object"},"type":"string"},"t5":{"items":[{"type":"string"},{"type":"integer"}],"type":"array"},"t6":{"prefixItems":[{"type":"number"}],"type":"array"},"t7":"not a schema"}}

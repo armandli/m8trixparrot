@@ -113,15 +113,23 @@ missing command is never something the model is told it has.
 ## Testing
 
 ```sh
-make test              # the hermetic suite, ~410 cases
+make test              # the hermetic suite, ~730 cases
 make integration-test  # live tests against a real Ollama; each self-skips
-make tsan-test         # the vdb lock-order check under ThreadSanitizer
+make tsan-test         # vdb, agent pool and MCP client under ThreadSanitizer
 ```
 
 `make test` excludes the `integration` ctest label; `make integration-test`
 selects it. The live tests need a pulled model (`qwen3.8:27b-mlx` by default,
 override with `M8_TEST_MODEL`) and put this build's `tool_*` binaries on `PATH`
 themselves, so they run without `make install`.
+
+The MCP client has its own binary, `mcp_tests`, run against real processes: a
+scripted MCP server (`fake_mcp_server`) that speaks either protocol era and
+misbehaves on request, and an HTTP test server playing Streamable HTTP servers
+and OAuth authorization servers, with a scripted browser. The live suite adds
+`@modelcontextprotocol/server-everything` over stdio and Streamable HTTP (via
+npx), every lowered schema sent to Ollama, and a model finding a tool through
+`tool_search`.
 
 ## Running chat_tui
 
@@ -157,7 +165,10 @@ Its model-visible tool set is deliberately small:
 | `subagent_create` / `subagent_wait` | Spawn an independent subtask on its own thread and collect its conclusion. |
 | `skill` | Load a procedure from `.m8/skills/<name>/SKILL.md` into the conversation, or unload it to reclaim context. |
 | `memory` | Long-term memory in `.m8/vdb/memory.m8db`, searched by embedding. |
-| `ask_user` | Ask the operator something and block on the answer. |
+| `ask_user` | Ask the operator something and block on the answer, given in the answer box (see [When a server asks you something](#when-a-server-asks-you-something)). |
+| `mcp__<server>__<tool>` | A tool of an installed [MCP server](#mcp-servers). |
+| `tool_search` | Load deferred MCP tools by keyword or name; offered only while MCP tools are deferred. |
+| `mcp_resource` | List, and read, what MCP servers offer as resources. |
 
 Everything else is a **command on PATH**, run inside `bash_repl`: `tool_read`,
 `tool_grep`, `tool_find`, `tool_write`, `tool_edit`, `tool_webfetch`,
@@ -190,6 +201,10 @@ directories deep still uses the repository's state rather than making its own:
   vdb/memory.m8db      the vector database
   sessions/<uuid>.json one root result tree per turn
   parallel_api_key     the websearch tool call's key, if you use one  (never committed)
+  mcp.json             this workspace's MCP servers
+  mcp_state.json       detected MCP protocol eras, servers you disabled here
+  mcp_cache.json       each MCP server's last tool list, shown while it starts
+  logs/mcp/<name>.log  each stdio MCP server's stderr
 ```
 
 Two things are deliberately *not* in there, both for the same reason — they are
@@ -198,10 +213,16 @@ properties of the machine rather than of one repository.
 machine instead of once per checkout. And `~/.parallel_api_key` is the key the
 standalone `tool_websearch` command reads, since that command is run from
 anywhere rather than from a workspace root (see [Web search](#web-search)).
+`~/.m8/` also holds what belongs to you rather than to a checkout: your own MCP
+servers (`mcp.json`), the approvals you gave workspace servers
+(`mcp_trust.json`), which must live where a repository cannot write its own,
+and your logins to remote servers (`mcp_credentials.json`) (see
+[MCP servers](#mcp-servers)).
 
 Slash commands: `/help`, `/session`, `/context`, `/skills`, `/reset`, `/quit`,
-and `/remember <text>`, `/memories [query]`, `/forget <id>` for driving memory by
-hand. The memory commands go through the same in-RAM store handle the agent's
+`/mcp` (see [MCP servers](#mcp-servers)), `/mcp__<server>__<prompt>` for an MCP
+server's prompts, and `/remember <text>`, `/memories [query]`, `/forget <id>` for
+driving memory by hand. The memory commands go through the same in-RAM store handle the agent's
 `memory` tool uses, so what you see is what the agent sees.
 
 ### Architecture
@@ -219,14 +240,17 @@ flowchart TD
         Pool[AgentPool\nregistry, spawn, event observer]
         Ollama[OllamaClient\nchat+embed work pool, k in flight]
         Policy[PolicyInterface\nYoloPolicy / SanePolicy]
-        Tools[Tools\nbash_repl bash_search\nmemory skill ask_user]
+        Tools[Tools\nbash_repl bash_search\nmemory skill ask_user\ntool_search mcp_resource mcp__*]
         Shell[BashReplSession\none persistent bash per agent]
         Installed[Installed commands\ntool_read tool_grep tool_find\ntool_write tool_edit\ntool_webfetch tool_websearch]
         Skills[SkillCatalog\n.m8/skills/*/SKILL.md]
         Store[SessionStore\n.m8/sessions/*.json]
         Memory[MemoryStore\n.m8/vdb/memory.m8db\nHNSW + single-file log]
         SubAgent[Subagent\nAgent::run_turn on its own thread]
+        Registry[mcp::Registry\nconnections, catalog snapshots\nBM25 tool search index]
     end
+
+    Servers[MCP servers\nlocal: one process group each\nremote: OAuth-protected HTTP]
 
     Input --> Bang
     Bang -- yes --> BashDirect[BashTool.execute\nno policy check, no model call]
@@ -242,6 +266,9 @@ flowchart TD
     Tools -- remember/recall --> Memory
     Tools -- command --> Shell
     Shell -- runs --> Installed
+    Tools -- MCP calls --> Registry
+    Registry -- JSON-RPC over stdio or Streamable HTTP --> Servers
+    Registry -- server notices, header --> Transcript
     Tools -- result --> Agent
     Agent -- subagent_create --> Pool
     Pool -- spawns --> SubAgent
@@ -885,8 +912,8 @@ genuinely needs changing, you change it.
 
 | Tier | Refused to | Examples |
 |---|---|---|
-| Secret | `read`, `write`, `edit`, and skipped by `grep`/`find` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.git-credentials`, `~/.netrc`, `~/.npmrc`, `/etc/sudoers`, `~/.parallel_api_key`, `.m8/parallel_api_key` |
-| Execution vector | `write`, `edit` — **reading stays allowed** | `~/.zshrc` and the other shell startup files, `~/.gitconfig`, any `.git/` directory, launchd and systemd units, crontabs, `/etc`, `/usr`, `/bin`, `/System` |
+| Secret | `read`, `write`, `edit`, and skipped by `grep`/`find` | `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.git-credentials`, `~/.netrc`, `~/.npmrc`, `/etc/sudoers`, `~/.parallel_api_key`, `.m8/parallel_api_key`, `~/.m8/mcp.json` and `.m8/mcp.json` (MCP server entries carry tokens), `~/.m8/mcp_credentials.json` |
+| Execution vector | `write`, `edit` — **reading stays allowed** | `~/.zshrc` and the other shell startup files, `~/.gitconfig`, any `.git/` directory, launchd and systemd units, crontabs, `/etc`, `/usr`, `/bin`, `/System`, `~/.m8/mcp_trust.json` (an approval there starts a server), `.m8/mcp_state.json` (so does an enable choice) |
 
 Reading `~/.zshrc` to answer a question about it is useful and harmless; writing
 it is code execution on your next login. Reading `~/.ssh/id_rsa` is the whole
@@ -896,9 +923,9 @@ attack, so that one is refused outright.
 `pre-commit` hook or a `core.sshCommand` in `.git/config` is arbitrary command
 execution. `.github/` is a different component and stays writable.
 
-The check runs **inside the tool**, on the path after `~`/`$HOME` expansion,
-`..` normalization and symlink resolution. So all four of these hit the same
-refusal:
+The check runs **inside the tool**, after `~`/`$HOME` expansion and `..`
+normalization, on the path both as written and with its symlinks resolved. So
+all four of these hit the same refusal:
 
 ```sh
 tool_write ~/.ssh/authorized_keys        # the obvious one
@@ -908,6 +935,12 @@ tool_write ./innocent                    # through a symlink
 tool_write ~/.config/../.ssh/authorized_keys
 ```
 
+Matching the path as written as well covers the other direction, a protected
+name that is itself a link: a `.m8/mcp.json` pointing at `../server-config.json`,
+or a whole `.m8/` linked from a shared directory, is refused by its name rather
+than waved through by where it leads. And when `~/.m8` is a link, say into a
+dotfiles checkout, the files it leads to stay protected under their own names.
+
 `policy::SanePolicy` consults the same list, so under that policy it also covers
 shell redirections and the other write commands — `echo k >> ~/.ssh/authorized_keys`,
 `cp evil ~/.ssh/authorized_keys`, `tee ~/.zshrc`, `dd of=/etc/hosts`.
@@ -916,10 +949,10 @@ shell redirections and the other write commands — `echo k >> ~/.ssh/authorized
 
 It is not a sandbox, and it matters not to mistake it for one.
 
-Where it applies it is stronger than the policy layer: it sees the final
-resolved path at the moment of the write, so `eval`, base64, a variable, or a
-path assembled at runtime make no difference. But it only guards the tools that
-call it. A shell reaches the same file with `sed -i`, an interpreter one-liner,
+Where it applies it is stronger than the policy layer: it sees the final path,
+as written and as resolved, at the moment of the write, so `eval`, base64, a
+variable, or a path assembled at runtime make no difference. But it only guards
+the tools that call it. A shell reaches the same file with `sed -i`, an interpreter one-liner,
 or a script written and then executed, and nothing here sees any of that.
 `SanePolicy` catches the straightforward shell forms, but **`m8trixsh` defaults
 to `yolo` and `sp` hardcodes it**, and even under `sane` the bypasses its own
@@ -960,6 +993,249 @@ conversation; read the skill's other files with `tool_read`), and drops it with
 
 `.m8/skills/` is tracked by git (unlike the rest of `.m8/`); the bundled
 `todo-scan` skill is a working example.
+
+## MCP servers
+
+`m8` is a [Model Context Protocol](https://modelcontextprotocol.io) client. Any
+MCP server — a database, a browser, an issue tracker, your own — can be
+installed into it, and its tools, resources and prompts become the agent's.
+
+```sh
+m8 mcp add everything -- npx -y @modelcontextprotocol/server-everything
+m8 mcp add -s user github https://api.githubcopilot.com/mcp/ -H 'Authorization: Bearer ${GITHUB_TOKEN}'
+m8 mcp add-json db '{"command":"uvx","args":["mcp-server-sqlite","--db-path","app.db"]}'
+m8 mcp add -s user -e API_KEY='${MY_API_KEY}' tracker -- tracker-mcp --stdio
+m8 mcp list             # every server, and whether it connects
+m8 mcp get everything   # one server: its entry (secrets masked), tools, prompts
+m8 mcp disable db       # or enable: remembered for this workspace only
+m8 mcp remove db
+m8 mcp import ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+`m8 mcp import` copies the servers of another tool's config — Claude Desktop's,
+Cursor's `~/.cursor/mcp.json`, VS Code's `.vscode/mcp.json`, any `.mcp.json` —
+into one of m8's files, skipping (and naming) what m8 cannot run and names it
+already has.
+
+### Where servers are configured
+
+Three files, all in the `{"mcpServers": {...}}` format that Claude Code, Claude
+Desktop and Cursor use, so an entry can be copied between them:
+
+| File | Scope (`-s`) | |
+|---|---|---|
+| `~/.m8/mcp.json` | `user` | your own servers, in every workspace |
+| `<workspace>/.mcp.json` | `shared` | the cross-tool project file, meant to be committed |
+| `<workspace>/.m8/mcp.json` | `project` (the default) | this workspace's own |
+
+On a name clash the more specific file wins: project, then shared, then user.
+
+```json
+{ "mcpServers": {
+    "github":     { "type": "http", "url": "https://api.githubcopilot.com/mcp/",
+                    "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" } },
+    "everything": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"],
+                    "env": { "LOG": "${LOG:-0}" }, "disabledTools": ["trigger_long_running_operation"] } } }
+```
+
+Values can name the environment as `${VAR}` or `${VAR:-default}`, so a token
+stays in your shell rather than the file; a server whose variable is unset (with
+no default) is not started, rather than started with an empty token. Beside the
+standard keys (`command`, `args`, `env`, `cwd` for a local server; `type`,
+`url`, `headers` for a remote one) m8 reads:
+
+| Key | |
+|---|---|
+| `disabled` | don't start it |
+| `alwaysLoad` | never defer its tools behind [tool search](#tool-search) |
+| `enabledTools` / `disabledTools` | offer only these tools / never these |
+| `timeout` / `startupTimeout` | milliseconds, per tool call / to connect |
+| `protocol` | `auto` (the default), `modern` or `legacy` |
+| `inheritEnv` | give the server m8's whole environment |
+| `oauth` | for a remote server: `clientId`, `clientSecret`, `scopes`, `callbackPort` (see [Logging in](#logging-in-to-a-remote-server)) |
+
+A server gets a minimal environment — `HOME`, `USER`, `LOGNAME`, `PATH`,
+`SHELL`, `TERM`, `LANG` and `LC_*`, `TMPDIR`, `XDG_*` — plus its own `env`, so a
+key sitting in m8's environment (`PARALLEL_API_KEY`, `AWS_*`) does not reach
+every server. `"inheritEnv": true` opts out. Its stderr goes to
+`.m8/logs/mcp/<server>.log`.
+
+### Trust
+
+A server from a workspace file (`.mcp.json` or `.m8/mcp.json`) runs only once you
+approve it: a cloned repository must not be able to start a process by shipping
+a config. m8 names the waiting servers when it starts; `/mcp approve <name>` (or
+`--all`) in the TUI, or `m8 mcp approve`, approves one after showing what it
+runs. The approval is kept in `~/.m8/mcp_trust.json` against a fingerprint of
+everything in the entry that decides what runs and where requests go —
+command, arguments, environment, `inheritEnv`, working directory, URL,
+headers — so a server whose entry changes,
+by a pull or by an agent, waits for approval again. (Toggling `alwaysLoad`, a
+tool filter or a timeout keeps the approval.)
+`m8 mcp add` run at a terminal approves what it adds. Servers in your own
+`~/.m8/mcp.json` need no approval.
+
+The agent cannot approve servers for itself. `m8 mcp add`, `add-json`,
+`approve`, `enable`, `remove` and `login` refuse to run inside a shell m8
+started (m8 marks them with `M8_AGENT_SHELL`, including `!` commands), and
+under the `sane` policy they are refused as commands as well. Like the
+[protected paths](#protected-paths), these are guardrails, not a sandbox.
+
+An approved server's tools are then called without asking, the way `bash_repl`
+runs commands.
+
+### In the TUI
+
+- `/mcp` — each server's state, transport, protocol version, tool count and
+  what its schemas cost; why a server failed, with the end of its stderr; and
+  whether tool search is deferring.
+- `/mcp tools [server]` — every MCP tool, marked loaded, deferred or always
+  loaded. `/mcp resources [server]` — what the servers offer to read.
+- `/mcp reconnect [server]`, `/mcp enable|disable <server>`,
+  `/mcp approve <server>|--all`, `/mcp login|logout <server>`.
+- `/mcp__<server>__<prompt> [args]` sends a server's prompt as your next message
+  (`/help` lists them). A prompt with one argument takes the rest of the line;
+  otherwise arguments go in order, or as `name=value`.
+- The header shows `mcp 3/4` — servers connected of those enabled — with `!`
+  when one is waiting on you; `/context` adds what MCP tools cost
+  (`mcp: 57 tools · loaded 5 (~1.6k) · deferred 52 (~7.9k saved per call)`).
+
+A call shows in the transcript as `server › tool`.
+
+### Logging in to a remote server
+
+A remote server that answers `401` shows as **needs login**, and m8 says so when
+it starts. `/mcp login <server>` (or `m8 mcp login <server>` from a shell) opens
+your browser at the server's authorization page; once you approve, the browser
+comes back to m8 on `127.0.0.1` and the server connects. `/mcp logout <server>`
+forgets the login.
+
+m8 follows the 2026-07-28 authorization spec. It finds the authorization server
+through the server's protected resource metadata (RFC 9728) and that server's
+own metadata (RFC 8414 or OpenID discovery), which must name itself exactly and
+support PKCE with S256 — m8 refuses otherwise. It identifies itself with, in
+order: an `"oauth": {"clientId": ...}` from the server's config (a client you
+registered yourself; GitHub, for one, requires it), m8's Client ID Metadata
+Document when the authorization server accepts one and
+`mcp_oauth_client_metadata_url` names where you host it (a template is in
+[`docs/oauth/m8-client-metadata.json`](docs/oauth/m8-client-metadata.json)), or
+dynamic registration, remembered per authorization server. The request carries
+PKCE, a `state` and the server as the `resource` (RFC 8707); the answer is
+checked for the `state` and, per RFC 9207, for the issuer it comes from, so a
+code is never sent to the wrong server.
+
+Tokens are kept in `~/.m8/mcp_credentials.json` (mode 0600, on the
+[protected paths](#protected-paths) list), only ever sent to the server they
+were issued for, and refreshed before they expire — a rotated refresh token is
+saved before the new access token is used, and two m8s refreshing at once take
+turns on a file lock. A call that finds its login expired, or a server asking
+for more permissions than it has (`403 insufficient_scope`), asks you in the
+answer box; `y` logs in again — keeping the permissions you already granted —
+and the call goes once more.
+
+Over SSH the browser comes back to the machine you are sitting at, not the one
+running m8: forward the port (`ssh -L 8765:127.0.0.1:8765`) and fix it with
+`"oauth": {"callbackPort": 8765}`. A server whose config sends its own
+`Authorization` header never uses OAuth.
+
+### When a server asks you something
+
+A server may stop in the middle of a call to ask you for something
+(elicitation). m8 then shows the question in a box above the input, naming the
+server, the file it was configured in, and the agent whose call it is, and the
+**answer box** takes the keyboard: Enter answers, Ctrl+D declines, Esc
+cancels. Your message draft and its history are left alone.
+
+- **A form** is asked one field at a time, each with its type and limits and
+  started at the server's default. Answers are checked before they go: numbers,
+  `y`/`n`, a choice by its number or its name, several choices separated by
+  commas, email addresses, links and dates. Last comes a review of every
+  answer — Enter sends it, `e` changes it.
+- **A link** (to log in to a third party, say) is shown whole, with the site it
+  really goes to on a line of its own, and with a warning when it is not https,
+  uses punycode (`xn--`), or puts a name before an `@`. m8 never fetches it;
+  `y` opens it in your browser, and anything else declines. Without a browser
+  (over SSH), you open it yourself.
+
+Questions from several servers, and the agent's own `ask_user`, wait their
+turn: one form is never interleaved with another.
+
+### Tool search
+
+MCP tool definitions are expensive. GitHub's server alone is about 46k tokens
+for 91 tools, sent with every model call, and a local model picks tools
+noticeably worse past a few dozen. So, like Claude Code, m8 **defers** them:
+the model sees each deferred tool's name in its system prompt, and a
+`tool_search` tool that loads the schemas it needs. Ollama has no server-side
+tool search, so this all happens in m8.
+
+`"tool_search"` in `.m8/config.json`, or `--tool-search`, takes the values of
+Claude Code's `ENABLE_TOOL_SEARCH`:
+
+| Value | |
+|---|---|
+| `auto` (default) | defer once MCP schemas would take more than min(10% of the context window, 10k tokens), or there are more than 30 MCP tools |
+| `auto:N` | the same at N% |
+| `on` / `off` | always / never |
+
+A query is keywords (`create issue`), ranked by BM25 over each tool's name,
+title, description and parameters; or `select:a,b` for exact names
+(`mcp__github__create_issue`, `github.create_issue`, or a bare `create_issue`
+when only one server has it); `+word` requires a word in the tool's name, and
+`server:<name>` searches one server. What a search loads stays in every later
+request's tools array, survives summarization and is passed to subagents; past
+40 tools or 20% of the window the least recently used are dropped between
+turns. A model that calls a deferred tool by its name without searching first
+gets it loaded and run anyway. `"alwaysLoad": true` exempts a server.
+
+### Protocol
+
+m8 speaks MCP **2026-07-28** — stateless, with `server/discover`, per-request
+`_meta` and multi-round-trip requests — and falls back, by the spec's detection
+rules, to the `initialize` protocol (2024-11-05 to 2025-11-25) that most servers
+still speak. The era found is remembered per server in `.m8/mcp_state.json`.
+Resources reach the model through one `mcp_resource` tool (`list`, `templates`,
+`read`). A server that crashes is restarted when next used, up to three times in
+five minutes; after that it stays down until `/mcp reconnect`. If Ollama rejects
+an MCP tool's schema, m8 retries that step without MCP tools and says so.
+
+A server's tool list stays current: m8 holds a `subscriptions/listen` request
+open on every 2026-07-28 server that announces list changes (an earlier HTTP
+server's GET stream; earlier stdio servers just write them), re-opening it when
+the connection comes back, and re-lists a server whose list outlived the
+time-to-live it gave. Each server's last list is kept in `.m8/mcp_cache.json`,
+so one that takes seconds to start (npx fetching a package) has its tools in
+the very first turn; a call to one of them waits for it.
+
+Remote servers speak Streamable HTTP in both of its shapes: 2026-07-28's
+stateless one, each request's metadata mirrored into `MCP-Protocol-Version`,
+`Mcp-Method`, `Mcp-Name` and `Mcp-Param-*` headers (a tool whose `x-mcp-header`
+annotations changed is listed again and the call retried); and the earlier one,
+with an `Mcp-Session-Id` that is renewed if the server forgets it (the request
+is sent again) and ended with a DELETE on exit, requests from the server on a
+response stream, and streams the server closes early resumed with
+`Last-Event-ID`. Answers come as JSON or as an SSE stream whose progress
+notifications keep a long call from timing out; cancelling closes the stream.
+Connections are reused between requests. m8 never follows a redirect — a server
+that moved says so, rather than m8 sending its headers, and your token,
+somewhere else.
+
+Not planned: the deprecated HTTP+SSE transport, sampling and roots.
+
+### Troubleshooting
+
+- `m8 mcp list` and `m8 mcp get <server>` connect outside the TUI and print
+  what went wrong; `/mcp` shows the same, with the end of a failed server's
+  stderr.
+- A stdio server's stderr goes to `.m8/logs/mcp/<server>.log`.
+- `M8_MCP_DEBUG=1 m8 ...` writes every message to and from each server to
+  `.m8/logs/mcp/<server>.wire.log` (mode 0600), with values under anything that
+  looks like a token, secret, code or password redacted.
+- A server that works in your shell but not in m8 is usually missing an
+  environment variable: m8 passes only `HOME`, `USER`, `PATH` and their kind, so
+  give it what it needs in `env` (or set `"inheritEnv": true`).
+- A server you changed in a workspace file waits for approval again; one whose
+  `${VAR}` is unset does not start, and says which variable.
 
 ## Memory
 

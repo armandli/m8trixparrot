@@ -2,8 +2,10 @@
 
 #include <cstdio>
 
+#include <algorithm>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace f = ftxui;
@@ -299,6 +301,66 @@ void forget_subtree(
     subagent_nodes.erase(node.agent_id);
     agent_containers.erase(node.agent_id);
   }
+}
+
+namespace {
+
+// Text that wraps however long its words are: a URL is one long "word", and
+// it has to be seen whole before anyone agrees to open it. `emphasis` (a
+// link's host) is picked out wherever it appears.
+f::Element wrapped(const std::string& line, const std::string& emphasis) {
+  f::Elements items;
+  const auto add = [&](std::string_view part, bool strong) {
+    size_t at = 0;
+    while (at < part.size()) {
+      // A word with its trailing space, cut into pieces short enough to wrap,
+      // and never inside a UTF-8 sequence.
+      size_t end = part.find(' ', at);
+      end = end == std::string_view::npos ? part.size() : end + 1;
+      size_t length = std::min<size_t>(end - at, 24);
+      while (length > 1 and at + length < part.size() and
+             (static_cast<unsigned char>(part[at + length]) & 0xC0) == 0x80) {
+        --length;
+      }
+      f::Element piece = f::text(std::string(part.substr(at, length)));
+      if (strong) piece = piece | f::bold | f::underlined | f::color(f::Color::Yellow);
+      items.push_back(std::move(piece));
+      at += length;
+    }
+  };
+  size_t at = 0;
+  while (true) {
+    const size_t found = emphasis.empty() ? std::string::npos : line.find(emphasis, at);
+    if (found == std::string::npos) {
+      add(std::string_view(line).substr(at), false);
+      break;
+    }
+    add(std::string_view(line).substr(at, found - at), false);
+    add(emphasis, true);
+    at = found + emphasis.size();
+  }
+  return f::flexbox(std::move(items));
+}
+
+}  // namespace
+
+f::Element render_question(const Question& question) {
+  f::Elements rows;
+  if (not question.message.empty()) {
+    rows.push_back(wrapped(question.message, "") | f::color(f::Color::White));
+  }
+  std::istringstream lines(question.detail);
+  for (std::string line; std::getline(lines, line);) {
+    rows.push_back(wrapped(line, question.emphasis));
+  }
+  if (not question.problem.empty()) {
+    rows.push_back(wrapped("\xe2\x9c\x97 " + question.problem, "") | f::color(f::Color::Red));
+  }
+  std::string footer = question.keys;
+  if (not question.progress.empty()) footer = question.progress + "  \xc2\xb7  " + footer;
+  rows.push_back(f::text(footer) | f::dim);
+  return f::window(f::text(" " + question.heading + " ") | f::bold, f::vbox(std::move(rows))) |
+         f::color(f::Color::Yellow);
 }
 
 }  // namespace agentui

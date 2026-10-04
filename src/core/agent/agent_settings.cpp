@@ -43,6 +43,24 @@ std::optional<bool> optional_bool_field(simdjson::ondemand::object& obj,
   return out;
 }
 
+// A string, or a boolean spelled as "on"/"off": "tool_search": false reads as
+// naturally as "off", and Claude Code accepts both for the same setting.
+std::optional<std::string> optional_switch_field(simdjson::ondemand::object& obj,
+                                                 std::string_view key) {
+  simdjson::ondemand::value value;
+  if (obj[key].get(value)) return std::nullopt;
+  simdjson::ondemand::json_type type;
+  if (value.type().get(type)) return std::nullopt;
+  if (type == simdjson::ondemand::json_type::boolean) {
+    bool on = false;
+    if (value.get_bool().get(on)) return std::nullopt;
+    return std::string(on ? "on" : "off");
+  }
+  std::string_view out;
+  if (value.get_string().get(out)) return std::nullopt;
+  return std::string(out);
+}
+
 // ---------------------------------------------------------------------------
 // Shell-env-style config (m8trixsh's ~/.m8shrc).
 // ---------------------------------------------------------------------------
@@ -197,6 +215,10 @@ StartupSettings load_startup_settings(const std::string& path,
       optional_string_field(obj, "memory_embed_model");
   settings.shell = optional_string_field(obj, "shell");
   settings.mode_switch_key = optional_string_field(obj, "mode_switch_key");
+  settings.enable_mcp = optional_bool_field(obj, "enable_mcp");
+  settings.tool_search = optional_switch_field(obj, "tool_search");
+  settings.mcp_oauth_client_metadata_url =
+      optional_string_field(obj, "mcp_oauth_client_metadata_url");
 
   return settings;
 }

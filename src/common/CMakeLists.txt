@@ -1,6 +1,7 @@
 # Shared UI pieces for the agent TUIs (m8, m8trixsh): the transcript
 # model and its FTXUI rendering.
 add_library(agentui STATIC
+  interaction_queue.cpp
   transcript_view.cpp
 )
 

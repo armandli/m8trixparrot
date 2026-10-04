@@ -17,6 +17,9 @@ add_executable(unit_tests
   tools_util_test.cpp
   tools_web_test.cpp
   tools_websearch_test.cpp
+  json_value_test.cpp
+  util_codec_test.cpp
+  util_url_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -37,6 +40,8 @@ gtest_discover_tests(unit_tests)
 # directory and rely on running sequentially.
 add_executable(core_tests
   loopback_server.cpp
+  http_test_server.cpp
+  agent_mcp_test.cpp
   agent_pool_test.cpp
   agent_context_test.cpp
   agent_skills_test.cpp
@@ -57,6 +62,45 @@ target_link_libraries(core_tests
 )
 
 gtest_discover_tests(core_tests)
+
+# The MCP client (src/core/mcp): protocol, schema lowering, tool search, and —
+# from phase 2 on — real transports against a fake server process. Its own
+# binary because those tests spawn processes and run servers on threads, which
+# unit_tests (it chdirs per test) does not tolerate, and they must not share
+# core_tests' singletons.
+# A scripted MCP server the client tests run as a real child process.
+add_executable(fake_mcp_server fake_mcp_server.cpp)
+target_link_libraries(fake_mcp_server PRIVATE agentcore)
+
+add_executable(mcp_tests
+  http_test_server.cpp
+  mcp_client_test.cpp
+  mcp_config_test.cpp
+  mcp_elicitation_test.cpp
+  mcp_http_test.cpp
+  mcp_oauth_test.cpp
+  mcp_json_rpc_test.cpp
+  mcp_registry_test.cpp
+  mcp_sse_test.cpp
+  mcp_schema_test.cpp
+  mcp_content_test.cpp
+  mcp_tool_search_test.cpp
+)
+
+target_include_directories(mcp_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_compile_definitions(mcp_tests PRIVATE
+  M8_MCP_SCHEMA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mcp_schemas"
+  M8_FAKE_MCP_SERVER="$<TARGET_FILE:fake_mcp_server>"
+)
+add_dependencies(mcp_tests fake_mcp_server)
+
+target_link_libraries(mcp_tests
+  PRIVATE agentcore
+  PRIVATE GTest::gtest_main
+)
+
+gtest_discover_tests(mcp_tests)
 
 # sp's system prompt, slash-command grammar and hand-driven memory operations.
 # Its own binary rather than part of unit_tests for the same reason core_tests
@@ -86,14 +130,29 @@ gtest_discover_tests(sp_tests)
 add_executable(m8_tests
   m8_prompt_test.cpp
   m8_paths_test.cpp
+  m8_mcp_cli_test.cpp
+  m8_mcp_view_test.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_prompt.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_paths.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_mcp_cli.cpp
+  ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_mcp_view.cpp
+  # UI-agnostic, so it is tested without linking the FTXUI-based agentui.
+  interaction_queue_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/common/interaction_queue.cpp
 )
 
 target_include_directories(m8_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8)
 
+# `m8 mcp list` and `get` start real servers; the tests point them at the
+# scripted one.
+target_compile_definitions(m8_tests PRIVATE
+  M8_FAKE_MCP_SERVER="$<TARGET_FILE:fake_mcp_server>"
+)
+add_dependencies(m8_tests fake_mcp_server)
+
 target_link_libraries(m8_tests
   PRIVATE agentcore
+  PRIVATE CLI11::CLI11
   PRIVATE GTest::gtest_main
 )
 

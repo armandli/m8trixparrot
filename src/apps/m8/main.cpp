@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -5,12 +7,16 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <filesystem>
 #include <functional>
 #include <iostream>
 #include <iterator>
 #include <list>
+#include <memory>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -25,16 +31,25 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 
+#include <common/interaction_queue.h>
 #include <common/transcript_view.h>
 #include <core/agent/agent.h>
 #include <core/agent/agent_pool.h>
 #include <core/vdb/memory_ops.h>
 #include <core/vdb/memory_store.h>
 #include <core/agent/agent_settings.h>
+#include <core/mcp/config.h>
+#include <core/mcp/content.h>
+#include <core/mcp/elicitation.h>
+#include <core/mcp/registry.h>
+#include <core/mcp/tool_search.h>
 #include <core/policy/policy.h>
 #include <core/policy/sane_policy.h>
 #include <core/tools/tools.h>
+#include <core/util/open_url.h>
 
+#include <m8_mcp_cli.h>
+#include <m8_mcp_view.h>
 #include <m8_paths.h>
 #include <m8_prompt.h>
 
@@ -97,6 +112,7 @@ const char* kHelpText =
     "/session  show the current session id\n"
     "/context  show context token usage and the auto-summarize threshold\n"
     "/skills   list available skills (and re-scan the skills directory)\n"
+    "/mcp      MCP servers and tool search; /mcp help for its subcommands\n"
     "/remember <text>   store something about this project in memory\n"
     "/memories [query]  search memory, or show statistics with no query\n"
     "/forget <id>       delete one memory by id\n"
@@ -107,6 +123,50 @@ const char* kHelpText =
     "Ctrl+T    fold or unfold everything at once\n"
     "Ctrl+G    while subagents run: toggle the pane grid / the transcript";
 
+const char* kMcpHelpText =
+    "/mcp                          servers, their state, and tool search\n"
+    "/mcp tools [server]           every MCP tool: loaded, deferred or always loaded\n"
+    "/mcp resources [server]       what the servers offer as resources\n"
+    "/mcp reconnect [server]       restart a connection (all of them without a name)\n"
+    "/mcp enable|disable <server>  turn a server on or off in this workspace\n"
+    "/mcp approve <server>|--all   let a server from a workspace file run\n"
+    "/mcp login|logout <server>    log in to a remote server (OAuth), or forget it\n"
+    "/mcp__<server>__<prompt> [args]  run a server's prompt (listed in /help)\n"
+    "\n"
+    "servers are added from a shell: m8 mcp add <name> -- <command> [args...]";
+
+// The elicitation engine (core) and the interaction queue (the UI's) each
+// have their own question type; m8 is where they meet.
+agentui::Question to_ui(const mcp::Question& question) {
+  agentui::Question out;
+  out.heading = question.heading;
+  out.message = question.message;
+  out.detail = question.detail;
+  out.emphasis = question.emphasis;
+  out.problem = question.problem;
+  out.progress = question.progress;
+  out.initial = question.initial;
+  out.keys = question.keys;
+  return out;
+}
+
+mcp::Response to_mcp(const agentui::Answer& answer) {
+  mcp::Response out;
+  out.text = answer.text;
+  switch (answer.kind) {
+    case agentui::Answer::Kind::Answered:
+      out.kind = mcp::Response::Kind::Answered;
+      break;
+    case agentui::Answer::Kind::Declined:
+      out.kind = mcp::Response::Kind::Declined;
+      break;
+    case agentui::Answer::Kind::Cancelled:
+      out.kind = mcp::Response::Kind::Cancelled;
+      break;
+  }
+  return out;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -114,14 +174,19 @@ int main(int argc, char** argv) {
   // library; pull the names in for this whole function.
   using namespace agentui;
 
+  // Whether this m8 runs inside another m8's shell (its agent's bash_repl, or
+  // a `!command`). Read before this process marks its own children below.
+  const bool agent_shell = std::getenv("M8_AGENT_SHELL") != nullptr;
+
   CLI::App app{"m8 - a coding agent over Ollama"};
   app.footer(
       "Defaults for model, policy, and the flags below may also be set in "
       "<workspace>/.m8/config.json (keys: model, policy, max_steps, max_depth, "
       "max_agents, num_ctx, summarize_at, ollama_jobs, skills_dir, "
       "enable_skills, enable_subagents, enable_bash_repl, enable_bash_search, "
-      "enable_memory, memory_path, memory_embed_model, enable_web_search); an "
-      "explicit flag here always overrides it.");
+      "enable_memory, memory_path, memory_embed_model, enable_web_search, "
+      "enable_mcp, tool_search, mcp_oauth_client_metadata_url); an explicit "
+      "flag here always overrides it. MCP servers: m8 mcp --help.");
 
   // Everything m8 keeps lives in <workspace>/.m8, where <workspace> is the
   // nearest ancestor of the cwd carrying a .git or .m8 marker. Resolved before
@@ -201,6 +266,22 @@ int main(int argc, char** argv) {
       ->capture_default_str();
   app.add_flag("--no-skills", no_skills, "Disable the skill system");
 
+  bool no_mcp = not settings.enable_mcp.value_or(true);
+  std::string tool_search_mode = settings.tool_search.value_or("auto");
+  app.add_flag("--no-mcp", no_mcp, "Start no MCP servers this run");
+  app.add_option("--tool-search", tool_search_mode,
+                 "When MCP tool schemas wait behind tool_search: auto, auto:N "
+                 "(past N% of the context window), on or off")
+      ->capture_default_str()
+      ->check([](const std::string& value) {
+        return mcp::ToolSearchSettings::parse(value)
+                   ? std::string()
+                   : std::string("expected auto, auto:N, on or off");
+      });
+
+  m8::McpCli mcp_cli;
+  mcp_cli.declare(app);
+
   std::string policy_name = settings.policy.value_or("sane");
   app.add_option("-p,--policy", policy_name,
                  "Permission policy: yolo (allow everything) or sane "
@@ -210,6 +291,28 @@ int main(int argc, char** argv) {
       ->check(CLI::IsMember({"yolo", "sane"}));
 
   CLI11_PARSE(app, argc, argv);
+
+  // `m8 mcp ...` manages servers and exits; it needs no model.
+  if (mcp_cli.parsed()) {
+    mcp_cli.interactive = ::isatty(STDIN_FILENO) == 1 and ::isatty(STDOUT_FILENO) == 1;
+    mcp_cli.client_metadata_url = settings.mcp_oauth_client_metadata_url.value_or("");
+    return mcp_cli.run(paths, agent_shell, std::cout, std::cerr, std::cin);
+  }
+
+  // Every shell this m8 starts — its agent's bash_repl, a `!command` — inherits
+  // the mark, so `m8 mcp add` or `approve` run from one refuses: which servers
+  // m8 runs is the user's call, not the agent's. Set before any thread exists,
+  // since setenv is not safe against a concurrent getenv.
+  ::setenv("M8_AGENT_SHELL", "1", 1);
+
+  // A config-file value never went through the flag's check.
+  std::optional<mcp::ToolSearchSettings> tool_search =
+      mcp::ToolSearchSettings::parse(tool_search_mode);
+  if (not tool_search) {
+    std::cerr << "warning: tool_search \"" << tool_search_mode
+              << "\" is not auto, auto:N, on or off; using auto\n";
+    tool_search = mcp::ToolSearchSettings{};
+  }
 
   bool list_command_ok = true;
   const std::vector<std::string> available_models =
@@ -339,6 +442,57 @@ int main(int argc, char** argv) {
     return m8::make_system_prompt(facts, paths, installed_tools);
   };
 
+  // Questions for the person at the keyboard — an MCP server's form, the
+  // agent's ask_user — one session at a time; the answer box takes the
+  // keyboard while one waits.
+  agentui::InteractionQueue interactions;
+  // How a background thread adds to the transcript; set once the transcript
+  // exists, but captured now, before the root agent copies the options.
+  std::function<void(TranscriptNode::Kind, std::string)> note;
+
+  options.ask_user_handler = [&interactions, &note](const std::string& prompt) -> std::string {
+    agentui::InteractionQueue::Session session = interactions.begin();
+    if (note) note(TranscriptNode::Kind::Notice, "\xe2\x97\x86 the agent asks: " + prompt);
+    agentui::Question question;
+    question.heading = "the agent asks";
+    question.message = prompt;
+    question.keys = "Enter answers \xc2\xb7 Esc leaves it unanswered";
+    const agentui::Answer answer = session.ask(std::move(question));
+    if (answer.kind != agentui::Answer::Kind::Answered) {
+      if (note) note(TranscriptNode::Kind::Notice, "(left unanswered)");
+      return std::string();
+    }
+    if (note) note(TranscriptNode::Kind::User, answer.text);
+    return answer.text;
+  };
+
+  // MCP servers. The registry exists whenever MCP is on, even with nothing
+  // configured, so /mcp can say how to add a server. It is deliberately never
+  // freed (see mcp::Registry): agent threads are detached and may still hold it
+  // as the process exits. Its servers start below, once notices have somewhere
+  // to go.
+  mcp::Registry* registry = nullptr;
+  mcp::LoadedConfig mcp_config;
+  if (not no_mcp) {
+    mcp::ConfigFiles files;
+    files.user = paths.user_mcp_config();
+    files.shared = paths.shared_mcp_config();
+    files.project = paths.mcp_config();
+    mcp_config = mcp::load_config(files);
+
+    mcp::RegistryOptions registry_options;
+    registry_options.workspace = m8::workspace_key(paths);
+    registry_options.logs_dir = paths.mcp_logs();
+    registry_options.state_path = paths.mcp_state();
+    registry_options.trust_path = paths.mcp_trust();
+    registry_options.cache_path = paths.mcp_cache();
+    registry_options.credentials_path = paths.mcp_credentials();
+    registry_options.client_metadata_url = settings.mcp_oauth_client_metadata_url.value_or("");
+    registry = new mcp::Registry(std::move(registry_options));
+    options.mcp = std::shared_ptr<mcp::Toolbox>(registry, [](mcp::Toolbox*) {});
+  }
+  options.tool_search = *tool_search;
+
   const std::string root_id = agent::AgentPool::instance().register_root("root");
   agent::Agent root_agent(options, pol, root_id, "", 0);
 
@@ -389,7 +543,7 @@ int main(int argc, char** argv) {
 
         case agent::AgentEvent::Kind::ToolCall: {
           ToolSegment& segment = open_segment(*container);
-          segment.tool_name = event.tool_name;
+          segment.tool_name = m8::tool_display_name(event.tool_name);
           segment.summary = event.summary;
           break;
         }
@@ -523,10 +677,142 @@ int main(int argc, char** argv) {
     add_node(transcript, kind, std::move(text));
     scroll_y = 1.0f;
   };
+  // push_notice from a background thread, which also has to wake the UI loop:
+  // nothing redraws until the next event otherwise.
+  auto post_notice = [&](TranscriptNode::Kind kind, std::string text) {
+    push_notice(kind, std::move(text));
+    screen.PostEvent(f::Event::Custom);
+  };
+  // Whether a turn is running. Read under the lock: the turn thread writes it.
+  auto busy = [&] {
+    std::lock_guard<std::mutex> lock(mutex);
+    return waiting_for_reply;
+  };
+
+  note = post_notice;
+  interactions.set_listener([&screen] { screen.PostEvent(f::Event::Custom); });
+
+  // Links the person agreed to open, and servers they would not log in to;
+  // only the question session being answered touches either.
+  std::set<std::string> opened_links;
+  std::set<std::string> login_declined;
+  if (registry != nullptr) {
+    // A server asking the person something mid-call. Runs on whichever thread
+    // waits for that server, and holds the question queue until it is done.
+    registry->set_elicitation_handler([&](const mcp::ElicitationRequest& request) {
+      agentui::InteractionQueue::Session session = interactions.begin();
+      if (shutting_down.load()) return mcp::ElicitationResult{};
+      const std::string who = request.server + (request.agent_label.empty()
+                                                    ? std::string()
+                                                    : " (for " + request.agent_label + ")");
+      post_notice(TranscriptNode::Kind::Notice,
+                  "mcp: " + who + (request.mode == "url" ? " asks you to open a link: " : " asks: ") +
+                      request.message);
+      const mcp::ElicitationResult result = mcp::run_elicitation(
+          request,
+          [&session](const mcp::Question& question) {
+            return to_mcp(session.ask(to_ui(question)));
+          },
+          util::open_url, &opened_links);
+      if (not shutting_down.load()) {
+        post_notice(TranscriptNode::Kind::Notice,
+                    result.action == "accept"    ? "mcp: answered " + request.server
+                    : result.action == "decline" ? "mcp: declined " + request.server + "'s request"
+                                                 : "mcp: cancelled " + request.server + "'s request");
+      }
+      return result;
+    });
+    // An agent's call found its login expired, or too narrow: ask, and log in
+    // while the answer box waits with the link (Esc gives up). A server the
+    // person says no to is not asked about again this run.
+    registry->set_login_prompt([&](const std::string& server, const std::string& reason) {
+      agentui::InteractionQueue::Session session = interactions.begin();
+      if (shutting_down.load() or login_declined.count(server) > 0) return false;
+      agentui::Question question;
+      question.heading = server + " asks you to log in";
+      question.message = "The agent's call to " + server + " stopped: " + reason + ".";
+      question.keys = "y logs in, in your browser \xc2\xb7 Enter or n skips \xc2\xb7 Esc cancels";
+      const agentui::Answer answer = session.ask(std::move(question));
+      std::string word = trim_copy(answer.text);
+      for (char& c : word) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (answer.kind != agentui::Answer::Kind::Answered or (word != "y" and word != "yes")) {
+        login_declined.insert(server);
+        post_notice(TranscriptNode::Kind::Notice,
+                    "mcp: not logging in to " + server + " (/mcp login " + server + " any time)");
+        return false;
+      }
+      std::atomic<bool> cancel{false};
+      std::atomic<bool> finished{false};
+      std::mutex link_mutex;
+      std::condition_variable link_ready;
+      std::string link;
+      bool ok = false;
+      std::string error;
+      std::thread worker([&] {
+        ok = registry->login(
+            server,
+            [&](const std::string& url) {
+              {
+                std::lock_guard<std::mutex> lock(link_mutex);
+                link = url;
+              }
+              link_ready.notify_all();
+              std::string why;
+              util::open_url(url, why);
+            },
+            &cancel, error);
+        finished.store(true);
+        link_ready.notify_all();
+      });
+      std::string shown_link;
+      {
+        std::unique_lock<std::mutex> lock(link_mutex);
+        link_ready.wait(lock, [&] { return not link.empty() or finished.load(); });
+        shown_link = link;
+      }
+      if (not shown_link.empty()) {
+        agentui::Question waiting;
+        waiting.heading = server + ": log in in your browser";
+        waiting.message = "Finish logging in there and the agent's call goes on.";
+        waiting.detail = "link: " + shown_link;
+        waiting.keys = "Esc gives up";
+        if (session.ask_until(std::move(waiting), [&] { return finished.load(); })) {
+          cancel.store(true);
+        }
+      }
+      worker.join();
+      post_notice(ok ? TranscriptNode::Kind::Notice : TranscriptNode::Kind::Error,
+                  ok ? "mcp: logged in to " + server : "mcp: login to " + server + " failed: " + error);
+      return ok;
+    });
+    // Called on the registry's threads, never under its lock (it takes ours).
+    registry->set_observer([&](const mcp::RegistryEvent& event) {
+      if (shutting_down.load()) return;
+      if (not event.text.empty()) {
+        push_notice(event.state == mcp::ServerState::Failed
+                        ? TranscriptNode::Kind::Error
+                        : TranscriptNode::Kind::Notice,
+                    event.text);
+      }
+      // A state change redraws the header's mcp tag even without a notice.
+      screen.PostEvent(f::Event::Custom);
+    });
+    for (const std::string& warning : mcp_config.warnings) {
+      push_notice(TranscriptNode::Kind::Error, "mcp: " + warning);
+    }
+    registry->start(std::move(mcp_config.servers));
+    // Named once, here; /mcp shows it again.
+    const std::string pending = m8::pending_approval_text(*registry->snapshot());
+    if (not pending.empty()) push_notice(TranscriptNode::Kind::Notice, pending);
+  }
 
   // Adds `display` as the user turn and runs `objective` (usually the same
-  // string; a /command expands it) on a detached thread.
-  auto start_turn = [&](std::string display, std::string objective) {
+  // string; a /command expands it) on a detached thread. `prepare`, when set,
+  // first rewrites `objective` on that thread — for work slow enough that the
+  // busy flag should cover it, like fetching an MCP prompt — and returns false,
+  // with `objective` replaced by why, to end the turn there.
+  auto start_turn = [&](std::string display, std::string objective,
+                        std::function<bool(std::string&)> prepare = nullptr) {
     std::list<TranscriptNode>::iterator turn_begin;
     {
       std::lock_guard<std::mutex> lock(mutex);
@@ -537,9 +823,18 @@ int main(int argc, char** argv) {
     }
 
     std::thread([&root_agent, &mutex, &transcript, &waiting_for_reply,
-                &scroll_y, &screen, &running_agents,
-                objective = std::move(objective), turn_begin] {
-      const agent::AgentResult result = root_agent.run_turn(objective);
+                &scroll_y, &screen, &running_agents, registry,
+                objective = std::move(objective), prepare = std::move(prepare),
+                turn_begin]() mutable {
+      // Re-lists, in the background, the tools of modern servers whose list
+      // has outlived the time-to-live they gave it.
+      if (registry != nullptr) registry->refresh_stale();
+      agent::AgentResult result;
+      if (prepare and not prepare(objective)) {
+        result.error = objective;
+      } else {
+        result = root_agent.run_turn(objective);
+      }
 
       std::lock_guard<std::mutex> lock(mutex);
       if (not result.ok and not result.hit_step_limit and
@@ -558,6 +853,116 @@ int main(int argc, char** argv) {
       scroll_y = 1.0f;
       screen.PostEvent(f::Event::Custom);
     }).detach();
+  };
+
+  // /mcp [subcommand]. Everything here is the user's own action at the
+  // keyboard — which is why approving and enabling servers is allowed here and
+  // refused in an agent's shell.
+  auto handle_mcp = [&](const std::string& entered) {
+    push_notice(TranscriptNode::Kind::User, entered);
+    if (registry == nullptr) {
+      push_notice(TranscriptNode::Kind::Notice,
+                  "MCP is off for this run (--no-mcp, or \"enable_mcp\": false "
+                  "in .m8/config.json)");
+      return;
+    }
+    std::istringstream words(entered.substr(4));
+    std::string sub;
+    std::string name;
+    words >> sub >> name;
+    const std::shared_ptr<const mcp::Catalog> catalog = registry->snapshot();
+    const bool deferred = root_agent.mcp_deferred(*catalog);
+
+    if (sub.empty() or sub == "status") {
+      push_notice(TranscriptNode::Kind::Notice,
+                  m8::mcp_status_text(*catalog, *tool_search,
+                                      root_agent.context_window(), deferred,
+                                      root_agent.loaded_mcp_tools()));
+    } else if (sub == "tools") {
+      push_notice(TranscriptNode::Kind::Notice,
+                  m8::mcp_tools_text(*catalog, name, deferred,
+                                     root_agent.loaded_mcp_tools()));
+    } else if (sub == "resources") {
+      // A round trip to every server: off the UI thread.
+      std::thread([&post_notice, registry, name] {
+        const tools::ToolResult listed =
+            registry->resource("list", name, "", mcp::CallContext{});
+        const tools::ToolResult templates =
+            registry->resource("templates", name, "", mcp::CallContext{});
+        if (not listed.ok) {
+          post_notice(TranscriptNode::Kind::Error, listed.error);
+          return;
+        }
+        post_notice(TranscriptNode::Kind::Notice,
+                    listed.output + (templates.ok ? "\n" + templates.output : ""));
+      }).detach();
+    } else if (sub == "reconnect") {
+      registry->reconnect(name);
+      push_notice(TranscriptNode::Kind::Notice,
+                  name.empty() ? "mcp: reconnecting every server"
+                               : "mcp: reconnecting " + name);
+    } else if (sub == "enable" or sub == "disable") {
+      std::string error;
+      if (name.empty()) {
+        push_notice(TranscriptNode::Kind::Notice, "usage: /mcp " + sub + " <server>");
+      } else if (registry->set_enabled(name, sub == "enable", error)) {
+        push_notice(TranscriptNode::Kind::Notice,
+                    "mcp: " + name + (sub == "enable" ? " enabled" : " disabled") +
+                        " in this workspace");
+      } else {
+        push_notice(TranscriptNode::Kind::Error, "mcp: " + error);
+      }
+    } else if (sub == "approve") {
+      const std::vector<std::string> names =
+          name == "--all" ? registry->pending_approval()
+                          : (name.empty() ? std::vector<std::string>()
+                                          : std::vector<std::string>{name});
+      if (names.empty()) {
+        push_notice(TranscriptNode::Kind::Notice,
+                    name == "--all" ? "mcp: no server is waiting for approval"
+                                    : "usage: /mcp approve <server>|--all");
+        return;
+      }
+      for (const std::string& server : names) {
+        std::string error;
+        if (registry->approve(server, error)) {
+          push_notice(TranscriptNode::Kind::Notice,
+                      "mcp: approved " + server + " for this workspace; connecting");
+        } else {
+          push_notice(TranscriptNode::Kind::Error, "mcp: " + error);
+        }
+      }
+    } else if ((sub == "login" or sub == "logout") and name.empty()) {
+      push_notice(TranscriptNode::Kind::Notice, "usage: /mcp " + sub + " <server>");
+    } else if (sub == "login") {
+      // Typing it is the consent to open the browser. The wait for the
+      // browser (up to five minutes) is off the UI thread.
+      std::thread([&post_notice, registry, name] {
+        std::string error;
+        const bool ok = registry->login(
+            name,
+            [&](const std::string& url) {
+              std::string why;
+              const bool opened = util::open_url(url, why);
+              post_notice(TranscriptNode::Kind::Notice,
+                          "mcp: log in to " + name + (opened ? " in the browser m8 opened" : "") +
+                              ":\n" + url +
+                              (opened ? std::string() : "\n(could not open a browser: " + why + ")"));
+            },
+            nullptr, error);
+        post_notice(ok ? TranscriptNode::Kind::Notice : TranscriptNode::Kind::Error,
+                    ok ? "mcp: logged in to " + name : "mcp: login to " + name + " failed: " + error);
+      }).detach();
+    } else if (sub == "logout") {
+      std::string error;
+      if (registry->logout(name, error)) {
+        push_notice(TranscriptNode::Kind::Notice, "mcp: logged out of " + name);
+      } else {
+        push_notice(TranscriptNode::Kind::Error, "mcp: " + error);
+      }
+    } else {
+      push_notice(TranscriptNode::Kind::Notice, kMcpHelpText);
+    }
   };
 
   auto send_message = [&] {
@@ -610,6 +1015,10 @@ int main(int argc, char** argv) {
         help += "\n/" + skill.name +
                 (skill.argument_hint.empty() ? "" : "  " + skill.argument_hint) +
                 " — " + skill.description;
+      }
+      if (registry != nullptr) {
+        const std::string prompts = m8::prompt_help_text(*registry->snapshot());
+        if (not prompts.empty()) help += "\n" + prompts;
       }
       push_notice(TranscriptNode::Kind::Notice, help);
       return;
@@ -698,10 +1107,22 @@ int main(int argc, char** argv) {
                    : "context: not measured yet";
       if (win > 0) msg += "  (window " + std::to_string(win) + ")";
       msg += "  auto-summarize at " + std::to_string(limit);
+      if (registry != nullptr) {
+        const auto catalog = registry->snapshot();
+        const std::string line = m8::mcp_context_line(
+            *catalog, root_agent.mcp_deferred(*catalog), root_agent.loaded_mcp_tools());
+        if (not line.empty()) msg += "\n" + line;
+      }
       push_notice(TranscriptNode::Kind::Notice, msg);
       return;
     }
     if (entered == "/reset") {
+      // reset() under a running turn would pull its transcript out from under it.
+      if (busy()) {
+        push_notice(TranscriptNode::Kind::Notice,
+                    "the agent is working; /reset once it is done");
+        return;
+      }
       root_agent.reset();
       {
         std::lock_guard<std::mutex> lock(mutex);
@@ -716,7 +1137,7 @@ int main(int argc, char** argv) {
       return;
     }
     if (entered == "/skills") {
-      if (not waiting_for_reply) root_agent.reload_skills();
+      if (not busy()) root_agent.reload_skills();
       const agent::SkillCatalog& catalog = root_agent.skill_catalog();
       std::string msg;
       for (const agent::SkillInfo& skill : catalog.skills) {
@@ -727,6 +1148,49 @@ int main(int argc, char** argv) {
       push_notice(TranscriptNode::Kind::Notice,
                   msg.empty() ? "no skills found in the skills directory" : msg);
       return;
+    }
+
+    if (entered == "/mcp" or entered.rfind("/mcp ", 0) == 0) {
+      handle_mcp(entered);
+      return;
+    }
+
+    // /mcp__<server>__<prompt> [args]: a server's prompt as the next user turn.
+    if (entered.rfind("/mcp__", 0) == 0 and registry != nullptr) {
+      std::optional<m8::PromptCommand> command =
+          m8::parse_prompt_command(entered, *registry->snapshot());
+      if (command) {
+        if (not command->error.empty()) {
+          push_notice(TranscriptNode::Kind::Notice, command->error);
+          return;
+        }
+        if (busy()) {
+          push_notice(TranscriptNode::Kind::Notice,
+                      "the agent is working; wait for it to finish");
+          return;
+        }
+        // prompts/get is a round trip to the server, so it runs on the turn's
+        // thread, where the busy flag covers it.
+        start_turn(entered, std::string(),
+                   [registry, command = std::move(*command)](std::string& objective) {
+                     const mcp::CallOutcome outcome = registry->get_prompt(
+                         command.server, command.prompt, command.arguments,
+                         mcp::CallContext{});
+                     if (not outcome.ok) {
+                       objective = "mcp: " + command.server + "'s prompt " +
+                                   command.prompt + " failed: " + outcome.error;
+                       return false;
+                     }
+                     objective = mcp::render_prompt_messages(outcome.result);
+                     if (objective.empty()) {
+                       objective = "mcp: " + command.server + "'s prompt " +
+                                   command.prompt + " came back empty";
+                       return false;
+                     }
+                     return true;
+                   });
+        return;
+      }
     }
 
     // /<name> [args] for a skill whose frontmatter opted in with command: true.
@@ -744,7 +1208,7 @@ int main(int argc, char** argv) {
                                                         "\n" + skill->description);
           return;
         }
-        if (waiting_for_reply) {
+        if (busy()) {
           push_notice(TranscriptNode::Kind::Notice,
                       "the agent is working; wait for it to finish");
           return;
@@ -758,6 +1222,15 @@ int main(int argc, char** argv) {
       }
     }
 
+    // Two turns at once would share one transcript. The draft stays in the
+    // input, to send when the agent is done.
+    if (busy()) {
+      input_value = entered;
+      input_cursor = static_cast<int>(entered.size());
+      push_notice(TranscriptNode::Kind::Notice,
+                  "the agent is working; send this when it is done");
+      return;
+    }
     start_turn(entered, entered);
   };
 
@@ -810,7 +1283,44 @@ int main(int argc, char** argv) {
   };
   auto input = f::Input(input_option);
 
-  auto root = f::Renderer(input, [&] {
+  // The answer box: a second input that has the keyboard while a question
+  // waits. Its own text and no history, so an answer never lands in the
+  // message draft or in Up-arrow recall.
+  std::string answer_value;
+  int answer_cursor = 0;
+  f::InputOption answer_option;
+  answer_option.content = &answer_value;
+  answer_option.cursor_position = &answer_cursor;
+  answer_option.placeholder = "your answer";
+  answer_option.transform = [](f::InputState state) {
+    f::Element element = std::move(state.element);
+    if (state.is_placeholder) element |= f::dim;
+    return element | f::color(f::Color::White) | f::bgcolor(f::Color::Black);
+  };
+  auto answer_input = f::Input(answer_option);
+  int input_tab = 0;  // 0: the message box, 1: the answer box
+  auto inputs = f::Container::Tab({input, answer_input}, &input_tab);
+
+  // Follows the queue; the UI thread is the only one that touches input_tab
+  // or the answer box. A new question resets the box to its starting text.
+  uint64_t answering = 0;  // the question in the answer box; 0 for none
+  auto sync_answer_mode = [&]() -> std::optional<agentui::InteractionQueue::Shown> {
+    std::optional<agentui::InteractionQueue::Shown> shown = interactions.current();
+    const uint64_t id = shown ? shown->id : 0;
+    if (id != answering) {
+      answering = id;
+      answer_value = shown ? shown->question.initial : std::string();
+      answer_cursor = static_cast<int>(answer_value.size());
+    }
+    input_tab = shown ? 1 : 0;
+    return shown;
+  };
+
+  auto root = f::Renderer(inputs, [&] {
+    const std::optional<agentui::InteractionQueue::Shown> asking = sync_answer_mode();
+    // Before taking `mutex`: the registry's own lock is never taken under it.
+    const std::string mcp_tag =
+        registry != nullptr ? m8::mcp_header(*registry->snapshot()) : std::string();
     std::vector<f::Element> lines;
     std::vector<f::Element> tiles;
     float current_scroll_y;
@@ -893,17 +1403,23 @@ int main(int argc, char** argv) {
                f::reflect(viewport_box);
     }
 
-    return f::vbox({
-               f::text("m8  |  model: " + model + "  |  policy: " +
-                       pol.name() + ctx_part + sub_part) |
-                   f::bold | f::center,
-               f::separator(),
-               std::move(middle),
-               f::separator(),
-               input->Render() | f::color(f::Color::White) |
-                   f::bgcolor(f::Color::Black) | f::border,
-           }) |
-           f::border;
+    f::Elements page = {
+        f::text("m8  |  model: " + model + "  |  policy: " + pol.name() + ctx_part +
+                (mcp_tag.empty() ? "" : "  |  " + mcp_tag) + sub_part) |
+            f::bold | f::center,
+        f::separator(),
+        std::move(middle),
+        f::separator(),
+    };
+    if (asking) {
+      page.push_back(render_question(asking->question));
+      page.push_back(answer_input->Render() | f::color(f::Color::White) |
+                     f::bgcolor(f::Color::Black) | f::borderStyled(f::Color::Yellow));
+    } else {
+      page.push_back(input->Render() | f::color(f::Color::White) |
+                     f::bgcolor(f::Color::Black) | f::border);
+    }
+    return f::vbox(std::move(page)) | f::border;
   });
 
   root = f::CatchEvent(root, [&](f::Event event) {
@@ -920,6 +1436,29 @@ int main(int argc, char** argv) {
     auto grid_active = [&] {
       return not running_agents.empty() and not force_conversation_view;
     };
+
+    // A question waiting: Return answers it, Ctrl+D declines it, Esc cancels
+    // it, and the message box's keys (history, newlines) are off. Scrolling
+    // and the view keys below still work.
+    if (const std::optional<agentui::InteractionQueue::Shown> asking = sync_answer_mode()) {
+      if (event == f::Event::Return) {
+        interactions.answer(asking->id, {agentui::Answer::Kind::Answered, answer_value});
+        return true;
+      }
+      if (event == f::Event::CtrlD) {
+        interactions.answer(asking->id, {agentui::Answer::Kind::Declined, std::string()});
+        return true;
+      }
+      if (event == f::Event::Escape) {
+        interactions.answer(asking->id, {agentui::Answer::Kind::Cancelled, std::string()});
+        return true;
+      }
+      if (event == f::Event::ArrowUp or event == f::Event::ArrowDown or
+          event == kAltEnterCR or event == kAltEnterLF or event == kShiftEnterCsiU or
+          event == kShiftEnterLegacy) {
+        return true;
+      }
+    }
 
     if (event == f::Event::CtrlG) {
       std::lock_guard<std::mutex> lock(mutex);
@@ -1016,6 +1555,13 @@ int main(int argc, char** argv) {
 
   screen.Loop(root);
   shutting_down.store(true);
+  // Nobody is left to answer: every question waiting (and every one asked
+  // from here on) comes back cancelled, so no thread stays blocked on one.
+  interactions.cancel_all();
+  // Stop the MCP servers next: a call still in flight fails now, and the
+  // agent thread making it unwinds while the observer below still ignores it.
+  // Every server's process group is gone when this returns.
+  if (registry != nullptr) registry->shutdown();
   // Drop the observer before these locals go out of scope: a subagent thread
   // that is still in flight must not call back into freed state.
   agent::AgentPool::instance().set_observer({});

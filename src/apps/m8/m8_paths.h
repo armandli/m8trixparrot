@@ -37,11 +37,36 @@ struct M8Paths {
   std::string sessions() const { return dir() + "/sessions"; }
   std::string api_key() const { return dir() + "/parallel_api_key"; }
 
+  // MCP servers (core/mcp/config.h): this workspace's own, and the cross-tool
+  // .mcp.json that Claude Code and Cursor read too, committed at the root.
+  std::string mcp_config() const { return dir() + "/mcp.json"; }
+  std::string shared_mcp_config() const { return root + "/.mcp.json"; }
+  // Detected protocol eras and the user's enable/disable choices.
+  std::string mcp_state() const { return dir() + "/mcp_state.json"; }
+  // Each server's last tool list, shown while it starts.
+  std::string mcp_cache() const { return dir() + "/mcp_cache.json"; }
+  // One stderr log per stdio server.
+  std::string mcp_logs() const { return dir() + "/logs/mcp"; }
+
   // ~/.m8, and the PATH index inside it. Empty when `home` is, in which case
   // the caller leaves the bash_search default alone.
   std::string home_dir() const { return home.empty() ? "" : home + "/.m8"; }
   std::string search_index() const {
     return home.empty() ? "" : home_dir() + "/bash_search_index.json";
+  }
+
+  // Also in ~/.m8, also empty without a home. The user's own MCP servers follow
+  // them into every workspace; the approvals for workspace servers must live
+  // where the repository — or an agent working in it — cannot write its own;
+  // OAuth tokens belong to the user, not to a checkout.
+  std::string user_mcp_config() const {
+    return home.empty() ? "" : home_dir() + "/mcp.json";
+  }
+  std::string mcp_trust() const {
+    return home.empty() ? "" : home_dir() + "/mcp_trust.json";
+  }
+  std::string mcp_credentials() const {
+    return home.empty() ? "" : home_dir() + "/mcp_credentials.json";
   }
 
   // False when `root` carries no marker: m8 is running in a bare directory. Its

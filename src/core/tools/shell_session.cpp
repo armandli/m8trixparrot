@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <string>
 
+#include <core/util/process.h>
+
 #if defined(__APPLE__)
 #include <libproc.h>
 #include <util.h>
@@ -71,6 +73,7 @@ bool ShellSession::start(
   winsize ws = make_winsize(cols, rows);
 
   int master = -1;
+  const int close_limit = util::fd_close_limit();
   const pid_t pid = ::forkpty(&master, nullptr, nullptr, &ws);
   if (pid < 0) {
     if (error != nullptr) {
@@ -90,6 +93,10 @@ bool ShellSession::start(
     for (const auto& [name, value] : extra_env) {
       ::setenv(name.c_str(), value.c_str(), 1);
     }
+    // The interactive shell must not inherit anything above stderr — an MCP
+    // server's stdin pipe living on in it would keep that server from ever
+    // seeing EOF.
+    util::close_fds_from(3, close_limit);
     // "-" prefix => login shell (full rc chain); -i forces interactive mode so
     // job control and the interactive rc files are on even if the child's tty
     // detection is fooled.
@@ -100,6 +107,9 @@ bool ShellSession::start(
 
   mChild = pid;
   mMaster = master;
+  // forkpty() hands back a master without close-on-exec; any child forked
+  // after this one would otherwise hold the terminal open.
+  util::set_cloexec(mMaster);
   // Non-blocking: the reader's poll timeout, not a stuck read(), is what bounds
   // how long the destructor waits to join.
   const int flags = ::fcntl(mMaster, F_GETFL, 0);

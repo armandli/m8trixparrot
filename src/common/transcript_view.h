@@ -11,6 +11,7 @@
 
 #include <ftxui/dom/elements.hpp>
 
+#include <common/interaction_queue.h>
 #include <core/agent/agent_result.h>
 
 // The transcript model and its FTXUI rendering, shared by the agent TUIs
@@ -122,6 +123,12 @@ void forget_subtree(
     std::unordered_map<std::string, TranscriptNode*>& subagent_nodes,
     std::unordered_map<std::string, std::list<TranscriptNode>*>&
         agent_containers);
+
+// A question someone is waiting on (common/interaction_queue.h), drawn as a
+// titled box: its message, its detail with `emphasis` picked out, why the last
+// answer was not taken, and how to answer. Long words — URLs — wrap rather
+// than run off the edge: a link must be seen whole before it is opened.
+ftxui::Element render_question(const Question& question);
 
 }  // namespace agentui
 

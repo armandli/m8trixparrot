@@ -1,0 +1,12 @@
+{
+  "client_id": "https://YOUR-HOST/m8-client-metadata.json",
+  "client_name": "m8",
+  "client_uri": "https://github.com/armandli/m8trixparrot",
+  "redirect_uris": [
+    "http://127.0.0.1/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}

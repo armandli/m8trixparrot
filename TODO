@@ -14,9 +14,22 @@
       remains is the memory footprint (the whole working set is resident, no
       buffer pool).
 
+15. MCP: the deprecated HTTP+SSE transport (2024-11-05), for servers that never
+    moved to Streamable HTTP
+16. MCP tool search: hybrid BM25 + embedding ranking, reusing the memory
+    embedding model, for queries that share no words with a tool's name
+17. `m8 mcp install <name>` from the official MCP Registry
+18. MCP image results to vision models, instead of a file path in the text
+19. OAuth tokens in the macOS Keychain (libsecret on Linux) instead of
+    ~/.m8/mcp_credentials.json
+20. MCP resource subscriptions (notifications/resources/updated) surfaced to the
+    agent
+
 done:
 1. fix agent system prompt to be separate for each application and can fully
    reset system prompt to be anything
 2. turn bash tool into a REPL (Read Eval Print Loop) allowing for RLM based system
 5. refactor repository files in core into modular component directories
 11. allow RLM on sp with subagents
+21. MCP client in m8: stdio and Streamable HTTP, both protocol eras, tool search,
+    OAuth, elicitation, resources and prompts

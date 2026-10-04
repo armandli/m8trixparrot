@@ -1,5 +1,6 @@
 #include <core/tools/protected_paths.h>
 
+#include <cstddef>
 #include <cstdlib>
 
 #include <algorithm>
@@ -21,6 +22,13 @@ enum struct Match : int {
   // A path with this component anywhere in it, at any depth. For `.git`, which
   // is a directory that exists once per repository rather than in one place.
   AnyComponent,
+  // A path whose last components are exactly these, wherever it lives. For
+  // files every workspace has its own copy of, like `.m8/mcp.json`: an absolute
+  // pattern cannot name them, and a component match on `.m8` would take the
+  // whole directory, sessions and skills included. A suffix knows names, not
+  // targets, so each one's copy under ~ is kept as an Exact entry too (see
+  // entries()): without it, a linked ~/.m8 leaves the files it leads to open.
+  PathSuffix,
 };
 
 struct Entry {
@@ -63,10 +71,16 @@ constexpr Entry kSecrets[] = {
     {Match::Prefix, "/etc/sudoers.d", true, "sudo configuration"},
     // This project's own secret, in both of the places a key is kept: the
     // standalone tool_websearch command reads ~/.parallel_api_key, and the
-    // websearch tool call reads .m8/parallel_api_key (which .gitignore already
-    // calls out by name).
+    // websearch tool call reads .m8/parallel_api_key in whichever workspace it
+    // runs (which .gitignore already calls out by name).
     {Match::Exact, "~/.parallel_api_key", true, "this project's API key"},
-    {Match::Exact, "~/.m8/parallel_api_key", true, "this project's API key"},
+    {Match::PathSuffix, ".m8/parallel_api_key", true, "this project's API key"},
+    // MCP. A server entry carries tokens in its env and headers, and both the
+    // workspace file and ~/.m8/mcp.json end in this suffix. The credentials
+    // file is OAuth bearer and refresh tokens outright.
+    {Match::PathSuffix, ".m8/mcp.json", true,
+     "MCP server configuration, which can hold tokens"},
+    {Match::Exact, "~/.m8/mcp_credentials.json", true, "MCP OAuth credentials"},
 };
 
 // ──────────────────────── the ExecutionVector tier ──────────────────────────
@@ -96,6 +110,14 @@ constexpr Entry kExecutionVectors[] = {
      "git configuration (can run commands)"},
     {Match::AnyComponent, ".git", false,
      "a repository's internal git directory (hooks and config run commands)"},
+
+    // MCP server approvals and enable choices. Writing either approves or turns
+    // on a server, whose command then runs on the next launch — or at once, on
+    // the next `m8 mcp list` or `get`. The state file is per workspace.
+    {Match::Exact, "~/.m8/mcp_trust.json", false,
+     "MCP server approvals (an approved server's command runs)"},
+    {Match::PathSuffix, ".m8/mcp_state.json", false,
+     "MCP server enable choices (an enabled server's command runs)"},
 
     // Login and boot persistence, macOS then Linux.
     {Match::Prefix, "~/Library/LaunchAgents", false, "a launchd agent"},
@@ -134,8 +156,9 @@ std::string home_dir() {
 // so the per-call work is comparison only.
 struct Resolved {
   Match match;
-  std::filesystem::path path;  // Empty for AnyComponent.
-  std::string component;       // AnyComponent only.
+  std::filesystem::path path;       // Prefix and Exact only.
+  std::string component;            // AnyComponent only.
+  std::vector<std::string> suffix;  // PathSuffix only.
   bool secret;
   const char* reason;
 };
@@ -166,13 +189,33 @@ const std::vector<Resolved>& entries() {
 
     const auto add = [&out, &home](const Entry& entry) {
       if (entry.match == Match::AnyComponent) {
-        out.push_back(Resolved{entry.match, {}, entry.pattern, entry.secret,
+        out.push_back(Resolved{entry.match, {}, entry.pattern, {}, entry.secret,
                                entry.reason});
+        return;
+      }
+      if (entry.match == Match::PathSuffix) {
+        std::vector<std::string> parts;
+        for (const std::filesystem::path& part :
+             std::filesystem::path(entry.pattern)) {
+          parts.push_back(part.string());
+        }
+        out.push_back(Resolved{entry.match, {}, {}, std::move(parts),
+                               entry.secret, entry.reason});
+        // And its copy under ~, canonicalized like the absolute entries: when
+        // ~/.m8 is a link, the file it leads to is protected by its own name,
+        // which no suffix can know.
+        const std::filesystem::path home_copy =
+            canonicalize(std::string("~/") + entry.pattern, home);
+        if (not home_copy.empty()) {
+          out.push_back(Resolved{Match::Exact, home_copy, {}, {}, entry.secret,
+                                 entry.reason});
+        }
         return;
       }
       const std::filesystem::path path = canonicalize(entry.pattern, home);
       if (path.empty()) return;  // home-relative with no HOME
-      out.push_back(Resolved{entry.match, path, {}, entry.secret, entry.reason});
+      out.push_back(
+          Resolved{entry.match, path, {}, {}, entry.secret, entry.reason});
     };
 
     for (const Entry& entry : kSecrets) add(entry);
@@ -200,6 +243,15 @@ bool has_component(const std::filesystem::path& path,
   return false;
 }
 
+bool ends_with(const std::filesystem::path& path,
+               const std::vector<std::string>& suffix) {
+  std::vector<std::string> parts;
+  for (const std::filesystem::path& part : path) parts.push_back(part.string());
+  if (suffix.empty() or parts.size() < suffix.size()) return false;
+  return std::equal(suffix.begin(), suffix.end(),
+                    parts.end() - static_cast<std::ptrdiff_t>(suffix.size()));
+}
+
 // The matching entry for `path`, or null.
 const Resolved* find_entry(const std::filesystem::path& resolved) {
   for (const Resolved& entry : entries()) {
@@ -213,9 +265,64 @@ const Resolved* find_entry(const std::filesystem::path& resolved) {
       case Match::AnyComponent:
         if (has_component(resolved, entry.component)) return &entry;
         break;
+      case Match::PathSuffix:
+        if (ends_with(resolved, entry.suffix)) return &entry;
+        break;
     }
   }
   return nullptr;
+}
+
+// The same path read two ways. `named` is how it was written: ~ and $HOME
+// expanded, made absolute against the current directory, `..` collapsed by
+// name. `resolved` is where it really leads.
+struct GuardPaths {
+  std::filesystem::path named;
+  std::filesystem::path resolved;
+};
+
+GuardPaths guard_paths(const std::string& path) {
+  std::error_code ec;
+  std::filesystem::path target(expand_home(path));
+  if (target.is_relative()) {
+    std::filesystem::path cwd = std::filesystem::current_path(ec);
+    if (not ec and not cwd.empty()) target = cwd / target;
+  }
+
+  GuardPaths out;
+  out.named = target.lexically_normal();
+  // Normalizes `..` and follows symlinks on the part that exists, which is what
+  // catches a link standing in for a protected file or for its parent
+  // directory. canonical() would fail outright on a file yet to be created.
+  out.resolved = std::filesystem::weakly_canonical(target, ec);
+  if (ec or out.resolved.empty()) out.resolved = out.named;
+  return out;
+}
+
+// What a path hits, and the reading of it that hit.
+struct Hit {
+  const Resolved* entry = nullptr;
+  std::filesystem::path path;
+};
+
+// Both readings are matched, because a link hides a protected file in either
+// direction. Resolved, a link pointing AT one is caught (innocent.txt ->
+// ~/.ssh/id_rsa). By name, a protected name that IS a link is caught: a suffix
+// entry knows names, not targets, and .m8/mcp.json -> ../server-config.json, or
+// a linked .m8/, resolves to a name it has never heard of. A secret by either
+// reading is a secret.
+Hit find_hit(const std::string& path) {
+  const GuardPaths paths = guard_paths(path);
+  const Resolved* by_target = find_entry(paths.resolved);
+  const Resolved* by_name =
+      paths.named == paths.resolved ? nullptr : find_entry(paths.named);
+  if (by_name != nullptr and by_name->secret and
+      (by_target == nullptr or not by_target->secret)) {
+    return Hit{by_name, paths.named};
+  }
+  if (by_target != nullptr) return Hit{by_target, paths.resolved};
+  if (by_name != nullptr) return Hit{by_name, paths.named};
+  return Hit{};
 }
 
 }  // namespace
@@ -242,28 +349,14 @@ std::string expand_home(const std::string& path) {
 }
 
 std::filesystem::path resolve_for_guard(const std::string& path) {
-  const std::string text = expand_home(path);
-
-  std::error_code ec;
-  std::filesystem::path target(text);
-  if (target.is_relative()) {
-    std::filesystem::path cwd = std::filesystem::current_path(ec);
-    if (not ec and not cwd.empty()) target = cwd / target;
-  }
-
-  // Normalizes `..` and follows symlinks on the part that exists, which is what
-  // catches a link standing in for a protected file or for its parent
-  // directory. canonical() would fail outright on a file yet to be created.
-  std::filesystem::path resolved = std::filesystem::weakly_canonical(target, ec);
-  if (ec or resolved.empty()) resolved = target.lexically_normal();
-  return resolved;
+  return guard_paths(path).resolved;
 }
 
 bool is_protected_secret(const std::string& path) {
   if (path.empty()) return false;
   if (is_pseudo_device(path)) return false;
-  const Resolved* entry = find_entry(resolve_for_guard(path));
-  return entry != nullptr and entry->secret;
+  const Hit hit = find_hit(path);
+  return hit.entry != nullptr and hit.entry->secret;
 }
 
 std::string protected_path_reason(const std::string& path, PathAccess access,
@@ -273,16 +366,15 @@ std::string protected_path_reason(const std::string& path, PathAccess access,
   if (path.empty()) return std::string();
   if (is_pseudo_device(path)) return std::string();
 
-  const std::filesystem::path resolved = resolve_for_guard(path);
-  const Resolved* entry = find_entry(resolved);
-  if (entry == nullptr) return std::string();
+  const Hit hit = find_hit(path);
+  if (hit.entry == nullptr) return std::string();
   // An ExecutionVector is dangerous to write, not to read.
-  if (access == PathAccess::Read and not entry->secret) return std::string();
+  if (access == PathAccess::Read and not hit.entry->secret) return std::string();
 
   const bool reading = access == PathAccess::Read;
-  std::string message = resolved.string();
+  std::string message = hit.path.string();
   message += " is a protected path (";
-  message += entry->reason;
+  message += hit.entry->reason;
   message += ") and cannot be ";
   message += reading ? "read" : "written";
   message += " with tool_";

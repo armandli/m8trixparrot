@@ -77,6 +77,41 @@ TEST_F(AgentSettingsTest, PartialFileLeavesTheRestUnset) {
   EXPECT_FALSE(settings.enable_skills.has_value());
 }
 
+TEST_F(AgentSettingsTest, McpKeysAreParsed) {
+  write_file("settings.json", R"json({
+    "enable_mcp": false,
+    "tool_search": "auto:5",
+    "mcp_oauth_client_metadata_url": "https://example.com/m8.json"
+  })json");
+
+  std::string warning;
+  const StartupSettings settings = load_startup_settings("settings.json", warning);
+
+  EXPECT_TRUE(warning.empty());
+  EXPECT_EQ(settings.enable_mcp, false);
+  EXPECT_EQ(settings.tool_search, "auto:5");
+  EXPECT_EQ(settings.mcp_oauth_client_metadata_url, "https://example.com/m8.json");
+}
+
+// "tool_search": false reads as naturally as "off", and Claude Code takes both.
+TEST_F(AgentSettingsTest, ToolSearchTakesABooleanAsOnOrOff) {
+  std::string warning;
+  write_file("settings.json", R"json({"tool_search": false, "model": "m"})json");
+  StartupSettings settings = load_startup_settings("settings.json", warning);
+  EXPECT_EQ(settings.tool_search, "off");
+  EXPECT_EQ(settings.model, "m");
+
+  write_file("settings.json", R"json({"tool_search": true})json");
+  settings = load_startup_settings("settings.json", warning);
+  EXPECT_EQ(settings.tool_search, "on");
+
+  write_file("settings.json", R"json({"tool_search": 3, "enable_mcp": true})json");
+  settings = load_startup_settings("settings.json", warning);
+  EXPECT_FALSE(settings.tool_search.has_value());
+  EXPECT_EQ(settings.enable_mcp, true);
+  EXPECT_TRUE(warning.empty());
+}
+
 TEST_F(AgentSettingsTest, WrongTypeForAKeyLeavesItUnsetRatherThanErroring) {
   write_file("settings.json", R"json({"max_steps": "not a number", "model": "ok-model"})json");
 

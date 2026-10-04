@@ -9,8 +9,23 @@
 
 #include <core/agent/skills.h>
 #include <core/agent/workspace_context.h>
+#include <core/mcp/catalog.h>
 
 namespace agent {
+
+// What an agent's prompt needs to know about MCP this step. `catalog` is the
+// turn's pinned snapshot, borrowed for the call; null means MCP is off.
+struct McpFacts {
+  const mcp::Catalog* catalog = nullptr;
+  // The MCP schemas are deferred: only `tool_search`, the always-loaded
+  // tools and whatever has been loaded are in the tools array.
+  bool deferred = false;
+  bool tool_search_offered = false;
+  bool resources_offered = false;
+  std::vector<std::string> loaded;  // exposed names loaded via tool_search
+  // MCP tools in the tools array right now (all of them when not deferred).
+  size_t tools_in_array = 0;
+};
 
 // Everything about an agent's situation that only the Agent knows, handed to a
 // prompt builder so the builder needs no access to Agent's internals.
@@ -46,6 +61,8 @@ struct PromptFacts {
   // Borrowed from the Agent, which caches it; valid for the call's duration.
   const SkillCatalog* skills = nullptr;
 
+  McpFacts mcp;
+
   bool is_root() const { return depth == 0; }
   bool has_tool(std::string_view name) const;
 
@@ -74,6 +91,18 @@ std::string workspace_block(const PromptFacts& facts, size_t status_limit = 2000
 // The "Skills available" paragraph and catalog listing, or "" when
 // facts.skills is null or holds nothing model-invocable.
 std::string skills_block(const PromptFacts& facts, size_t limit = 4000);
+
+// The MCP section: each server and its tool count, how to reach the tools
+// (directly, or through tool_search when deferred, with the deferred names
+// grouped by server and capped at `limit`), and each server's instructions,
+// labelled as the server's own words. "" when MCP is off or no server is
+// configured.
+std::string mcp_block(const PromptFacts& facts, size_t limit = 6000);
+
+// "`bash`, `skill`" plus ", and N MCP tools (mcp__<server>__<tool>)" when MCP
+// tools sit in the tools array undeferred — listing forty names in one
+// sentence would only bury the rest.
+std::string tools_sentence(const PromptFacts& facts);
 
 // ---------------------------------------------------------------------------
 

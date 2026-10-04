@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include <core/util/process.h>
 #include <core/util/uuid.h>
 
 namespace tools {
@@ -50,6 +51,10 @@ int64_t now_ms() {
 // Writes every byte or gives up. Protocol lines are short, so a partial write
 // is only ever an EINTR away rather than a full pipe.
 bool write_all(int fd, const std::string& text) {
+  // A shell that died mid-session must cost a failed write, not the whole
+  // process: the descriptor carries F_SETNOSIGPIPE on macOS, and this covers
+  // Linux, which has no per-descriptor equivalent for pipes.
+  util::ScopedSigpipeBlock no_sigpipe;
   size_t written = 0;
   while (written < text.size()) {
     const ssize_t n =
@@ -104,6 +109,15 @@ bool BashReplSession::start(std::string& error) {
     return false;
   }
 
+  // Close-on-exec on every end we hold: other threads fork too (MCP servers,
+  // popen), and a copy of this shell's stdin in some other child would keep the
+  // shell from ever seeing EOF. The child's own 0/1/2 are dup2() copies, which
+  // never inherit the flag.
+  for (const int fd : {to_child[0], to_child[1], from_child[0], from_child[1]}) {
+    util::set_cloexec(fd);
+  }
+  const int close_limit = util::fd_close_limit();
+
   const pid_t pid = ::fork();
   if (pid < 0) {
     ::close(to_child[0]);
@@ -123,10 +137,10 @@ bool BashReplSession::start(std::string& error) {
     ::dup2(from_child[1], STDOUT_FILENO);
     ::dup2(from_child[1], STDERR_FILENO);
 
-    ::close(to_child[0]);
-    ::close(to_child[1]);
-    ::close(from_child[0]);
-    ::close(from_child[1]);
+    // Everything above stderr goes, not just our four pipe ends: whatever this
+    // process had open when another thread created it without close-on-exec
+    // (an MCP server's pipe, a popen stream) must not live on in the shell.
+    util::close_fds_from(3, close_limit);
 
     // --norc/--noprofile: the shell should behave the same on every machine.
     // -s: read commands from stdin. The environment comes through fork.
@@ -142,6 +156,7 @@ bool BashReplSession::start(std::string& error) {
   mStdin = to_child[1];
   mStdout = from_child[0];
   mPending.clear();
+  util::set_nosigpipe(mStdin);
 
   // Racing the child's own setpgid; doing it on both sides means neither
   // ordering loses.

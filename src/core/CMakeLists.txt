@@ -5,8 +5,34 @@ add_library(agentcore STATIC
   agent/agent_pool.cpp
   agent/agent_settings.cpp
   policy/sane_policy.cpp
+  util/base64.cpp
   util/json_util.cpp
+  util/json_value.cpp
+  util/process.cpp
+  util/secure_random.cpp
+  util/sha256.cpp
+  util/open_url.cpp
+  util/text.cpp
+  util/url.cpp
   util/uuid.cpp
+  mcp/catalog.cpp
+  mcp/client.cpp
+  mcp/config.cpp
+  mcp/content.cpp
+  mcp/credential_store.cpp
+  mcp/elicitation.cpp
+  mcp/http_transport.cpp
+  mcp/json_rpc.cpp
+  mcp/oauth.cpp
+  mcp/protocol.cpp
+  mcp/registry.cpp
+  mcp/resource_tool.cpp
+  mcp/schema.cpp
+  mcp/sse.cpp
+  mcp/stdio_transport.cpp
+  mcp/tool_search.cpp
+  mcp/trust.cpp
+  mcp/wire_log.cpp
   vdb/memory_ops.cpp
   vdb/memory_store.cpp
   oc/basic_ollama_client.cpp

@@ -1,0 +1,1 @@
+{"oneOf":[{"type":"object","properties":{"id":{"type":"string"},"mode":{"type":"string"}},"required":["id","mode"]},{"type":"object","properties":{"url":{"type":"string"},"mode":{"type":"string"}},"required":["url","mode"]}]}
