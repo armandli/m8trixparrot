@@ -65,7 +65,12 @@ gtest_discover_tests(core_tests)
 # binary because those tests spawn processes and run servers on threads, which
 # unit_tests (it chdirs per test) does not tolerate, and they must not share
 # core_tests' singletons.
+# A scripted MCP server the client tests run as a real child process.
+add_executable(fake_mcp_server fake_mcp_server.cpp)
+target_link_libraries(fake_mcp_server PRIVATE agentcore)
+
 add_executable(mcp_tests
+  mcp_client_test.cpp
   mcp_json_rpc_test.cpp
   mcp_sse_test.cpp
   mcp_schema_test.cpp
@@ -77,7 +82,9 @@ target_include_directories(mcp_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_definitions(mcp_tests PRIVATE
   M8_MCP_SCHEMA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mcp_schemas"
+  M8_FAKE_MCP_SERVER="$<TARGET_FILE:fake_mcp_server>"
 )
+add_dependencies(mcp_tests fake_mcp_server)
 
 target_link_libraries(mcp_tests
   PRIVATE agentcore

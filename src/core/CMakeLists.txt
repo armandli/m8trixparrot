@@ -14,11 +14,13 @@ add_library(agentcore STATIC
   util/text.cpp
   util/uuid.cpp
   mcp/catalog.cpp
+  mcp/client.cpp
   mcp/content.cpp
   mcp/json_rpc.cpp
   mcp/protocol.cpp
   mcp/schema.cpp
   mcp/sse.cpp
+  mcp/stdio_transport.cpp
   mcp/tool_search.cpp
   vdb/memory_ops.cpp
   vdb/memory_store.cpp

@@ -4,6 +4,11 @@
 #include <signal.h>
 #include <sys/types.h>
 
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 namespace util {
 
 // ---------------------------------------------------------------------------
@@ -54,6 +59,56 @@ private:
 // For threads that do nothing but I/O on pipes (MCP transports): block SIGPIPE
 // for the rest of the thread's life.
 void block_sigpipe_on_this_thread();
+
+// ---------------------------------------------------------------------------
+// Spawning a child with three pipes (MCP stdio servers).
+// ---------------------------------------------------------------------------
+
+using EnvList = std::vector<std::pair<std::string, std::string>>;
+
+// The environment a spawned server starts from. Not the whole of ours: every
+// variable m8 was started with (API keys, cloud credentials) would otherwise
+// go to every third-party server. The allowlist is what the official MCP SDKs
+// pass — enough to find programs and behave like a normal process — and
+// `overrides` (the server's configured env) is applied on top. With
+// `inherit_all`, everything is passed instead.
+EnvList child_environment(bool inherit_all, const EnvList& overrides);
+
+// The value of `name` in `env`, or empty.
+std::string env_lookup(const EnvList& env, std::string_view name);
+
+// `command` resolved to an executable path: as is when it contains a '/'
+// (relative to `cwd` when relative), otherwise searched on `path_env` — the
+// CHILD's PATH, which is why posix_spawnp (which searches ours) is not used.
+// Empty when nothing executable is found.
+std::string find_executable(std::string_view command, std::string_view path_env,
+                            std::string_view cwd = {});
+
+struct SpawnOptions {
+  std::string command;            // resolved with find_executable()
+  std::vector<std::string> args;  // argv[1..]
+  EnvList env;                    // the child's whole environment
+  std::string cwd;                // empty: inherit ours
+};
+
+struct SpawnedProcess {
+  pid_t pid = -1;  // also its process group id
+  int stdin_fd = -1;   // ours to write; non-blocking, close-on-exec
+  int stdout_fd = -1;  // ours to read; non-blocking, close-on-exec
+  int stderr_fd = -1;  // ours to read; non-blocking, close-on-exec
+};
+
+// posix_spawn in a new process group, with default signal dispositions and an
+// empty signal mask (whatever m8's threads block must not leak into a
+// server), and with no descriptor of ours open beyond its three pipes.
+bool spawn_process(const SpawnOptions& options, SpawnedProcess& out,
+                   std::string& error);
+
+// Non-blocking reap. True when the child has exited (status in `status`).
+bool reap(pid_t pid, int& status);
+
+// "exited with status 2" / "killed by signal 9".
+std::string describe_exit(int status);
 
 }  // namespace util
 
