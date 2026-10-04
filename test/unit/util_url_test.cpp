@@ -2,6 +2,13 @@
 // through libcurl's own parser, so these pin what m8 believes about a URL —
 // which is what the library that fetches it will believe too.
 
+#include <unistd.h>
+
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -112,6 +119,62 @@ TEST(OpenUrlTest, OnlyPlainHttpLinksAreEverOpened) {
   std::string error;
   EXPECT_FALSE(open_url("file:///etc/passwd", error));
   EXPECT_FALSE(error.empty());
+}
+
+// Puts PATH and the working directory back however the test ends.
+struct RestorePathAndCwd {
+  std::optional<std::string> path;
+  std::filesystem::path cwd = std::filesystem::current_path();
+  RestorePathAndCwd() {
+    if (const char* value = std::getenv("PATH")) path = value;
+  }
+  ~RestorePathAndCwd() {
+    std::error_code ec;
+    std::filesystem::current_path(cwd, ec);
+    if (path) {
+      ::setenv("PATH", path->c_str(), 1);
+    } else {
+      ::unsetenv("PATH");
+    }
+  }
+};
+
+// posix_spawn searches nothing: a bare `open` is whatever file of that name
+// sits in the current directory, which is the workspace. The opener has to come
+// from PATH. Fakes stand in for both platforms' openers, and PATH holds only the
+// temp directory, so no real browser is involved.
+TEST(OpenUrlTest, OpensTheOpenerOnThePathNotOneInTheWorkspace) {
+  const std::filesystem::path root = std::filesystem::temp_directory_path() /
+                                     ("m8-open-url-" + std::to_string(::getpid()));
+  const std::filesystem::path bin = root / "bin";
+  const std::filesystem::path workspace = root / "workspace";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(bin);
+  std::filesystem::create_directories(workspace);
+  const auto script = [](const std::filesystem::path& path, const std::string& body) {
+    std::ofstream(path) << "#!/bin/sh\n" << body << "\n";
+    std::filesystem::permissions(path, std::filesystem::perms::owner_all);
+  };
+  for (const char* name : {"open", "xdg-open"}) {
+    script(bin / name, "printf '%s' \"$1\" > '" + (root / "opened").string() + "'");
+    script(workspace / name, ": > '" + (root / "ran-from-workspace").string() + "'");
+  }
+
+  std::string error;
+  bool opened = false;
+  {
+    RestorePathAndCwd restore;
+    ::setenv("PATH", bin.c_str(), 1);
+    std::filesystem::current_path(workspace);
+    opened = open_url("https://example.com/x", error);
+  }
+
+  EXPECT_TRUE(opened) << error;
+  std::ifstream in(root / "opened");
+  const std::string got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  EXPECT_EQ(got, "https://example.com/x");
+  EXPECT_FALSE(std::filesystem::exists(root / "ran-from-workspace"));
+  std::filesystem::remove_all(root);
 }
 
 }  // namespace

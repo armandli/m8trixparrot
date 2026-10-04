@@ -84,8 +84,16 @@ std::string env_lookup(const EnvList& env, std::string_view name);
 std::string find_executable(std::string_view command, std::string_view path_env,
                             std::string_view cwd = {});
 
+// For a program m8 picks itself (the browser opener), not one a config names:
+// `command`, a bare name, is looked for only in PATH's absolute directories. An
+// empty or relative entry means the current directory, usually the workspace,
+// and a checkout must not be able to stand in for the program. Empty when
+// nothing is found, or when `command` contains a '/'.
+std::string find_installed_executable(std::string_view command,
+                                      std::string_view path_env);
+
 struct SpawnOptions {
-  std::string command;            // resolved with find_executable()
+  std::string command;            // a path: find_executable() or find_installed_executable()
   std::vector<std::string> args;  // argv[1..]
   EnvList env;                    // the child's whole environment
   std::string cwd;                // empty: inherit ours
@@ -100,7 +108,9 @@ struct SpawnedProcess {
 
 // posix_spawn in a new process group, with default signal dispositions and an
 // empty signal mask (whatever m8's threads block must not leak into a
-// server), and with no descriptor of ours open beyond its three pipes.
+// server), and with no descriptor of ours open beyond its three pipes. A
+// command without a '/' is refused: posix_spawn searches no PATH, so it would
+// run a file of that name in the current directory.
 bool spawn_process(const SpawnOptions& options, SpawnedProcess& out,
                    std::string& error);
 

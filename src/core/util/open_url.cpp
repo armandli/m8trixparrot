@@ -56,9 +56,16 @@ bool open_url(const std::string& url, std::string& error) {
   }
 
   SpawnOptions options;
-  options.command = kOpener;
-  options.args = {url};
   options.env = child_environment(/*inherit_all=*/true, {});
+  // posix_spawn searches no PATH, and a bare name would be a file in the
+  // current directory, usually the workspace: look the opener up first, in
+  // PATH's absolute directories only.
+  options.command = find_installed_executable(kOpener, env_lookup(options.env, "PATH"));
+  if (options.command.empty()) {
+    error = std::string("could not find ") + kOpener + " on the PATH";
+    return false;
+  }
+  options.args = {url};
   SpawnedProcess process;
   if (not spawn_process(options, process, error)) return false;
   close_fd(process.stdin_fd);

@@ -146,6 +146,29 @@ void close_pair(int fds[2]) {
   }
 }
 
+// `command`, a bare name, on the directories of `path_env`; the first match
+// wins. An empty entry is the current directory (`cwd` when given). With
+// `absolute_only`, that and every other relative entry are skipped instead.
+std::string search_path(std::string_view command, std::string_view path_env,
+                        std::string_view cwd, bool absolute_only) {
+  size_t start = 0;
+  while (start <= path_env.size()) {
+    const size_t colon = path_env.find(':', start);
+    std::string dir(path_env.substr(
+        start, colon == std::string_view::npos ? std::string_view::npos
+                                               : colon - start));
+    const bool relative = dir.empty() or dir.front() != '/';
+    if (not (absolute_only and relative)) {
+      if (dir.empty()) dir = cwd.empty() ? "." : std::string(cwd);
+      const std::string candidate = dir + "/" + std::string(command);
+      if (is_executable_file(candidate)) return candidate;
+    }
+    if (colon == std::string_view::npos) break;
+    start = colon + 1;
+  }
+  return std::string();
+}
+
 }  // namespace
 
 EnvList child_environment(bool inherit_all, const EnvList& overrides) {
@@ -187,23 +210,26 @@ std::string find_executable(std::string_view command, std::string_view path_env,
     }
     return is_executable_file(path) ? path : std::string();
   }
-  size_t start = 0;
-  while (start <= path_env.size()) {
-    const size_t colon = path_env.find(':', start);
-    std::string dir(path_env.substr(
-        start, colon == std::string_view::npos ? std::string_view::npos
-                                               : colon - start));
-    if (dir.empty()) dir = cwd.empty() ? "." : std::string(cwd);
-    const std::string candidate = dir + "/" + std::string(command);
-    if (is_executable_file(candidate)) return candidate;
-    if (colon == std::string_view::npos) break;
-    start = colon + 1;
+  return search_path(command, path_env, cwd, /*absolute_only=*/false);
+}
+
+std::string find_installed_executable(std::string_view command,
+                                      std::string_view path_env) {
+  if (command.empty() or command.find('/') != std::string_view::npos) {
+    return std::string();
   }
-  return std::string();
+  return search_path(command, path_env, {}, /*absolute_only=*/true);
 }
 
 bool spawn_process(const SpawnOptions& options, SpawnedProcess& out,
                    std::string& error) {
+  // posix_spawn searches no PATH: a bare name would be a file of that name in
+  // the current directory, usually the workspace. Callers resolve it first.
+  if (options.command.find('/') == std::string::npos) {
+    error = "could not start " + options.command + ": not resolved to a path";
+    return false;
+  }
+
   int in[2] = {-1, -1};
   int stdout_pipe[2] = {-1, -1};
   int stderr_pipe[2] = {-1, -1};

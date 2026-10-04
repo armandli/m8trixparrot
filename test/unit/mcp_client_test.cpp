@@ -7,6 +7,7 @@
 // get each one right without being told.
 
 #include <signal.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
@@ -540,6 +541,45 @@ TEST(McpProcessTest, FindsExecutablesOnTheGivenPath) {
   EXPECT_EQ("/bin/sh", util::find_executable("sh", "/nonexistent:/bin"));
   EXPECT_EQ("", util::find_executable("definitely-not-a-command-m8", "/bin:/usr/bin"));
   EXPECT_EQ("/bin/sh", util::find_executable("/bin/sh", ""));
+}
+
+// A program m8 picks itself (the browser opener) comes only from PATH's
+// absolute directories: an empty or relative entry is the current directory,
+// where a checkout could put a `tool` of its own.
+TEST(McpProcessTest, FindsInstalledExecutablesOnlyOnAbsolutePathEntries) {
+  const std::filesystem::path root = std::filesystem::temp_directory_path() /
+                                     ("m8-installed-" + std::to_string(::getpid()));
+  std::filesystem::remove_all(root);
+  for (const std::filesystem::path& dir : {root, root / "rel", root / "abs" / "bin"}) {
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "tool") << "#!/bin/sh\n";
+    std::filesystem::permissions(dir / "tool", std::filesystem::perms::owner_all);
+  }
+  const std::filesystem::path saved = std::filesystem::current_path();
+  std::filesystem::current_path(root);
+
+  const std::string bin = (root / "abs" / "bin").string();
+  EXPECT_EQ(bin + "/tool", util::find_installed_executable("tool", ":rel:" + bin));
+  EXPECT_EQ("", util::find_installed_executable("tool", ":rel"));
+  EXPECT_EQ("", util::find_installed_executable("tool", ""));
+  EXPECT_EQ("", util::find_installed_executable("./tool", bin));
+  // What it guards against: the plain lookup takes the empty entry as ".".
+  EXPECT_EQ("./tool", util::find_executable("tool", ":rel"));
+
+  std::filesystem::current_path(saved);
+  std::filesystem::remove_all(root);
+}
+
+// posix_spawn would take a bare name as a file in the current directory, so a
+// command nobody resolved is refused rather than run.
+TEST(McpProcessTest, SpawnRefusesABareCommand) {
+  util::SpawnOptions options;
+  options.command = "sh";
+  util::SpawnedProcess process;
+  std::string error;
+  EXPECT_FALSE(util::spawn_process(options, process, error));
+  EXPECT_NE(error.find("not resolved to a path"), std::string::npos) << error;
+  EXPECT_EQ(-1, process.pid);
 }
 
 }  // namespace
