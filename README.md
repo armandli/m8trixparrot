@@ -157,7 +157,7 @@ Its model-visible tool set is deliberately small:
 | `subagent_create` / `subagent_wait` | Spawn an independent subtask on its own thread and collect its conclusion. |
 | `skill` | Load a procedure from `.m8/skills/<name>/SKILL.md` into the conversation, or unload it to reclaim context. |
 | `memory` | Long-term memory in `.m8/vdb/memory.m8db`, searched by embedding. |
-| `ask_user` | Ask the operator something and block on the answer. |
+| `ask_user` | Ask the operator something and block on the answer, given in the answer box (see [When a server asks you something](#when-a-server-asks-you-something)). |
 | `mcp__<server>__<tool>` | A tool of an installed [MCP server](#mcp-servers). |
 | `tool_search` | Load deferred MCP tools by keyword or name; offered only while MCP tools are deferred. |
 | `mcp_resource` | List, and read, what MCP servers offer as resources. |
@@ -1079,6 +1079,28 @@ runs commands.
 
 A call shows in the transcript as `server › tool`.
 
+### When a server asks you something
+
+A server may stop in the middle of a call to ask you for something
+(elicitation). m8 then shows the question in a box above the input, naming the
+server, the file it was configured in, and the agent whose call it is, and the
+**answer box** takes the keyboard: Enter answers, Ctrl+D declines, Esc
+cancels. Your message draft and its history are left alone.
+
+- **A form** is asked one field at a time, each with its type and limits and
+  started at the server's default. Answers are checked before they go: numbers,
+  `y`/`n`, a choice by its number or its name, several choices separated by
+  commas, email addresses, links and dates. Last comes a review of every
+  answer — Enter sends it, `e` changes it.
+- **A link** (to log in to a third party, say) is shown whole, with the site it
+  really goes to on a line of its own, and with a warning when it is not https,
+  uses punycode (`xn--`), or puts a name before an `@`. m8 never fetches it;
+  `y` opens it in your browser, and anything else declines. Without a browser
+  (over SSH), you open it yourself.
+
+Questions from several servers, and the agent's own `ask_user`, wait their
+turn: one form is never interleaved with another.
+
 ### Tool search
 
 MCP tool definitions are expensive. GitHub's server alone is about 46k tokens
@@ -1131,8 +1153,8 @@ Connections are reused between requests. m8 never follows a redirect — a serve
 that moved says so, rather than m8 sending its headers, and your token,
 somewhere else.
 
-OAuth login and servers asking you questions mid-call (elicitation) are in
-progress. Not planned: the deprecated HTTP+SSE transport, sampling and roots.
+OAuth login is in progress. Not planned: the deprecated HTTP+SSE transport,
+sampling and roots.
 
 ## Memory
 

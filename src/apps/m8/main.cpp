@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -29,6 +30,7 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 
+#include <common/interaction_queue.h>
 #include <common/transcript_view.h>
 #include <core/agent/agent.h>
 #include <core/agent/agent_pool.h>
@@ -37,11 +39,13 @@
 #include <core/agent/agent_settings.h>
 #include <core/mcp/config.h>
 #include <core/mcp/content.h>
+#include <core/mcp/elicitation.h>
 #include <core/mcp/registry.h>
 #include <core/mcp/tool_search.h>
 #include <core/policy/policy.h>
 #include <core/policy/sane_policy.h>
 #include <core/tools/tools.h>
+#include <core/util/open_url.h>
 
 #include <m8_mcp_cli.h>
 #include <m8_mcp_view.h>
@@ -128,6 +132,38 @@ const char* kMcpHelpText =
     "/mcp__<server>__<prompt> [args]  run a server's prompt (listed in /help)\n"
     "\n"
     "servers are added from a shell: m8 mcp add <name> -- <command> [args...]";
+
+// The elicitation engine (core) and the interaction queue (the UI's) each
+// have their own question type; m8 is where they meet.
+agentui::Question to_ui(const mcp::Question& question) {
+  agentui::Question out;
+  out.heading = question.heading;
+  out.message = question.message;
+  out.detail = question.detail;
+  out.emphasis = question.emphasis;
+  out.problem = question.problem;
+  out.progress = question.progress;
+  out.initial = question.initial;
+  out.keys = question.keys;
+  return out;
+}
+
+mcp::Response to_mcp(const agentui::Answer& answer) {
+  mcp::Response out;
+  out.text = answer.text;
+  switch (answer.kind) {
+    case agentui::Answer::Kind::Answered:
+      out.kind = mcp::Response::Kind::Answered;
+      break;
+    case agentui::Answer::Kind::Declined:
+      out.kind = mcp::Response::Kind::Declined;
+      break;
+    case agentui::Answer::Kind::Cancelled:
+      out.kind = mcp::Response::Kind::Cancelled;
+      break;
+  }
+  return out;
+}
 
 }  // namespace
 
@@ -403,6 +439,30 @@ int main(int argc, char** argv) {
     return m8::make_system_prompt(facts, paths, installed_tools);
   };
 
+  // Questions for the person at the keyboard — an MCP server's form, the
+  // agent's ask_user — one session at a time; the answer box takes the
+  // keyboard while one waits.
+  agentui::InteractionQueue interactions;
+  // How a background thread adds to the transcript; set once the transcript
+  // exists, but captured now, before the root agent copies the options.
+  std::function<void(TranscriptNode::Kind, std::string)> note;
+
+  options.ask_user_handler = [&interactions, &note](const std::string& prompt) -> std::string {
+    agentui::InteractionQueue::Session session = interactions.begin();
+    if (note) note(TranscriptNode::Kind::Notice, "\xe2\x97\x86 the agent asks: " + prompt);
+    agentui::Question question;
+    question.heading = "the agent asks";
+    question.message = prompt;
+    question.keys = "Enter answers \xc2\xb7 Esc leaves it unanswered";
+    const agentui::Answer answer = session.ask(std::move(question));
+    if (answer.kind != agentui::Answer::Kind::Answered) {
+      if (note) note(TranscriptNode::Kind::Notice, "(left unanswered)");
+      return std::string();
+    }
+    if (note) note(TranscriptNode::Kind::User, answer.text);
+    return answer.text;
+  };
+
   // MCP servers. The registry exists whenever MCP is on, even with nothing
   // configured, so /mcp can say how to add a server. It is deliberately never
   // freed (see mcp::Registry): agent threads are detached and may still hold it
@@ -623,7 +683,37 @@ int main(int argc, char** argv) {
     return waiting_for_reply;
   };
 
+  note = post_notice;
+  interactions.set_listener([&screen] { screen.PostEvent(f::Event::Custom); });
+
+  // Links the person agreed to open; only the session being answered touches it.
+  std::set<std::string> opened_links;
   if (registry != nullptr) {
+    // A server asking the person something mid-call. Runs on whichever thread
+    // waits for that server, and holds the question queue until it is done.
+    registry->set_elicitation_handler([&](const mcp::ElicitationRequest& request) {
+      agentui::InteractionQueue::Session session = interactions.begin();
+      if (shutting_down.load()) return mcp::ElicitationResult{};
+      const std::string who = request.server + (request.agent_label.empty()
+                                                    ? std::string()
+                                                    : " (for " + request.agent_label + ")");
+      post_notice(TranscriptNode::Kind::Notice,
+                  "mcp: " + who + (request.mode == "url" ? " asks you to open a link: " : " asks: ") +
+                      request.message);
+      const mcp::ElicitationResult result = mcp::run_elicitation(
+          request,
+          [&session](const mcp::Question& question) {
+            return to_mcp(session.ask(to_ui(question)));
+          },
+          util::open_url, &opened_links);
+      if (not shutting_down.load()) {
+        post_notice(TranscriptNode::Kind::Notice,
+                    result.action == "accept"    ? "mcp: answered " + request.server
+                    : result.action == "decline" ? "mcp: declined " + request.server + "'s request"
+                                                 : "mcp: cancelled " + request.server + "'s request");
+      }
+      return result;
+    });
     // Called on the registry's threads, never under its lock (it takes ours).
     registry->set_observer([&](const mcp::RegistryEvent& event) {
       if (shutting_down.load()) return;
@@ -1097,7 +1187,41 @@ int main(int argc, char** argv) {
   };
   auto input = f::Input(input_option);
 
-  auto root = f::Renderer(input, [&] {
+  // The answer box: a second input that has the keyboard while a question
+  // waits. Its own text and no history, so an answer never lands in the
+  // message draft or in Up-arrow recall.
+  std::string answer_value;
+  int answer_cursor = 0;
+  f::InputOption answer_option;
+  answer_option.content = &answer_value;
+  answer_option.cursor_position = &answer_cursor;
+  answer_option.placeholder = "your answer";
+  answer_option.transform = [](f::InputState state) {
+    f::Element element = std::move(state.element);
+    if (state.is_placeholder) element |= f::dim;
+    return element | f::color(f::Color::White) | f::bgcolor(f::Color::Black);
+  };
+  auto answer_input = f::Input(answer_option);
+  int input_tab = 0;  // 0: the message box, 1: the answer box
+  auto inputs = f::Container::Tab({input, answer_input}, &input_tab);
+
+  // Follows the queue; the UI thread is the only one that touches input_tab
+  // or the answer box. A new question resets the box to its starting text.
+  uint64_t answering = 0;  // the question in the answer box; 0 for none
+  auto sync_answer_mode = [&]() -> std::optional<agentui::InteractionQueue::Shown> {
+    std::optional<agentui::InteractionQueue::Shown> shown = interactions.current();
+    const uint64_t id = shown ? shown->id : 0;
+    if (id != answering) {
+      answering = id;
+      answer_value = shown ? shown->question.initial : std::string();
+      answer_cursor = static_cast<int>(answer_value.size());
+    }
+    input_tab = shown ? 1 : 0;
+    return shown;
+  };
+
+  auto root = f::Renderer(inputs, [&] {
+    const std::optional<agentui::InteractionQueue::Shown> asking = sync_answer_mode();
     // Before taking `mutex`: the registry's own lock is never taken under it.
     const std::string mcp_tag =
         registry != nullptr ? m8::mcp_header(*registry->snapshot()) : std::string();
@@ -1183,18 +1307,23 @@ int main(int argc, char** argv) {
                f::reflect(viewport_box);
     }
 
-    return f::vbox({
-               f::text("m8  |  model: " + model + "  |  policy: " +
-                       pol.name() + ctx_part +
-                       (mcp_tag.empty() ? "" : "  |  " + mcp_tag) + sub_part) |
-                   f::bold | f::center,
-               f::separator(),
-               std::move(middle),
-               f::separator(),
-               input->Render() | f::color(f::Color::White) |
-                   f::bgcolor(f::Color::Black) | f::border,
-           }) |
-           f::border;
+    f::Elements page = {
+        f::text("m8  |  model: " + model + "  |  policy: " + pol.name() + ctx_part +
+                (mcp_tag.empty() ? "" : "  |  " + mcp_tag) + sub_part) |
+            f::bold | f::center,
+        f::separator(),
+        std::move(middle),
+        f::separator(),
+    };
+    if (asking) {
+      page.push_back(render_question(asking->question));
+      page.push_back(answer_input->Render() | f::color(f::Color::White) |
+                     f::bgcolor(f::Color::Black) | f::borderStyled(f::Color::Yellow));
+    } else {
+      page.push_back(input->Render() | f::color(f::Color::White) |
+                     f::bgcolor(f::Color::Black) | f::border);
+    }
+    return f::vbox(std::move(page)) | f::border;
   });
 
   root = f::CatchEvent(root, [&](f::Event event) {
@@ -1211,6 +1340,29 @@ int main(int argc, char** argv) {
     auto grid_active = [&] {
       return not running_agents.empty() and not force_conversation_view;
     };
+
+    // A question waiting: Return answers it, Ctrl+D declines it, Esc cancels
+    // it, and the message box's keys (history, newlines) are off. Scrolling
+    // and the view keys below still work.
+    if (const std::optional<agentui::InteractionQueue::Shown> asking = sync_answer_mode()) {
+      if (event == f::Event::Return) {
+        interactions.answer(asking->id, {agentui::Answer::Kind::Answered, answer_value});
+        return true;
+      }
+      if (event == f::Event::CtrlD) {
+        interactions.answer(asking->id, {agentui::Answer::Kind::Declined, std::string()});
+        return true;
+      }
+      if (event == f::Event::Escape) {
+        interactions.answer(asking->id, {agentui::Answer::Kind::Cancelled, std::string()});
+        return true;
+      }
+      if (event == f::Event::ArrowUp or event == f::Event::ArrowDown or
+          event == kAltEnterCR or event == kAltEnterLF or event == kShiftEnterCsiU or
+          event == kShiftEnterLegacy) {
+        return true;
+      }
+    }
 
     if (event == f::Event::CtrlG) {
       std::lock_guard<std::mutex> lock(mutex);
@@ -1307,7 +1459,10 @@ int main(int argc, char** argv) {
 
   screen.Loop(root);
   shutting_down.store(true);
-  // Stop the MCP servers first: a call still in flight fails now, and the
+  // Nobody is left to answer: every question waiting (and every one asked
+  // from here on) comes back cancelled, so no thread stays blocked on one.
+  interactions.cancel_all();
+  // Stop the MCP servers next: a call still in flight fails now, and the
   // agent thread making it unwinds while the observer below still ignores it.
   // Every server's process group is gone when this returns.
   if (registry != nullptr) registry->shutdown();

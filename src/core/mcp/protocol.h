@@ -116,6 +116,7 @@ struct CallContext {
 // A server asking the user for input (MCP elicitation), in either mode.
 struct ElicitationRequest {
   std::string server;
+  std::string scope;  // where its config came from: "user" | "shared" | "project"
   std::string agent_label;
   std::string mode = "form";  // "form" | "url"
   std::string message;

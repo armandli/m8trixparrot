@@ -155,9 +155,19 @@ std::shared_ptr<Client> Registry::make_client(const ServerConfig& expanded,
   options.list_timeout = mOptions.list_timeout;
   options.call_timeout = or_default(expanded.timeout_ms, mOptions.call_timeout);
   options.read_timeout = mOptions.read_timeout;
+  ElicitationHandler elicit;
   {
     std::lock_guard<std::mutex> lock(mMutex);
-    options.elicit = mElicit;
+    elicit = mElicit;
+  }
+  if (elicit) {
+    // The person asked should know which file the asking server came from.
+    options.elicit = [elicit, scope = std::string(scope_name(expanded.scope))](
+                         const ElicitationRequest& request) {
+      ElicitationRequest scoped = request;
+      scoped.scope = scope;
+      return elicit(scoped);
+    };
   }
   const std::string name = expanded.name;
   options.on_list_changed = [this, name] { schedule_refresh(name); };

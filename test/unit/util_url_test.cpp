@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <core/util/open_url.h>
 #include <core/util/url.h>
 
 namespace util {
@@ -98,6 +99,19 @@ TEST(UrlTest, FormEncodingRoundTrips) {
   EXPECT_EQ(form_decode("code=abc+d&&state=x%2By&flag"),
             (std::vector<std::pair<std::string, std::string>>{
                 {"code", "abc d"}, {"state", "x+y"}, {"flag", ""}}));
+}
+
+// A server chooses the link; only plain http(s) ever reaches the opener.
+TEST(OpenUrlTest, OnlyPlainHttpLinksAreEverOpened) {
+  EXPECT_EQ(open_url_problem("https://example.com/a?b=c"), "");
+  EXPECT_EQ(open_url_problem("http://127.0.0.1:8080/"), "");
+  EXPECT_NE(open_url_problem("javascript:alert(1)"), "");
+  EXPECT_NE(open_url_problem("file:///etc/passwd"), "");
+  EXPECT_NE(open_url_problem("https://example.com/\nX"), "");
+  EXPECT_NE(open_url_problem("not a link"), "");
+  std::string error;
+  EXPECT_FALSE(open_url("file:///etc/passwd", error));
+  EXPECT_FALSE(error.empty());
 }
 
 }  // namespace

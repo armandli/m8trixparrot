@@ -11,6 +11,7 @@ add_library(agentcore STATIC
   util/process.cpp
   util/secure_random.cpp
   util/sha256.cpp
+  util/open_url.cpp
   util/text.cpp
   util/url.cpp
   util/uuid.cpp
@@ -18,6 +19,7 @@ add_library(agentcore STATIC
   mcp/client.cpp
   mcp/config.cpp
   mcp/content.cpp
+  mcp/elicitation.cpp
   mcp/http_transport.cpp
   mcp/json_rpc.cpp
   mcp/protocol.cpp

@@ -76,6 +76,7 @@ add_executable(mcp_tests
   http_test_server.cpp
   mcp_client_test.cpp
   mcp_config_test.cpp
+  mcp_elicitation_test.cpp
   mcp_http_test.cpp
   mcp_json_rpc_test.cpp
   mcp_registry_test.cpp
@@ -134,6 +135,9 @@ add_executable(m8_tests
   ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_paths.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_mcp_cli.cpp
   ${CMAKE_SOURCE_DIR}/src/apps/m8/m8_mcp_view.cpp
+  # UI-agnostic, so it is tested without linking the FTXUI-based agentui.
+  interaction_queue_test.cpp
+  ${CMAKE_SOURCE_DIR}/src/common/interaction_queue.cpp
 )
 
 target_include_directories(m8_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/m8)
