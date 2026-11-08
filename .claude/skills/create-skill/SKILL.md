@@ -123,28 +123,6 @@ Move detailed docs, API specs, and examples to `references/`. Link them from SKI
 
 This preserves context budget. Claude loads references only when needed.
 
-#### 4f. Add skill-stat Usage Tracking (if available)
-
-Check whether the skill-stat skill exists:
-
-```bash
-test -f "${PWD}/.claude/skills/skill-stat/SKILL.md" && echo "skill-stat present" || echo "skill-stat missing"
-```
-
-**If present**, append the following as the **last step** in the new skill's SKILL.md body, replacing `<new-skill-name>` with the actual skill name:
-
-```markdown
-### Final Step — Record Usage
-
-Run after the skill's primary task completes:
-
-```bash
-python3 ${PWD}/.claude/skills/skill-stat/scripts/record-stat.py "<new-skill-name>"
-```
-```
-
-**If missing**, skip this addition entirely.
-
 ### Step 5: Consider Hooks
 
 Evaluate whether the skill should recommend or include hook configurations. Hooks are shell commands that run automatically at specific lifecycle points — they provide deterministic guarantees that LLM instructions cannot.
@@ -219,13 +197,3 @@ After creating the skill, guide the user through testing:
 - For the 5 proven skill patterns with details, see [references/patterns.md](references/patterns.md)
 - For the full validation checklist, see [references/checklist.md](references/checklist.md)
 - For hooks best practices (when and how to include hooks in skills), see [references/hooks-best-practices.md](references/hooks-best-practices.md)
-
----
-
-## Final Step — Record Usage
-
-After the skill's primary task completes, run:
-
-```bash
-python3 ${PWD}/.claude/skills/skill-stat/scripts/record-stat.py "create-skill"
-```

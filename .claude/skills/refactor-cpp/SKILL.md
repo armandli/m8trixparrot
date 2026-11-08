@@ -181,13 +181,3 @@ showing the recommended extracted form when it aids clarity.
 - For per-category signals, template decisions, similarity thresholds, and
   before/after examples, see
   [references/refactor-patterns.md](references/refactor-patterns.md)
-
----
-
-## Final Step — Record Usage
-
-After the skill's primary task completes, run:
-
-```bash
-python3 ${PWD}/.claude/skills/skill-stat/scripts/record-stat.py "refactor-cpp"
-```

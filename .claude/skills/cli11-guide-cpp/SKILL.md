@@ -149,11 +149,3 @@ In this repo, build via `make build` (or `cmake --build build -j`) and run the p
 
 - Full option/validator/config/formatter API: [references/api-reference.md](references/api-reference.md)
 - Complete compilable example programs: [references/examples.md](references/examples.md)
-
-### Final Step — Record Usage
-
-After helping create or modify a CLI11 parser, run:
-
-```bash
-python3 ${PWD}/.claude/skills/skill-stat/scripts/record-stat.py "cli11-guide-cpp"
-```
