@@ -1,6 +1,6 @@
 ---
 name: format-cpp
-description: Formats C++ code according to 30 specific style rules covering whitespace, braces, preprocessor directives, namespaces, types, formatting, semantic transformations, naming conventions, and comments. Use when user asks to "format my C++ code", "apply C++ style rules", "clean up this C++ file", or "run format-cpp on X". Run refactor-cpp before this skill. Do NOT use for explaining C++ code, debugging, or writing new C++ code from scratch.
+description: Formats C++ code according to 32 specific style rules covering whitespace, braces, preprocessor directives, namespaces, types, formatting, semantic transformations, naming conventions, and comments. Use when user asks to "format my C++ code", "apply C++ style rules", "clean up this C++ file", or "run format-cpp on X". Run refactor-cpp before this skill. Do NOT use for explaining C++ code, debugging, or writing new C++ code from scratch.
 argument-hint: "[file or directory path]"
 ---
 
@@ -98,7 +98,7 @@ Remove duplicate includes.
 
 **D1 — No global `using namespace`.** Remove any `using namespace X;` at file/namespace scope. Replace affected unqualified names with qualified names or namespace aliases.
 
-**D2 — Namespace aliases.** When removing `using namespace` or when a qualified name like `std::chrono::seconds` appears 3+ times, introduce a short alias near the top of the function or file scope. Use the predefined alias mapping in [references/namespace-aliases.md](references/namespace-aliases.md).
+**D2 — Namespace aliases.** When removing `using namespace` or when a qualified name like `std::chrono::seconds` appears 3+ times, introduce a short alias near the top of the function or file scope. Use the predefined alias mapping in [references/namespace-aliases.md](references/namespace-aliases.md). If the project has a shared alias header (in this repo, `src/util/aliases.h`), `#include <util/aliases.h>` and use its namespace and type aliases (`s::`, `str`, `strv`, `vec<>`, `opt<>`, `umap<>`, ...) instead of declaring local aliases; declare a local alias only for a namespace the header does not cover. A local variable or parameter that shares an alias's name (`s`, `st`, `str`, ...) shadows it, so rename the variable first (e.g. `s` → `text`).
 
 **D3 — Nested namespace syntax. (C++17)** When namespace blocks are nested, collapse them into a single declaration using `namespace A::B::C {`. Apply this to all consecutive nested namespaces. Add a closing comment reflecting the full path: `}  // namespace A::B::C`. Skip this rule if the project targets C++14 or earlier.
 
@@ -152,6 +152,18 @@ Also convert local `const std::string` variables that are only read to `std::str
 - The function is an extern "C" interface
 
 Add `#include <optional>` if not already present.
+
+**G4 — No in-out parameters.** A function parameter must not be used as both input and output. That means a non-const reference or pointer parameter whose incoming value the function reads and also overwrites, like `pos` in `decode(std::string_view s, size_t& pos)`. Callers then can't pass a `const` value or a temporary, and can't look ahead without making a copy. Convert it:
+- Take the input by value (or `const&` / `std::string_view` for large types) and leave it unmodified.
+- Return the new value. When the function already returns something, return a small named aggregate `struct` holding both, e.g. `struct DecodedCodePoint { char32_t code_point; std::size_t next; };`. Prefer this over `std::pair` / `std::tuple`, because named fields say what each value is.
+- When the function can fail, wrap the result in `std::optional<...>` (G3) instead of leaving the parameter "unchanged on error".
+- Update every caller: `x = f(..., x)` / `x = r->next`. For loops that advanced the parameter, assign it from the result.
+
+**Exceptions — do NOT convert when:**
+- The function's purpose is to modify the object in place: mutating algorithms such as `sort(std::vector<T>&)` or `apply(Buffer&)`, `swap`, compound-assignment operators (`+=`), and stream parameters (`std::ostream&`, `std::istream&`).
+- Copying the object to return it would be expensive: large containers or buffers modified in place, especially in hot loops.
+- The signature is fixed externally: `virtual` / `override`, `extern "C"`, callbacks matching a library-defined type, or third-party code.
+- The parameter is output-only (its incoming value is never read). That is not an in-out parameter; leave it unless it is trivially returnable.
 
 ### Group H: Naming Conventions
 
@@ -269,6 +281,7 @@ void MemoryTool::rewrite(std::string_view notes);
 - **Template-heavy code**: Be extra cautious with G1 and G3 in heavily templated code; prefer skipping over breaking
 - **C++17 required**: Rules D3, G1, and G3 require C++17 or later. If the standard cannot be detected, ask the user before applying these rules
 - **Never break compilation**: If applying a rule would introduce a compile error, skip it
+- **Callers out of reach (G4)**: If a function with an in-out parameter is called from code you cannot see or update (a public library API, other repositories), skip it and note it in the report rather than breaking those callers
 - **Comment uncertainty**: If you cannot tell whether a comment carries information the code doesn't, keep it. A comment kept in error costs a line; one deleted in error destroys the only record of a decision
 
 ## Additional Resources

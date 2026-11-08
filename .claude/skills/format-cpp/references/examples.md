@@ -757,6 +757,68 @@ Widget* create_widget() {
 // Suggest: std::unique_ptr<Widget> create_widget()
 ```
 
+### G4 — No in-out parameters
+
+**Position advanced through a reference → returned in a named struct:**
+```cpp
+// BEFORE
+// On success advances pos; on error returns nullopt and leaves pos unchanged.
+std::optional<char32_t> decode_utf8(std::string_view s, std::size_t& pos);
+
+std::size_t count_code_points(std::string_view s) {
+  std::size_t count = 0;
+  std::size_t pos = 0;
+  while (pos < s.size()) {
+    if (not decode_utf8(s, pos).has_value()) break;
+    ++count;
+  }
+  return count;
+}
+
+// AFTER
+struct DecodedCodePoint {
+  char32_t code_point;
+  std::size_t next;
+};
+
+std::optional<DecodedCodePoint> decode_utf8(std::string_view s, std::size_t pos);
+
+std::size_t count_code_points(std::string_view s) {
+  std::size_t count = 0;
+  std::size_t pos = 0;
+  while (pos < s.size()) {
+    std::optional<DecodedCodePoint> d = decode_utf8(s, pos);
+    if (not d.has_value()) break;
+    pos = d->next;
+    ++count;
+  }
+  return count;
+}
+```
+
+**Value read and overwritten → returned:**
+```cpp
+// BEFORE
+void clamp_width(int& width) {
+  if (width > 80) width = 80;
+}
+clamp_width(w);
+
+// AFTER
+int clamp_width(int width) {
+  return width > 80 ? 80 : width;
+}
+w = clamp_width(w);
+```
+
+**Exception — in-place mutation is the purpose (NOT converted):**
+```cpp
+// Keep as-is: the function exists to modify the buffer, and copying it would be costly
+void apply(const Edit& edit, std::string& buffer);
+void sort_entries(std::vector<Entry>& entries);
+std::ostream& operator<<(std::ostream& os, const Widget& w);
+```
+
 ---
 
 ## Group H: Naming Conventions
