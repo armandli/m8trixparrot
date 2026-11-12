@@ -164,11 +164,3 @@ no function pointers to shader entry points; recursion is not allowed.
 - Use `simd_*` / `quad_*` reductions and shuffles before falling back to threadgroup memory.
 - When unsure of a signature, attribute spelling, or version gate, **read the relevant
   reference file above** rather than guessing.
-
-### Final Step — Record Usage
-
-After answering a Metal/MSL question or producing shader code with this skill, run:
-
-```bash
-python3 ${PWD}/.claude/skills/skill-stat/scripts/record-stat.py "metal-guide"
-```

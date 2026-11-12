@@ -185,13 +185,3 @@ Hook installed:
 ```
 
 3. If the event is `PostToolUse` or `PreToolUse`, note that the hook will fire on the next tool invocation — no restart required.
-
----
-
-## Final Step — Record Usage
-
-After the skill's primary task completes, run:
-
-```bash
-python3 ${PWD}/.claude/skills/skill-stat/scripts/record-stat.py "create-hook"
-```
