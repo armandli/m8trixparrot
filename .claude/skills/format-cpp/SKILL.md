@@ -314,10 +314,7 @@ void MemoryTool::rewrite(std::string_view notes);
 - **Template-heavy code**: Be extra cautious with G1 and G3 in heavily templated code; prefer skipping over breaking
 - **C++17 required**: Rules D3, G1, and G3 require C++17 or later. If the standard cannot be detected, ask the user before applying these rules
 - **Never break compilation**: If applying a rule would introduce a compile error, skip it
-<<<<<<< HEAD
 - **`inline` in a `.cpp` file (E7)**: Only move a function into an anonymous namespace when no header declares it and no other file refers to it; if you cannot check every file, just drop the keyword
-=======
->>>>>>> 08eaf9e7fdd0b446dc030bcda7c25f3c76c0190c
 - **Callers out of reach (G4)**: If a function with an in-out parameter is called from code you cannot see or update (a public library API, other repositories), skip it and note it in the report rather than breaking those callers
 - **Comment uncertainty**: If you cannot tell whether a comment carries information the code doesn't, keep it. A comment kept in error costs a line; one deleted in error destroys the only record of a decision
 
