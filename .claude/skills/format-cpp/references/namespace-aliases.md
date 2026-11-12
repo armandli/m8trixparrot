@@ -2,6 +2,26 @@
 
 Use these predefined aliases when introducing namespace aliases (rule D2). Place alias declarations at the nearest enclosing scope where they're used.
 
+## Project Alias Header
+
+This repo defines its aliases once in `src/util/aliases.h`, which is the source of truth. Include it rather than redeclaring the aliases below, and add any new project-wide alias there. Its namespace aliases (`s`, `sc`, `sf`, `st`) match the Standard Library table.
+
+### Type Aliases
+
+| Type | Alias | Declaration |
+|------|-------|-------------|
+| `std::string` | `str` | `using str = s::string;` |
+| `std::string_view` | `strv` | `using strv = s::string_view;` |
+| `std::vector<T, A>` | `vec<T>` | `template <typename T, typename A = s::allocator<T>> using vec = s::vector<T, A>;` |
+| `std::optional<T>` | `opt<T>` | `template <typename T> using opt = s::optional<T>;` |
+| `std::unordered_map<K, V, ...>` | `umap<K, V>` | `template <typename... Ts> using umap = s::unordered_map<Ts...>;` |
+| `std::unordered_set<T, ...>` | `uset<T>` | `template <typename... Ts> using uset = s::unordered_set<Ts...>;` |
+| `std::unordered_multimap<K, V, ...>` | `ummap<K, V>` | `template <typename... Ts> using ummap = s::unordered_multimap<Ts...>;` |
+| `std::unordered_multiset<T, ...>` | `umset<T>` | `template <typename... Ts> using umset = s::unordered_multiset<Ts...>;` |
+| `std::unique_ptr<T, D>` | `uptr<T>` | `template <typename T, typename D = s::default_delete<T>> using uptr = s::unique_ptr<T, D>;` |
+| `std::shared_ptr<T>` | `sptr<T>` | `template <typename T> using sptr = s::shared_ptr<T>;` |
+| `std::weak_ptr<T>` | `wptr<T>` | `template <typename T> using wptr = s::weak_ptr<T>;` |
+
 ## Standard Library
 
 | Namespace | Alias | Example |
